@@ -59,6 +59,7 @@
 #include <private/qquickanimatorcontroller_p.h>
 
 #include <private/qquickprofiler_p.h>
+#include <private/qqmldebugservice_p.h>
 
 /*
    Overall design:
@@ -176,14 +177,12 @@ const QEvent::Type WM_RequestRepaint    = QEvent::Type(QEvent::User + 5);
 // if no windows are rendering.
 const QEvent::Type WM_TryRelease        = QEvent::Type(QEvent::User + 7);
 
-// Passed by the RL to the RL when maybeUpdate is called on the RT to
-// just replay the maybeUpdate later. This typically happens when
-// updatePaintNode() results in a call to QQuickItem::update().
-//const QEvent::Type WM_UpdateLater       = QEvent::Type(QEvent::User + 8); // not used for now
-
 // Passed by the RL to the RT when a QQuickWindow::grabWindow() is
 // called.
 const QEvent::Type WM_Grab              = QEvent::Type(QEvent::User + 9);
+
+// Passed by RL to RT when polish fails and we need to reset the expose sycle.
+const QEvent::Type WM_ResetExposeCycle = QEvent::Type(QEvent::User + 10);
 
 template <typename T> T *windowFor(const QList<T> list, QQuickWindow *window)
 {
@@ -286,10 +285,15 @@ public:
         , pendingUpdate(0)
         , sleeping(false)
         , syncResultedInChanges(false)
+        , exposeCycle(NoExpose)
         , active(false)
         , window(0)
         , stopEventProcessing(false)
     {
+#if defined(Q_OS_QNX) && !defined(Q_OS_BLACKBERRY) && defined(Q_PROCESSOR_X86)
+        // The SDP 6.6.0 x86 MESA driver requires a larger stack than the default.
+        setStackSize(1024 * 1024);
+#endif
         vsyncDelta = qsgrl_animation_interval();
     }
 
@@ -331,6 +335,12 @@ public:
         RepaintRequest      = 0x02
     };
 
+    enum ExposeCycle {
+        NoExpose,
+        ExposePendingSync,
+        ExposePendingSwap
+    };
+
     QSGThreadedRenderLoop *wm;
     QOpenGLContext *gl;
     QSGRenderContext *sgrc;
@@ -340,6 +350,7 @@ public:
     uint pendingUpdate;
     bool sleeping;
     bool syncResultedInChanges;
+    ExposeCycle exposeCycle;
 
     volatile bool active;
 
@@ -366,10 +377,16 @@ bool QSGRenderThread::event(QEvent *e)
         QSG_RT_DEBUG("WM_Expose");
         WMExposeEvent *se = static_cast<WMExposeEvent *>(e);
         Q_ASSERT(!window || window == se->window);
-        pendingUpdate |= RepaintRequest;
         windowSize = se->size;
         window = se->window;
+        Q_ASSERT(exposeCycle == NoExpose);
+        exposeCycle = ExposePendingSync;
         return true; }
+
+    case WM_ResetExposeCycle:
+        QSG_RT_DEBUG("WM_ResetExposeCycle");
+        exposeCycle = NoExpose;
+        return true;
 
     case WM_Obscure: {
         QSG_RT_DEBUG("WM_Obscure");
@@ -393,6 +410,10 @@ bool QSGRenderThread::event(QEvent *e)
             stopEventProcessing = true;
         if (window)
             pendingUpdate |= SyncRequest;
+        if (exposeCycle == ExposePendingSync) {
+            pendingUpdate |= RepaintRequest;
+            exposeCycle = ExposePendingSwap;
+        }
         return true;
 
     case WM_TryRelease: {
@@ -431,7 +452,7 @@ bool QSGRenderThread::event(QEvent *e)
             QQuickWindowPrivate::get(window)->renderSceneGraph(windowSize);
 
             QSG_RT_DEBUG(" - grabbing result...");
-            *ce->image = qt_gl_read_framebuffer(windowSize, false, false);
+            *ce->image = qt_gl_read_framebuffer(windowSize * window->devicePixelRatio(), false, false);
         }
         QSG_RT_DEBUG(" - waking gui to handle grab result");
         waitCondition.wakeOne();
@@ -601,6 +622,19 @@ void QSGRenderThread::syncAndRender()
 
     QSG_RT_DEBUG(" - rendering done");
 
+    // Though it would be more correct to put this block directly after
+    // fireFrameSwapped in the if (current) branch above, we don't do
+    // that to avoid blocking the GUI thread in the case where it
+    // has started rendering with a bad window, causing makeCurrent to
+    // fail or if the window has a bad size.
+    mutex.lock();
+    if (exposeCycle == ExposePendingSwap) {
+        QSG_RT_DEBUG(" - waking GUI after expose");
+        exposeCycle = NoExpose;
+        waitCondition.wakeOne();
+    }
+    mutex.unlock();
+
 #ifndef QSG_NO_RENDER_TIMING
         if (qsg_render_timing)
             qDebug("Render Thread: window=%p, framedelta=%d, sync=%d, first render=%d, after final swap=%d",
@@ -655,6 +689,8 @@ void QSGRenderThread::run()
     animatorDriver = sgrc->sceneGraphContext()->createAnimationDriver(0);
     animatorDriver->install();
     QUnifiedTimer::instance(true)->setConsistentTiming(QSGRenderLoop::useConsistentTiming());
+    if (QQmlDebugService::isDebuggingEnabled())
+        QQuickProfiler::registerAnimationCallback();
 
     while (active) {
 
@@ -913,19 +949,10 @@ void QSGThreadedRenderLoop::handleExposure(Window *w)
                 w->thread->gl->setShareContext(QSGContext::sharedOpenGLContext());
             w->thread->gl->setFormat(w->window->requestedFormat());
             if (!w->thread->gl->create()) {
+                const bool isEs = w->thread->gl->isES();
                 delete w->thread->gl;
                 w->thread->gl = 0;
-                QString formatStr;
-                QDebug(&formatStr) << w->window->requestedFormat();
-                QString contextType = QLatin1String(QOpenGLFunctions::isES() ? "EGL" : "OpenGL");
-                const char *msg = QT_TRANSLATE_NOOP("QSGThreadedRenderLoop",
-                                                    "Failed to create %1 context for format %2");
-                QString translatedMsg = tr(msg).arg(contextType).arg(formatStr);
-                QString nonTranslatedMsg = QString(QLatin1String(msg)).arg(contextType).arg(formatStr);
-                bool signalEmitted = QQuickWindowPrivate::get(w->window)->emitError(QQuickWindow::ContextNotAvailable,
-                                                                                    translatedMsg);
-                if (!signalEmitted)
-                    qFatal("%s", qPrintable(nonTranslatedMsg));
+                handleContextCreationFailure(w->window, isEs);
                 return;
             }
 
@@ -951,7 +978,20 @@ void QSGThreadedRenderLoop::handleExposure(Window *w)
     }
 
     w->thread->postEvent(new WMExposeEvent(w->window));
-    polishAndSync(w);
+    bool synced = polishAndSync(w);
+
+    if (synced) {
+        w->thread->mutex.lock();
+        if (w->thread->exposeCycle != QSGRenderThread::NoExpose) {
+            QSG_GUI_DEBUG(w->window, " - waiting for swap to complete...");
+            w->thread->waitCondition.wait(&w->thread->mutex);
+        }
+        Q_ASSERT(w->thread->exposeCycle == QSGRenderThread::NoExpose);
+        w->thread->mutex.unlock();
+    } else {
+        w->thread->postEvent(new QEvent(WM_ResetExposeCycle));
+    }
+    QSG_GUI_DEBUG(w->window, " - handleExposure completed...");
 
     startOrStopAnimationTimer();
 }
@@ -1076,8 +1116,10 @@ void QSGThreadedRenderLoop::releaseResources(QQuickWindow *window, bool inDestru
 }
 
 
-
-void QSGThreadedRenderLoop::polishAndSync(Window *w)
+/* Calls polish on all items, then requests synchronization with the render thread
+ * and blocks until that is complete. Returns false if it aborted; otherwise true.
+ */
+bool QSGThreadedRenderLoop::polishAndSync(Window *w)
 {
     QSG_GUI_DEBUG(w->window, "polishAndSync()");
 
@@ -1085,7 +1127,7 @@ void QSGThreadedRenderLoop::polishAndSync(Window *w)
         QSG_GUI_DEBUG(w->window, " - not exposed, aborting...");
         killTimer(w->timerId);
         w->timerId = 0;
-        return;
+        return false;
     }
 
 
@@ -1161,6 +1203,8 @@ void QSGThreadedRenderLoop::polishAndSync(Window *w)
             syncTime - waitTime,
             timer.nsecsElapsed() - syncTime));
 #endif
+
+    return true;
 }
 
 bool QSGThreadedRenderLoop::event(QEvent *e)

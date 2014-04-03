@@ -247,16 +247,14 @@ void QQuickViewSection::setLabelPositioning(int l)
 class FxListItemSG : public FxViewItem
 {
 public:
-    FxListItemSG(QQuickItem *i, QQuickListView *v, bool own) : FxViewItem(i, v, own), view(v) {
-        attached = static_cast<QQuickListViewAttached*>(qmlAttachedPropertiesObject<QQuickListView>(item));
+    FxListItemSG(QQuickItem *i, QQuickListView *v, bool own) : FxViewItem(i, v, own, static_cast<QQuickItemViewAttached*>(qmlAttachedPropertiesObject<QQuickListView>(i))), view(v)
+    {
     }
 
     inline QQuickItem *section() const {
         return attached ? static_cast<QQuickListViewAttached*>(attached)->m_sectionItem : 0;
     }
     void setSection(QQuickItem *s) {
-        if (!attached)
-            attached = static_cast<QQuickListViewAttached*>(qmlAttachedPropertiesObject<QQuickListView>(item));
         static_cast<QQuickListViewAttached*>(attached)->m_sectionItem = s;
     }
 
@@ -968,10 +966,14 @@ QQuickItem * QQuickListViewPrivate::getSectionItem(const QString &section)
             if (!sectionItem) {
                 delete nobj;
             } else {
-                sectionItem->setZ(2);
+                if (qFuzzyIsNull(sectionItem->z()))
+                    sectionItem->setZ(2);
                 QQml_setParent_noEvent(sectionItem, contentItem);
                 sectionItem->setParentItem(contentItem);
             }
+            // sections are not controlled by FxListItemSG, so apply attached properties here
+            QQuickItemViewAttached *attached = static_cast<QQuickItemViewAttached*>(qmlAttachedPropertiesObject<QQuickListView>(sectionItem));
+            attached->setView(q);
         } else {
             delete context;
         }
@@ -1787,7 +1789,8 @@ QQuickListView::~QQuickListView()
     \qmlattachedproperty ListView QtQuick::ListView::view
     This attached property holds the view that manages this delegate instance.
 
-    It is attached to each instance of the delegate.
+    It is attached to each instance of the delegate and also to the header, the footer,
+    the section and the highlight delegates.
 */
 
 /*!
@@ -1879,6 +1882,8 @@ QQuickListView::~QQuickListView()
     It is recommended that the delegate's size be a whole number to avoid sub-pixel
     alignment of items.
 
+    The default \l {QQuickItem::z}{stacking order} of delegate instances is \c 1.
+
     \note Delegates are instantiated as needed and may be destroyed at any time.
     They are parented to ListView's \l {Flickable::contentItem}{contentItem}, not to the view itself.
     State should \e never be stored in a delegate.
@@ -1906,6 +1911,8 @@ QQuickListView::~QQuickListView()
 
   The \c highlightItem is managed by the view unless
   \l highlightFollowsCurrentItem is set to false.
+  The default \l {QQuickItem::z}{stacking order}
+  of the highlight item is \c 0.
 
   \sa highlight, highlightFollowsCurrentItem
 */
@@ -1922,7 +1929,8 @@ QQuickListView::~QQuickListView()
     An instance of the highlight component is created for each list.
     The geometry of the resulting component instance is managed by the list
     so as to stay with the current item, unless the highlightFollowsCurrentItem
-    property is false.
+    property is false. The default \l {QQuickItem::z}{stacking order} of the
+    highlight item is \c 0.
 
     \sa highlightItem, highlightFollowsCurrentItem,
     {Qt Quick Examples - Views#Highlight demonstrates adding a custom highlight to a ListView.}{ListView highlight example}
@@ -2200,7 +2208,9 @@ void QQuickListView::setOrientation(QQuickListView::Orientation orientation)
     A case insensitive comparison is used when determining section
     boundaries.
 
-    \c section.delegate holds the delegate component for each section.
+    \c section.delegate holds the delegate component for each section. The
+    default \l {QQuickItem::z}{stacking order} of section delegate instances
+    is \c 2.
 
     \c section.labelPositioning determines whether the current and/or
     next section labels stick to the start/end of the view, and whether
@@ -2386,7 +2396,8 @@ void QQuickListView::setSnapMode(SnapMode mode)
     This property holds the component to use as the footer.
 
     An instance of the footer component is created for each view.  The
-    footer is positioned at the end of the view, after any items.
+    footer is positioned at the end of the view, after any items. The
+    default \l {QQuickItem::z}{stacking order} of the footer is \c 1.
 
     \sa header, footerItem
 */
@@ -2398,6 +2409,7 @@ void QQuickListView::setSnapMode(SnapMode mode)
 
     An instance of the header component is created for each view.  The
     header is positioned at the beginning of the view, before any items.
+    The default \l {QQuickItem::z}{stacking order} of the header is \c 1.
 
     \sa footer, headerItem
 */
@@ -2408,6 +2420,7 @@ void QQuickListView::setSnapMode(SnapMode mode)
 
     An instance of the header component is created for each view.  The
     header is positioned at the beginning of the view, before any items.
+    The default \l {QQuickItem::z}{stacking order} of the header is \c 1.
 
     \sa header, footerItem
 */
@@ -2417,7 +2430,8 @@ void QQuickListView::setSnapMode(SnapMode mode)
     This holds the footer item created from the \l footer component.
 
     An instance of the footer component is created for each view.  The
-    footer is positioned at the end of the view, after any items.
+    footer is positioned at the end of the view, after any items. The
+    default \l {QQuickItem::z}{stacking order} of the footer is \c 1.
 
     \sa footer, headerItem
 */
@@ -2855,6 +2869,9 @@ void QQuickListView::geometryChanged(const QRectF &newGeometry, const QRectF &ol
 void QQuickListView::initItem(int index, QObject *object)
 {
     QQuickItemView::initItem(index, object);
+
+    // setting the view from the FxViewItem wrapper is too late if the delegate
+    // needs access to the view in Component.onCompleted
     QQuickItem *item = qmlobject_cast<QQuickItem*>(object);
     if (item) {
         QQuickListViewAttached *attached = static_cast<QQuickListViewAttached *>(

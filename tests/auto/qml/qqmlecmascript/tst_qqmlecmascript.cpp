@@ -257,6 +257,7 @@ private slots:
     void include();
     void includeRemoteSuccess();
     void signalHandlers();
+    void qtbug_37351();
     void doubleEvaluate();
     void forInLoop();
     void nonNotifyable();
@@ -318,6 +319,8 @@ private slots:
     void noCaptureWhenWritingProperty();
     void singletonWithEnum();
     void lazyBindingEvaluation();
+    void varPropertyAccessOnObjectWithInvalidContext();
+    void contextObjectOnLazyBindings();
 
 private:
 //    static void propertyVarWeakRefCallback(v8::Persistent<v8::Value> object, void* parameter);
@@ -2314,7 +2317,7 @@ static inline bool evaluate_value(QV8Engine *engine, const QV4::ValueRef o,
         ctx->catchException();
         return false;
     }
-    return __qmljs_strict_equal(value, result);
+    return QV4::Runtime::strictEqual(value, result);
 }
 
 static inline QV4::ReturnedValue evaluate(QV8Engine *engine, const QV4::ValueRef o,
@@ -6086,6 +6089,27 @@ void tst_qqmlecmascript::signalHandlers()
     delete o;
 }
 
+void tst_qqmlecmascript::qtbug_37351()
+{
+    MyTypeObject signalEmitter;
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData("import Qt.test 1.0; import QtQml 2.0;\nQtObject {\n"
+            "    Component.onCompleted: {\n"
+            "        testObject.action.connect(function() { print('dont crash'); });"
+            "    }\n"
+            "}", QUrl());
+
+        engine.rootContext()->setContextProperty("testObject", &signalEmitter);
+
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY(!object.isNull());
+    }
+    signalEmitter.doAction();
+    // Don't crash
+}
+
 void tst_qqmlecmascript::qtbug_10696()
 {
     QQmlComponent component(&engine, testFileUrl("qtbug_10696.qml"));
@@ -7101,7 +7125,7 @@ void tst_qqmlecmascript::threadSignal()
     QQmlComponent c(&engine, testFileUrl("threadSignal.2.qml"));
     QObject *object = c.create();
     QVERIFY(object != 0);
-    QSignalSpy doneSpy(object, SIGNAL(done(const QString &)));
+    QSignalSpy doneSpy(object, SIGNAL(done(QString)));
     QMetaObject::invokeMethod(object, "doIt");
     QTRY_VERIFY(object->property("passed").toBool());
     QCOMPARE(doneSpy.count(), 1);
@@ -7544,6 +7568,28 @@ void tst_qqmlecmascript::lazyBindingEvaluation()
    QVariant prop = obj->property("arrayLength");
    QVERIFY(prop.type() == QVariant::Int);
    QCOMPARE(prop.toInt(), 2);
+}
+
+void tst_qqmlecmascript::varPropertyAccessOnObjectWithInvalidContext()
+{
+   QQmlComponent component(&engine, testFileUrl("varPropertyAccessOnObjectWithInvalidContext.qml"));
+   QScopedPointer<QObject> obj(component.create());
+   if (obj.isNull())
+       qDebug() << component.errors().first().toString();
+   QVERIFY(!obj.isNull());
+   QVERIFY(obj->property("success") == true);
+}
+
+void tst_qqmlecmascript::contextObjectOnLazyBindings()
+{
+    QQmlComponent component(&engine, testFileUrl("contextObjectOnLazyBindings.qml"));
+    QScopedPointer<QObject> obj(component.create());
+    if (obj.isNull())
+        qDebug() << component.errors().first().toString();
+    QVERIFY(!obj.isNull());
+    QObject *subObject = qvariant_cast<QObject*>(obj->property("subObject"));
+    QVERIFY(subObject);
+    QCOMPARE(subObject->property("testValue").toInt(), int(42));
 }
 
 QTEST_MAIN(tst_qqmlecmascript)

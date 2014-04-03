@@ -73,10 +73,11 @@ private slots:
     void basicProperties();
     void showFiles();
     void resetFiltering();
+    void nameFilters();
     void refresh();
     void cdUp();
-#if defined (Q_OS_WIN) && !defined (Q_OS_WINCE)
-    // WinCE does not have drive concept, so lets execute this test only on desktop Windows.
+#ifdef Q_OS_WIN32
+    // WinCE/WinRT do not have drive APIs, so let's execute this test only on desktop Windows.
     void changeDrive();
 #endif
     void showDotAndDotDot();
@@ -169,26 +170,50 @@ void tst_qquickfolderlistmodel::resetFiltering()
     QAbstractListModel *flm = qobject_cast<QAbstractListModel*>(component.create());
     QVERIFY(flm != 0);
 
-    connect(flm, SIGNAL(rowsRemoved(const QModelIndex&,int,int)),
-            this, SLOT(removed(const QModelIndex&,int,int)));
-
     flm->setProperty("folder", testFileUrl("resetfiltering"));
-    QTRY_COMPARE(flm->property("count").toInt(),1); // should just be "test.txt" visible
-    int count = flm->rowCount();
-    QCOMPARE(removeStart, 0);
-    QCOMPARE(removeEnd, count-1);
+    // _q_directoryUpdated may be triggered if model was empty before, but there won't be a rowsRemoved signal
+    QTRY_COMPARE(flm->property("count").toInt(),3); // all files visible
 
     flm->setProperty("folder", testFileUrl("resetfiltering/innerdir"));
+    // _q_directoryChanged is triggered so it's a total model refresh
     QTRY_COMPARE(flm->property("count").toInt(),1); // should just be "test2.txt" visible
-    count = flm->rowCount();
+
+    flm->setProperty("folder", testFileUrl("resetfiltering"));
+    // _q_directoryChanged is triggered so it's a total model refresh
+    QTRY_COMPARE(flm->property("count").toInt(),3); // all files visible
+}
+
+void tst_qquickfolderlistmodel::nameFilters()
+{
+    // see QTBUG-36576
+    QQmlComponent component(&engine, testFileUrl("resetFiltering.qml"));
+    checkNoErrors(component);
+
+    QAbstractListModel *flm = qobject_cast<QAbstractListModel*>(component.create());
+    QVERIFY(flm != 0);
+
+    connect(flm, SIGNAL(rowsRemoved(QModelIndex,int,int)),
+            this, SLOT(removed(QModelIndex,int,int)));
+
+    QTRY_VERIFY(flm->rowCount() > 0);
+    flm->setProperty("folder", testFileUrl("resetfiltering"));
+    QTRY_COMPARE(flm->property("count").toInt(),3); // all files visible
+
+    int count = flm->rowCount();
+    flm->setProperty("nameFilters", QStringList() << "*.txt");
+    // _q_directoryUpdated triggered with range 0:1
+    QTRY_COMPARE(flm->property("count").toInt(),1);
+    QCOMPARE(flm->data(flm->index(0),FileNameRole), QVariant("test.txt"));
     QCOMPARE(removeStart, 0);
     QCOMPARE(removeEnd, count-1);
 
-    flm->setProperty("folder", testFileUrl("resetfiltering"));
-    QTRY_COMPARE(flm->property("count").toInt(),1); // should just be "test.txt" visible
-    count = flm->rowCount();
-    QCOMPARE(removeStart, 0);
-    QCOMPARE(removeEnd, count-1);
+    flm->setProperty("nameFilters", QStringList() << "*.html");
+    QTRY_COMPARE(flm->property("count").toInt(),2);
+    QCOMPARE(flm->data(flm->index(0),FileNameRole), QVariant("test1.html"));
+    QCOMPARE(flm->data(flm->index(1),FileNameRole), QVariant("test2.html"));
+
+    flm->setProperty("nameFilters", QStringList());
+    QTRY_COMPARE(flm->property("count").toInt(),3); // all files visible
 }
 
 void tst_qquickfolderlistmodel::refresh()
@@ -204,8 +229,8 @@ void tst_qquickfolderlistmodel::refresh()
 
     int count = flm->rowCount();
 
-    connect(flm, SIGNAL(rowsRemoved(const QModelIndex&,int,int)),
-            this, SLOT(removed(const QModelIndex&,int,int)));
+    connect(flm, SIGNAL(rowsRemoved(QModelIndex,int,int)),
+            this, SLOT(removed(QModelIndex,int,int)));
 
     flm->setProperty("sortReversed", true);
 
@@ -240,7 +265,7 @@ void tst_qquickfolderlistmodel::cdUp()
     }
 }
 
-#if defined (Q_OS_WIN) && !defined (Q_OS_WINCE)
+#ifdef Q_OS_WIN32
 void tst_qquickfolderlistmodel::changeDrive()
 {
     QSKIP("QTBUG-26728");

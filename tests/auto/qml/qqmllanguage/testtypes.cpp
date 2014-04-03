@@ -68,6 +68,7 @@ void registerTypes()
     qmlRegisterType<MySubclass>("Test",1,0,"MySubclass");
 
     qmlRegisterCustomType<MyCustomParserType>("Test", 1, 0, "MyCustomParserType", new MyCustomParserTypeParser);
+    qmlRegisterCustomType<MyCustomParserType>("Test", 1, 0, "MyCustomParserWithEnumType", new EnumSupportingCustomParser);
 
     qmlRegisterTypeNotAvailable("Test",1,0,"UnavailableType", "UnavailableType is unavailable for testing");
 
@@ -91,6 +92,8 @@ void registerTypes()
     qmlRegisterType<MyCreateableDerivedClass,1>("Test", 1, 1, "MyCreateableDerivedClass");
 
     qmlRegisterCustomType<CustomBinding>("Test", 1, 0, "CustomBinding", new CustomBindingParser);
+
+    qmlRegisterType<RootObjectInCreationTester>("Test", 1, 0, "RootObjectInCreationTester");
 }
 
 QVariant myCustomVariantTypeConverter(const QString &data)
@@ -101,33 +104,9 @@ QVariant myCustomVariantTypeConverter(const QString &data)
 }
 
 
-QByteArray CustomBindingParser::compile(const QList<QQmlCustomParserProperty> &properties)
+QByteArray CustomBindingParser::compile(const QV4::CompiledData::QmlUnit *qmlUnit, int objectIndex, const QList<const QV4::CompiledData::Binding *> &bindings)
 {
-    QByteArray result;
-    QDataStream ds(&result, QIODevice::WriteOnly);
-
-    ds << properties.count();
-    for (int i = 0; i < properties.count(); ++i) {
-        const QQmlCustomParserProperty &prop = properties.at(i);
-        ds << prop.name();
-
-        Q_ASSERT(prop.assignedValues().count() == 1);
-        QVariant value = prop.assignedValues().first();
-
-        Q_ASSERT(value.userType() == qMetaTypeId<QQmlScript::Variant>());
-        QQmlScript::Variant v = qvariant_cast<QQmlScript::Variant>(value);
-        Q_ASSERT(v.type() == QQmlScript::Variant::Script);
-        int bindingId = bindingIdentifier(v, prop.name());
-        ds << bindingId;
-
-        ds << prop.location().line;
-    }
-
-    return result;
-}
-
-QByteArray CustomBindingParser::compile(const QV4::CompiledData::QmlUnit *qmlUnit, const QList<const QV4::CompiledData::Binding *> &bindings)
-{
+    Q_UNUSED(objectIndex)
     QByteArray result;
     QDataStream ds(&result, QIODevice::WriteOnly);
 
@@ -170,10 +149,45 @@ void CustomBinding::componentComplete()
         int line;
         ds >> line;
 
-        QQmlBinding *binding = QQmlBinding::createBinding(QQmlBinding::Identifier(bindingId), m_target, qmlContext(this), QString(), line);
+        QQmlBinding *binding = QQmlBinding::createBinding(QQmlBinding::Identifier(bindingId), m_target, qmlContext(this));
 
         QQmlProperty property(m_target, name, qmlContext(this));
         binding->setTarget(property);
         QQmlPropertyPrivate::setBinding(property, binding);
     }
+}
+
+QByteArray EnumSupportingCustomParser::compile(const QV4::CompiledData::QmlUnit *qmlUnit, int objectIndex, const QList<const QV4::CompiledData::Binding *> &bindings)
+{
+    Q_UNUSED(qmlUnit)
+    Q_UNUSED(objectIndex)
+
+    if (bindings.count() != 1) {
+        error(bindings.first(), QStringLiteral("Custom parser invoked incorrectly for unit test"));
+        return QByteArray();
+    }
+
+    const QV4::CompiledData::Binding *binding = bindings.first();
+    if (qmlUnit->header.stringAt(binding->propertyNameIndex) != QStringLiteral("foo")) {
+        error(binding, QStringLiteral("Custom parser invoked with the wrong property name"));
+        return QByteArray();
+    }
+
+    if (binding->type != QV4::CompiledData::Binding::Type_Script) {
+        error(binding, QStringLiteral("Custom parser invoked with the wrong property value. Expected script that evaluates to enum"));
+        return QByteArray();
+    }
+    QByteArray script = qmlUnit->header.stringAt(binding->stringIndex).toUtf8();
+    bool ok;
+    int v = evaluateEnum(script, &ok);
+    if (!ok) {
+        error(binding, QStringLiteral("Custom parser invoked with the wrong property value. Script did not evaluate to enum"));
+        return QByteArray();
+    }
+    if (v != MyEnum1Class::A_13) {
+        error(binding, QStringLiteral("Custom parser invoked with the wrong property value. Enum value is not the expected value."));
+        return QByteArray();
+    }
+
+    return QByteArray();
 }

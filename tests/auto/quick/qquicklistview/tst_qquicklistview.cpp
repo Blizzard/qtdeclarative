@@ -147,6 +147,7 @@ private slots:
     void modelChanges();
     void manualHighlight();
     void initialZValues();
+    void initialZValues_data();
     void header();
     void header_data();
     void header_delayItemCreation();
@@ -172,6 +173,7 @@ private slots:
     void onAdd_data();
     void onRemove();
     void onRemove_data();
+    void attachedProperties_QTBUG_32836();
     void rightToLeft();
     void test_mirroring();
     void margins();
@@ -220,6 +222,7 @@ private slots:
     void highlightItemGeometryChanges();
 
     void QTBUG_36481();
+    void QTBUG_35920();
 
 private:
     template <class T> void items(const QUrl &source);
@@ -3463,8 +3466,9 @@ void tst_QQuickListView::QTBUG_11105()
 
 void tst_QQuickListView::initialZValues()
 {
+    QFETCH(QString, fileName);
     QQuickView *window = createView();
-    window->setSource(testFileUrl("initialZValues.qml"));
+    window->setSource(testFileUrl(fileName));
     qApp->processEvents();
 
     QQuickListView *listview = findItem<QQuickListView>(window->rootObject(), "list");
@@ -3472,13 +3476,31 @@ void tst_QQuickListView::initialZValues()
     QQuickItem *contentItem = listview->contentItem();
     QTRY_VERIFY(contentItem != 0);
 
+    QVERIFY(listview->currentItem());
+    QTRY_COMPARE(listview->currentItem()->z(), listview->property("itemZ").toReal());
+
     QVERIFY(listview->headerItem());
-    QTRY_COMPARE(listview->headerItem()->z(), listview->property("initialZ").toReal());
+    QTRY_COMPARE(listview->headerItem()->z(), listview->property("headerZ").toReal());
 
     QVERIFY(listview->footerItem());
-    QTRY_COMPARE(listview->footerItem()->z(), listview->property("initialZ").toReal());
+    QTRY_COMPARE(listview->footerItem()->z(), listview->property("footerZ").toReal());
+
+    QVERIFY(listview->highlightItem());
+    QTRY_COMPARE(listview->highlightItem()->z(), listview->property("highlightZ").toReal());
+
+    QQuickText *sectionItem = 0;
+    QTRY_VERIFY(sectionItem = findItem<QQuickText>(contentItem, "section"));
+    QTRY_COMPARE(sectionItem->z(), listview->property("sectionZ").toReal());
 
     delete window;
+}
+
+void tst_QQuickListView::initialZValues_data()
+{
+    QTest::addColumn<QString>("fileName");
+    QTest::newRow("defaults") << "defaultZValues.qml";
+    QTest::newRow("constants") << "constantZValues.qml";
+    QTest::newRow("bindings") << "boundZValues.qml";
 }
 
 void tst_QQuickListView::header()
@@ -5440,6 +5462,40 @@ void tst_QQuickListView::snapOneItem()
     releaseView(window);
 }
 
+void tst_QQuickListView::attachedProperties_QTBUG_32836()
+{
+    QQuickView *window = createView();
+
+    window->setSource(testFileUrl("attachedProperties.qml"));
+    window->show();
+    qApp->processEvents();
+
+    QQuickListView *listview = qobject_cast<QQuickListView*>(window->rootObject());
+    QVERIFY(listview != 0);
+
+    QQuickItem *header = listview->headerItem();
+    QVERIFY(header);
+    QCOMPARE(header->width(), listview->width());
+
+    QQuickItem *footer = listview->footerItem();
+    QVERIFY(footer);
+    QCOMPARE(footer->width(), listview->width());
+
+    QQuickItem *highlight = listview->highlightItem();
+    QVERIFY(highlight);
+    QCOMPARE(highlight->width(), listview->width());
+
+    QQuickItem *currentItem = listview->currentItem();
+    QVERIFY(currentItem);
+    QCOMPARE(currentItem->width(), listview->width());
+
+    QQuickItem *sectionItem = findItem<QQuickItem>(window->rootObject(), "sectionItem");
+    QVERIFY(sectionItem);
+    QCOMPARE(sectionItem->width(), listview->width());
+
+    delete window;
+}
+
 void tst_QQuickListView::unrequestedVisibility()
 {
     QaimModel model;
@@ -7115,6 +7171,36 @@ void tst_QQuickListView::QTBUG_36481()
 
     // just testing that we don't crash when creating
     QScopedPointer<QObject> object(component.create());
+}
+
+void tst_QQuickListView::QTBUG_35920()
+{
+    QScopedPointer<QQuickView> window(createView());
+    window->setSource(testFileUrl("qtbug35920.qml"));
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+
+    QQuickListView *listview = qobject_cast<QQuickListView *>(window->rootObject());
+    QVERIFY(listview);
+
+    QTest::mousePress(window.data(), Qt::LeftButton, 0, QPoint(10,0));
+    for (int i = 0; i < 100; ++i) {
+        QTest::mouseMove(window.data(), QPoint(10,i));
+        if (listview->isMoving()) {
+            // do not fixup() the position while in movement to avoid flicker
+            const qreal contentY = listview->contentY();
+            listview->setPreferredHighlightBegin(i);
+            QCOMPARE(listview->contentY(), contentY);
+            listview->resetPreferredHighlightBegin();
+            QCOMPARE(listview->contentY(), contentY);
+
+            listview->setPreferredHighlightEnd(i+10);
+            QCOMPARE(listview->contentY(), contentY);
+            listview->resetPreferredHighlightEnd();
+            QCOMPARE(listview->contentY(), contentY);
+        }
+    }
+    QTest::mouseRelease(window.data(), Qt::LeftButton, 0, QPoint(10,100));
 }
 
 QTEST_MAIN(tst_QQuickListView)

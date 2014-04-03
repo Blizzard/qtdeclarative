@@ -82,8 +82,6 @@ struct CompilationUnit : public QV4::CompiledData::CompilationUnit
 
     QVector<JSC::MacroAssemblerCodeRef> codeRefs;
     QList<QVector<QV4::Primitive> > constantValues;
-    QVector<int> codeSizes; // corresponding to the endOfCode labels. MacroAssemblerCodeRef's size may
-                            // be larger, as for example on ARM we append the exception handling table.
 };
 
 struct RelativeCall {
@@ -152,7 +150,7 @@ public:
     static const int RegisterArgumentCount = 0;
     static RegisterID registerForArgument(int)
     {
-        assert(false);
+        Q_ASSERT(false);
         // Not reached.
         return JSC::X86Registers::eax;
     }
@@ -189,7 +187,7 @@ public:
             JSC::X86Registers::r8,
             JSC::X86Registers::r9
         };
-        assert(index >= 0 && index < RegisterArgumentCount);
+        Q_ASSERT(index >= 0 && index < RegisterArgumentCount);
         return regs[index];
     };
     static const int StackShadowSpace = 32;
@@ -205,7 +203,7 @@ public:
             JSC::X86Registers::r8,
             JSC::X86Registers::r9
         };
-        assert(index >= 0 && index < RegisterArgumentCount);
+        Q_ASSERT(index >= 0 && index < RegisterArgumentCount);
         return regs[index];
     };
     static const int StackShadowSpace = 0;
@@ -240,7 +238,7 @@ public:
     static const int RegisterArgumentCount = 4;
     static RegisterID registerForArgument(int index)
     {
-        assert(index >= 0 && index < RegisterArgumentCount);
+        Q_ASSERT(index >= 0 && index < RegisterArgumentCount);
         return static_cast<RegisterID>(JSC::ARMRegisters::r0 + index);
     };
 
@@ -356,7 +354,8 @@ public:
             int frameSize = RegisterSize * calleeSavedRegisterCount;
             frameSize += savedRegCount * sizeof(QV4::Value); // these get written out as Values, not as native registers
 
-            frameSize = WTF::roundUpToMultipleOf(StackAlignment, frameSize + stackSpaceAllocatedOtherwise);
+            Q_ASSERT(frameSize + stackSpaceAllocatedOtherwise < INT_MAX);
+            frameSize = static_cast<int>(WTF::roundUpToMultipleOf(StackAlignment, frameSize + stackSpaceAllocatedOtherwise));
             frameSize -= stackSpaceAllocatedOtherwise;
 
             return frameSize;
@@ -391,7 +390,7 @@ public:
         }
 
         Pointer callDataAddress(int offset = 0) const {
-            return Pointer(Assembler::LocalsRegister, -(sizeof(QV4::CallData) + sizeof(QV4::Value) * (maxOutgoingArgumentCount - 1)) + offset);
+            return Pointer(Assembler::LocalsRegister, offset - (sizeof(QV4::CallData) + sizeof(QV4::Value) * (maxOutgoingArgumentCount - 1)));
         }
 
         Address savedRegPointer(int offset) const
@@ -583,7 +582,7 @@ public:
 
     void loadArgumentInRegister(Reference temp, RegisterID dest, int argumentNumber)
     {
-        assert(temp.value);
+        Q_ASSERT(temp.value);
         Pointer addr = loadTempAddress(dest, temp.value);
         loadArgumentInRegister(addr, dest, argumentNumber);
     }
@@ -592,7 +591,7 @@ public:
     {
         Q_UNUSED(argumentNumber);
 
-        assert(block.block);
+        Q_ASSERT(block.block);
         DataLabelPtr patch = moveWithPatch(TrustedImmPtr(0), dest);
         addPatch(patch, block.block);
     }
@@ -631,13 +630,13 @@ public:
         } else if (expr->asConst()) {
             loadArgumentInRegister(expr->asConst(), dest, argumentNumber);
         } else {
-            assert(!"unimplemented expression type in loadArgument");
+            Q_ASSERT(!"unimplemented expression type in loadArgument");
         }
     }
 #else
     void loadArgumentInRegister(IR::Expr*, RegisterID)
     {
-        assert(!"unimplemented: expression in loadArgument");
+        Q_ASSERT(!"unimplemented: expression in loadArgument");
     }
 #endif
 
@@ -772,7 +771,7 @@ public:
     template <int StackSlot>
     void loadArgumentOnStack(Reference temp, int argumentNumber)
     {
-        assert (temp.value);
+        Q_ASSERT (temp.value);
 
         Pointer ptr = loadTempAddress(ScratchRegister, temp.value);
         loadArgumentOnStack<StackSlot>(ptr, argumentNumber);
@@ -783,7 +782,7 @@ public:
     {
         Q_UNUSED(argumentNumber);
 
-        assert(block.block);
+        Q_ASSERT(block.block);
         DataLabelPtr patch = moveWithPatch(TrustedImmPtr(0), ScratchRegister);
         poke(ScratchRegister, StackSlot);
         addPatch(patch, block.block);
@@ -964,8 +963,9 @@ public:
                                + StackShadowSpace;
 
         if (stackSpaceNeeded) {
-            stackSpaceNeeded = WTF::roundUpToMultipleOf(StackAlignment, stackSpaceNeeded);
-            sub32(TrustedImm32(stackSpaceNeeded), StackPointerRegister);
+            Q_ASSERT(stackSpaceNeeded < (INT_MAX - StackAlignment));
+            stackSpaceNeeded = static_cast<int>(WTF::roundUpToMultipleOf(StackAlignment, stackSpaceNeeded));
+            subPtr(TrustedImm32(stackSpaceNeeded), StackPointerRegister);
         }
 
         // First save any arguments that reside in registers, because they could be overwritten
@@ -986,14 +986,16 @@ public:
         prepareRelativeCall(function, this);
         loadArgumentOnStackOrRegister<0>(arg1);
 
-#if OS(LINUX) && CPU(X86) && (defined(__PIC__) || defined(__PIE__))
-        load32(Address(StackFrameRegister, -sizeof(void*)), JSC::X86Registers::ebx); // restore the GOT ptr
+#if (OS(LINUX) && CPU(X86) && (defined(__PIC__) || defined(__PIE__))) || \
+    (OS(WINDOWS) && CPU(X86))
+        load32(Address(StackFrameRegister, -int(sizeof(void*))),
+               JSC::X86Registers::ebx); // restore the GOT ptr
 #endif
 
         callAbsolute(functionName, function);
 
         if (stackSpaceNeeded)
-            add32(TrustedImm32(stackSpaceNeeded), StackPointerRegister);
+            addPtr(TrustedImm32(stackSpaceNeeded), StackPointerRegister);
 
         if (ExceptionCheck<Callable>::NeedsCheck) {
             checkException();
@@ -1031,162 +1033,6 @@ public:
     void generateFunctionCallImp(ArgRet r, const char* functionName, Callable function, Arg1 arg1)
     {
         generateFunctionCallImp(r, functionName, function, arg1, VoidType(), VoidType(), VoidType(), VoidType());
-    }
-
-    typedef Jump (Assembler::*MemRegBinOp)(Address, RegisterID);
-    typedef Jump (Assembler::*ImmRegBinOp)(TrustedImm32, RegisterID);
-
-    struct BinaryOperationInfo {
-        const char *name;
-        QV4::BinOp fallbackImplementation;
-        QV4::BinOpContext contextImplementation;
-        MemRegBinOp inlineMemRegOp;
-        ImmRegBinOp inlineImmRegOp;
-    };
-
-    static const BinaryOperationInfo binaryOperations[IR::LastAluOp + 1];
-    static const BinaryOperationInfo &binaryOperation(IR::AluOp operation)
-    { return binaryOperations[operation]; }
-
-    Jump inline_add32(Address addr, RegisterID reg)
-    {
-#if HAVE(ALU_OPS_WITH_MEM_OPERAND)
-        return branchAdd32(Overflow, addr, reg);
-#else
-        load32(addr, ScratchRegister);
-        return branchAdd32(Overflow, ScratchRegister, reg);
-#endif
-    }
-
-    Jump inline_add32(TrustedImm32 imm, RegisterID reg)
-    {
-        return branchAdd32(Overflow, imm, reg);
-    }
-
-    Jump inline_sub32(Address addr, RegisterID reg)
-    {
-#if HAVE(ALU_OPS_WITH_MEM_OPERAND)
-        return branchSub32(Overflow, addr, reg);
-#else
-        load32(addr, ScratchRegister);
-        return branchSub32(Overflow, ScratchRegister, reg);
-#endif
-    }
-
-    Jump inline_sub32(TrustedImm32 imm, RegisterID reg)
-    {
-        return branchSub32(Overflow, imm, reg);
-    }
-
-    Jump inline_mul32(Address addr, RegisterID reg)
-    {
-#if HAVE(ALU_OPS_WITH_MEM_OPERAND)
-        return branchMul32(Overflow, addr, reg);
-#else
-        load32(addr, ScratchRegister);
-        return branchMul32(Overflow, ScratchRegister, reg);
-#endif
-    }
-
-    Jump inline_mul32(TrustedImm32 imm, RegisterID reg)
-    {
-        return branchMul32(Overflow, imm, reg, reg);
-    }
-
-    Jump inline_shl32(Address addr, RegisterID reg)
-    {
-        load32(addr, ScratchRegister);
-        and32(TrustedImm32(0x1f), ScratchRegister);
-        lshift32(ScratchRegister, reg);
-        return Jump();
-    }
-
-    Jump inline_shl32(TrustedImm32 imm, RegisterID reg)
-    {
-        imm.m_value &= 0x1f;
-        lshift32(imm, reg);
-        return Jump();
-    }
-
-    Jump inline_shr32(Address addr, RegisterID reg)
-    {
-        load32(addr, ScratchRegister);
-        and32(TrustedImm32(0x1f), ScratchRegister);
-        rshift32(ScratchRegister, reg);
-        return Jump();
-    }
-
-    Jump inline_shr32(TrustedImm32 imm, RegisterID reg)
-    {
-        imm.m_value &= 0x1f;
-        rshift32(imm, reg);
-        return Jump();
-    }
-
-    Jump inline_ushr32(Address addr, RegisterID reg)
-    {
-        load32(addr, ScratchRegister);
-        and32(TrustedImm32(0x1f), ScratchRegister);
-        urshift32(ScratchRegister, reg);
-        return branchTest32(Signed, reg, reg);
-    }
-
-    Jump inline_ushr32(TrustedImm32 imm, RegisterID reg)
-    {
-        imm.m_value &= 0x1f;
-        urshift32(imm, reg);
-        return branchTest32(Signed, reg, reg);
-    }
-
-    Jump inline_and32(Address addr, RegisterID reg)
-    {
-#if HAVE(ALU_OPS_WITH_MEM_OPERAND)
-        and32(addr, reg);
-#else
-        load32(addr, ScratchRegister);
-        and32(ScratchRegister, reg);
-#endif
-        return Jump();
-    }
-
-    Jump inline_and32(TrustedImm32 imm, RegisterID reg)
-    {
-        and32(imm, reg);
-        return Jump();
-    }
-
-    Jump inline_or32(Address addr, RegisterID reg)
-    {
-#if HAVE(ALU_OPS_WITH_MEM_OPERAND)
-        or32(addr, reg);
-#else
-        load32(addr, ScratchRegister);
-        or32(ScratchRegister, reg);
-#endif
-        return Jump();
-    }
-
-    Jump inline_or32(TrustedImm32 imm, RegisterID reg)
-    {
-        or32(imm, reg);
-        return Jump();
-    }
-
-    Jump inline_xor32(Address addr, RegisterID reg)
-    {
-#if HAVE(ALU_OPS_WITH_MEM_OPERAND)
-        xor32(addr, reg);
-#else
-        load32(addr, ScratchRegister);
-        xor32(ScratchRegister, reg);
-#endif
-        return Jump();
-    }
-
-    Jump inline_xor32(TrustedImm32 imm, RegisterID reg)
-    {
-        xor32(imm, reg);
-        return Jump();
     }
 
     Pointer toAddress(RegisterID tmpReg, IR::Expr *e, int offset)

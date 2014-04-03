@@ -45,7 +45,7 @@
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QTime>
-#include <QtCore/QScopedPointer>
+#include <QtCore/QLibraryInfo>
 #include <QtCore/private/qabstractanimation_p.h>
 
 #include <QtGui/QOpenGLContext>
@@ -58,6 +58,10 @@
 #include <QtQuick/private/qquickwindow_p.h>
 #include <QtQuick/private/qsgcontext_p.h>
 #include <private/qquickprofiler_p.h>
+
+#ifdef Q_OS_WIN
+#  include <QtCore/qt_windows.h>
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -77,10 +81,23 @@ extern Q_GUI_EXPORT QImage qt_gl_read_framebuffer(const QSize &size, bool alpha_
 DEFINE_BOOL_CONFIG_OPTION(qmlNoThreadedRenderer, QML_BAD_GUI_RENDER_LOOP);
 DEFINE_BOOL_CONFIG_OPTION(qmlForceThreadedRenderer, QML_FORCE_THREADED_RENDERER); // Might trigger graphics driver threading bugs, use at own risk
 
-Q_GLOBAL_STATIC(QScopedPointer<QSGRenderLoop>, s_renderLoopInstance);
+QSGRenderLoop *QSGRenderLoop::s_instance = 0;
 
 QSGRenderLoop::~QSGRenderLoop()
 {
+}
+
+void QSGRenderLoop::cleanup()
+{
+    foreach (QQuickWindow *w, windows()) {
+        QQuickWindowPrivate *wd = QQuickWindowPrivate::get(w);
+        if (wd->windowManager == this) {
+           windowDestroyed(w);
+           wd->windowManager = 0;
+        }
+    }
+    s_instance = 0;
+    delete this;
 }
 
 class QSGGuiThreadRenderLoop : public QSGRenderLoop
@@ -143,8 +160,8 @@ bool QSGRenderLoop::useConsistentTiming()
 
 QSGRenderLoop *QSGRenderLoop::instance()
 {
-    if (s_renderLoopInstance->isNull()) {
-        s_renderLoopInstance->reset(QSGContext::createWindowManager());
+    if (!s_instance) {
+        s_instance = QSGContext::createWindowManager();
 
         bool info = qEnvironmentVariableIsSet("QSG_INFO");
 
@@ -154,7 +171,7 @@ QSGRenderLoop *QSGRenderLoop::instance()
                 qDebug() << "QSG: using fixed animation steps";
         }
 
-        if (s_renderLoopInstance->isNull()) {
+        if (!s_instance) {
 
             enum RenderLoopType {
                 BasicRenderLoop,
@@ -186,26 +203,54 @@ QSGRenderLoop *QSGRenderLoop::instance()
             switch (loopType) {
             case ThreadedRenderLoop:
                 if (info) qDebug() << "QSG: threaded render loop";
-                s_renderLoopInstance->reset(new QSGThreadedRenderLoop());
+                s_instance = new QSGThreadedRenderLoop();
                 break;
             case WindowsRenderLoop:
                 if (info) qDebug() << "QSG: windows render loop";
-                s_renderLoopInstance->reset(new QSGWindowsRenderLoop());
+                s_instance = new QSGWindowsRenderLoop();
                 break;
             default:
                 if (info) qDebug() << "QSG: basic render loop";
-                s_renderLoopInstance->reset(new QSGGuiThreadRenderLoop());
+                s_instance = new QSGGuiThreadRenderLoop();
                 break;
             }
         }
+
+        QObject::connect(QCoreApplication::instance(), SIGNAL(aboutToQuit()), s_instance, SLOT(cleanup()));
     }
-    return s_renderLoopInstance->data();
+    return s_instance;
 }
 
 void QSGRenderLoop::setInstance(QSGRenderLoop *instance)
 {
-    Q_ASSERT(s_renderLoopInstance->isNull());
-    s_renderLoopInstance->reset(instance);
+    Q_ASSERT(!s_instance);
+    s_instance = instance;
+}
+
+void QSGRenderLoop::handleContextCreationFailure(QQuickWindow *window,
+                                                 bool isEs)
+{
+    QString translatedMessage;
+    QString untranslatedMessage;
+    QQuickWindowPrivate::contextCreationFailureMessage(window->requestedFormat(),
+                                                       &translatedMessage,
+                                                       &untranslatedMessage,
+                                                       isEs);
+    // If there is a slot connected to the error signal, emit it and leave it to
+    // the application to do something with the message. If nothing is connected,
+    // show a message on our own and terminate.
+    const bool signalEmitted =
+        QQuickWindowPrivate::get(window)->emitError(QQuickWindow::ContextNotAvailable,
+                                                    translatedMessage);
+#if defined(Q_OS_WIN) && !defined(Q_OS_WINCE) && !defined(Q_OS_WINRT)
+    if (!signalEmitted && !QLibraryInfo::isDebugBuild() && !GetConsoleWindow()) {
+        MessageBox(0, (LPCTSTR) translatedMessage.utf16(),
+                   (LPCTSTR)(QCoreApplication::applicationName().utf16()),
+                   MB_OK | MB_ICONERROR);
+    }
+#endif // Q_OS_WIN && !Q_OS_WINCE && !Q_OS_WINRT
+    if (!signalEmitted)
+        qFatal("%s", qPrintable(untranslatedMessage));
 }
 
 QSGGuiThreadRenderLoop::QSGGuiThreadRenderLoop()
@@ -264,6 +309,8 @@ void QSGGuiThreadRenderLoop::windowDestroyed(QQuickWindow *window)
         QCoreApplication::sendPostedEvents(0, QEvent::DeferredDelete);
         delete gl;
         gl = 0;
+    } else if (window == gl->surface()) {
+        gl->doneCurrent();
     }
 }
 
@@ -283,18 +330,10 @@ void QSGGuiThreadRenderLoop::renderWindow(QQuickWindow *window)
         if (QSGContext::sharedOpenGLContext())
             gl->setShareContext(QSGContext::sharedOpenGLContext());
         if (!gl->create()) {
+            const bool isEs = gl->isES();
             delete gl;
             gl = 0;
-            QString formatStr;
-            QDebug(&formatStr) << window->requestedFormat();
-            QString contextType = QLatin1String(QOpenGLFunctions::isES() ? "EGL" : "OpenGL");
-            const char *msg = QT_TRANSLATE_NOOP("QSGGuiThreadRenderLoop", "Failed to create %1 context for format %2");
-            QString translatedMsg = tr(msg).arg(contextType).arg(formatStr);
-            QString nonTranslatedMsg = QString(QLatin1String(msg)).arg(contextType).arg(formatStr);
-            bool signalEmitted = QQuickWindowPrivate::get(window)->emitError(QQuickWindow::ContextNotAvailable,
-                                                                             translatedMsg);
-            if (!signalEmitted)
-                qFatal("%s", qPrintable(nonTranslatedMsg));
+            handleContextCreationFailure(window, isEs);
         } else {
             cd->fireOpenGLContextCreated(gl);
             current = gl->makeCurrent(window);
@@ -332,7 +371,7 @@ void QSGGuiThreadRenderLoop::renderWindow(QQuickWindow *window)
         renderTime = renderTimer.nsecsElapsed() - syncTime;
 
     if (data.grabOnly) {
-        grabContent = qt_gl_read_framebuffer(window->size(), false, false);
+        grabContent = qt_gl_read_framebuffer(window->size() * window->devicePixelRatio(), false, false);
         data.grabOnly = false;
     }
 

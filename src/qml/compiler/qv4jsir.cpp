@@ -47,7 +47,6 @@
 #include <QtCore/qdebug.h>
 #include <QtCore/qset.h>
 #include <cmath>
-#include <cassert>
 
 #ifdef CONST
 #undef CONST
@@ -632,7 +631,7 @@ Function *Module::newFunction(const QString &name, Function *outer)
     functions.append(f);
     if (!outer) {
         if (!isQmlModule) {
-            assert(!rootFunction);
+            Q_ASSERT(!rootFunction);
             rootFunction = f;
         }
     } else {
@@ -745,7 +744,12 @@ Expr *BasicBlock::CONST(Type type, double value)
             type = SInt32Type;
         else
             type = DoubleType;
+    } else if (type == NullType) {
+        value = 0;
+    } else if (type == UndefinedType) {
+        value = qSNaN();
     }
+
     e->init(type, value);
     return e;
 }
@@ -877,10 +881,10 @@ Stmt *BasicBlock::JUMP(BasicBlock *target)
     s->init(target);
     appendStatement(s);
 
-    assert(! out.contains(target));
+    Q_ASSERT(! out.contains(target));
     out.append(target);
 
-    assert(! target->in.contains(this));
+    Q_ASSERT(! target->in.contains(this));
     target->in.append(this);
 
     return s;
@@ -900,16 +904,16 @@ Stmt *BasicBlock::CJUMP(Expr *cond, BasicBlock *iftrue, BasicBlock *iffalse)
     s->init(cond, iftrue, iffalse);
     appendStatement(s);
 
-    assert(! out.contains(iftrue));
+    Q_ASSERT(! out.contains(iftrue));
     out.append(iftrue);
 
-    assert(! iftrue->in.contains(this));
+    Q_ASSERT(! iftrue->in.contains(this));
     iftrue->in.append(this);
 
-    assert(! out.contains(iffalse));
+    Q_ASSERT(! out.contains(iffalse));
     out.append(iffalse);
 
-    assert(! iffalse->in.contains(this));
+    Q_ASSERT(! iffalse->in.contains(this));
     iffalse->in.append(this);
 
     return s;

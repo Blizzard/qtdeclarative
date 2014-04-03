@@ -216,7 +216,7 @@ relative to its start.
     \list
     \li \c Text.RightElide is now supported where text spans multiple lines.
     \li New \l{Text::}{linkColor} property controls the color of linked text.
-    \li New \l{Text::}{onLineLaidOut} handler is called for every line during the layout process to
+    \li New \l{Text::}{lineLaidOut} signal is emitted for every line during the layout process to
         give the option of positioning and/or resizing lines as they are laid out.
     \li New \l{Text::}{doLayout()} method will trigger the text layout from Javascript.
     \li New \l{Text::}{fontSizeMode} property allows text to be fitted to the item size.
@@ -250,15 +250,15 @@ the window loses focus.
     \list
     \li Wheel events are now supported; events are provided through the new WheelEvent type.
     \li New \l{MouseArea::}{propagateComposedEvents} property sets whether composed events are
-        propagated to other mouse areas. If this property is true and the l{MouseArea::onClicked}{clicked},
-        \l{MouseArea::onDoubleClicked}{doubleClicked} or \l{MouseArea::onPressAndHold}{pressAndHold}
-        handlers reject a mouse event, the event will be propagated to overlapping MouseArea items
+        propagated to other mouse areas. If this property is true and the handlers of the
+        \l{MouseArea::}{clicked}, \l{MouseArea::}{doubleClicked} or \l{MouseArea::}{pressAndHold}
+        signals reject a mouse event, the event will be propagated to overlapping MouseArea items
         in the same area that are lower in the stacking order.
     \li New \l{MouseArea::}{cursorShape} property controls the cursor shape.
         \endlist
 \endlist
 
-\section2 Specialised Containers
+\section2 Specialized Containers
 
 \list
 \li Flickable:
@@ -365,7 +365,7 @@ the window loses focus.
 \li \l Loader:
     \list
     \li New \l{Loader::}{asynchronous} property allows components to be instantiated with lower
-        chance of blocking.  If source is used with \e {asynchonous: true} the component will be compiled in
+        chance of blocking.  If source is used with \e {asynchronous: true} the component will be compiled in
         a background thread.
     \li New \l{Loader::}{active} property can delay instantiation of a \l Loader object's
         \l{Loader::}{item}.

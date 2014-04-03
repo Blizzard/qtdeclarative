@@ -190,33 +190,39 @@ QQuickPinchAreaPrivate::~QQuickPinchAreaPrivate()
 */
 
 /*!
-    \qmlsignal QtQuick::PinchArea::onPinchStarted()
+    \qmlsignal QtQuick::PinchArea::pinchStarted()
 
-    This handler is called when the pinch area detects that a pinch gesture has started.
+    This signal is emitted when the pinch area detects that a pinch gesture has started.
 
     The \l {PinchEvent}{pinch} parameter provides information about the pinch gesture,
     including the scale, center and angle of the pinch.
 
     To ignore this gesture set the \c pinch.accepted property to false.  The gesture
     will be canceled and no further events will be sent.
+
+    The corresponding handler is \c onPinchStarted.
 */
 
 /*!
-    \qmlsignal QtQuick::PinchArea::onPinchUpdated()
+    \qmlsignal QtQuick::PinchArea::pinchUpdated()
 
-    This handler is called when the pinch area detects that a pinch gesture has changed.
+    This signal is emitted when the pinch area detects that a pinch gesture has changed.
 
     The \l {PinchEvent}{pinch} parameter provides information about the pinch gesture,
     including the scale, center and angle of the pinch.
+
+    The corresponding handler is \c onPinchUpdated.
 */
 
 /*!
-    \qmlsignal QtQuick::PinchArea::onPinchFinished()
+    \qmlsignal QtQuick::PinchArea::pinchFinished()
 
-    This handler is called when the pinch area detects that a pinch gesture has finished.
+    This signal is emitted when the pinch area detects that a pinch gesture has finished.
 
     The \l {PinchEvent}{pinch} parameter provides information about the pinch gesture,
     including the scale, center and angle of the pinch.
+
+    The corresponding handler is \c onPinchFinished.
 */
 
 
@@ -327,6 +333,14 @@ void QQuickPinchArea::touchEvent(QTouchEvent *event)
 void QQuickPinchArea::updatePinch()
 {
     Q_D(QQuickPinchArea);
+
+    if (d->touchPoints.count() < 2) {
+        setKeepMouseGrab(false);
+        QQuickWindow *c = window();
+        if (c && c->mouseGrabberItem() == this)
+            ungrabMouse();
+    }
+
     if (d->touchPoints.count() == 0) {
         if (d->inPinch) {
             d->inPinch = false;
@@ -349,12 +363,7 @@ void QQuickPinchArea::updatePinch()
         d->initPinch = false;
         d->pinchRejected = false;
         d->stealMouse = false;
-        setKeepMouseGrab(false);
         return;
-    }
-
-    if (d->touchPoints.count() == 1) {
-        setKeepMouseGrab(false);
     }
 
     QTouchEvent::TouchPoint touchPoint1 = d->touchPoints.at(0);
@@ -393,48 +402,55 @@ void QQuickPinchArea::updatePinch()
         if (angle > 180)
             angle -= 360;
         if (!d->inPinch || d->initPinch) {
-            if (d->touchPoints.count() >= 2
-                    && (qAbs(p1.x()-d->sceneStartPoint1.x()) >= dragThreshold
-                    || qAbs(p1.y()-d->sceneStartPoint1.y()) >= dragThreshold
-                    || qAbs(p2.x()-d->sceneStartPoint2.x()) >= dragThreshold
-                    || qAbs(p2.y()-d->sceneStartPoint2.y()) >= dragThreshold)) {
-                d->initPinch = false;
+            if (d->touchPoints.count() >= 2) {
+                if (d->initPinch) {
+                    if (!d->inPinch)
+                        d->pinchStartDist = dist;
+                    d->initPinch = false;
+                }
                 d->sceneStartCenter = sceneCenter;
                 d->sceneLastCenter = sceneCenter;
                 d->pinchStartCenter = mapFromScene(sceneCenter);
-                d->pinchStartDist = dist;
                 d->pinchStartAngle = angle;
                 d->pinchLastScale = 1.0;
                 d->pinchLastAngle = angle;
                 d->pinchRotation = 0.0;
                 d->lastPoint1 = p1;
                 d->lastPoint2 = p2;
-                QQuickPinchEvent pe(d->pinchStartCenter, 1.0, angle, 0.0);
-                pe.setStartCenter(d->pinchStartCenter);
-                pe.setPreviousCenter(d->pinchStartCenter);
-                pe.setPreviousAngle(d->pinchLastAngle);
-                pe.setPreviousScale(d->pinchLastScale);
-                pe.setStartPoint1(mapFromScene(d->sceneStartPoint1));
-                pe.setStartPoint2(mapFromScene(d->sceneStartPoint2));
-                pe.setPoint1(mapFromScene(d->lastPoint1));
-                pe.setPoint2(mapFromScene(d->lastPoint2));
-                pe.setPointCount(d->touchPoints.count());
-                emit pinchStarted(&pe);
-                if (pe.accepted()) {
-                    d->inPinch = true;
-                    d->stealMouse = true;
-                    QQuickWindow *c = window();
-                    if (c && c->mouseGrabberItem() != this)
-                        grabMouse();
-                    setKeepMouseGrab(true);
-                    if (d->pinch && d->pinch->target()) {
-                        d->pinchStartPos = pinch()->target()->position();
-                        d->pinchStartScale = d->pinch->target()->scale();
-                        d->pinchStartRotation = d->pinch->target()->rotation();
-                        d->pinch->setActive(true);
+                if (qAbs(dist - d->pinchStartDist) >= dragThreshold ||
+                        (pinch()->axis() != QQuickPinch::NoDrag &&
+                         (qAbs(p1.x()-d->sceneStartPoint1.x()) >= dragThreshold
+                          || qAbs(p1.y()-d->sceneStartPoint1.y()) >= dragThreshold
+                          || qAbs(p2.x()-d->sceneStartPoint2.x()) >= dragThreshold
+                          || qAbs(p2.y()-d->sceneStartPoint2.y()) >= dragThreshold))) {
+                    QQuickPinchEvent pe(d->pinchStartCenter, 1.0, angle, 0.0);
+                    d->pinchStartDist = dist;
+                    pe.setStartCenter(d->pinchStartCenter);
+                    pe.setPreviousCenter(d->pinchStartCenter);
+                    pe.setPreviousAngle(d->pinchLastAngle);
+                    pe.setPreviousScale(d->pinchLastScale);
+                    pe.setStartPoint1(mapFromScene(d->sceneStartPoint1));
+                    pe.setStartPoint2(mapFromScene(d->sceneStartPoint2));
+                    pe.setPoint1(mapFromScene(d->lastPoint1));
+                    pe.setPoint2(mapFromScene(d->lastPoint2));
+                    pe.setPointCount(d->touchPoints.count());
+                    emit pinchStarted(&pe);
+                    if (pe.accepted()) {
+                        d->inPinch = true;
+                        d->stealMouse = true;
+                        QQuickWindow *c = window();
+                        if (c && c->mouseGrabberItem() != this)
+                            grabMouse();
+                        setKeepMouseGrab(true);
+                        if (d->pinch && d->pinch->target()) {
+                            d->pinchStartPos = pinch()->target()->position();
+                            d->pinchStartScale = d->pinch->target()->scale();
+                            d->pinchStartRotation = d->pinch->target()->rotation();
+                            d->pinch->setActive(true);
+                        }
+                    } else {
+                        d->pinchRejected = true;
                     }
-                } else {
-                    d->pinchRejected = true;
                 }
             }
         } else if (d->pinchStartDist > 0) {

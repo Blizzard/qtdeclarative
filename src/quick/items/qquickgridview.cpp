@@ -65,8 +65,8 @@ QT_BEGIN_NAMESPACE
 class FxGridItemSG : public FxViewItem
 {
 public:
-    FxGridItemSG(QQuickItem *i, QQuickGridView *v, bool own) : FxViewItem(i, v, own), view(v) {
-        attached = static_cast<QQuickGridViewAttached*>(qmlAttachedPropertiesObject<QQuickGridView>(item));
+    FxGridItemSG(QQuickItem *i, QQuickGridView *v, bool own) : FxViewItem(i, v, own, static_cast<QQuickItemViewAttached*>(qmlAttachedPropertiesObject<QQuickGridView>(i))), view(v)
+    {
     }
 
     qreal position() const {
@@ -1202,7 +1202,7 @@ bool QQuickGridViewPrivate::flick(AxisData &data, qreal minExtent, qreal maxExte
     \list
     \li \l flow - controls whether items flow from left to right (as a series of rows)
         or from top to bottom (as a series of columns). This value can be either
-        GridView.LeftToRight or GridView.TopToBottom.
+        GridView.FlowLeftToRight or GridView.FlowTopToBottom.
     \li \l layoutDirection - controls the horizontal layout direction: that is, whether items
         are laid out from the left side of the view to the right, or vice-versa. This value can
         be either Qt.LeftToRight or Qt.RightToLeft.
@@ -1215,16 +1215,16 @@ bool QQuickGridViewPrivate::flick(AxisData &data, qreal minExtent, qreal maxExte
     horizontally, and from top to bottom vertically.
 
     These properties can be combined to produce a variety of layouts, as shown in the table below.
-    The GridViews in the first row all have a \l flow value of GridView.LeftToRight, but use
+    The GridViews in the first row all have a \l flow value of GridView.FlowLeftToRight, but use
     different combinations of horizontal and vertical layout directions (specified by \l layoutDirection
     and \l verticalLayoutDirection respectively). Similarly, the GridViews in the second row below
-    all have a \l flow value of GridView.TopToBottom, but use different combinations of horizontal and
+    all have a \l flow value of GridView.FlowTopToBottom, but use different combinations of horizontal and
     vertical layout directions to lay out their items in different ways.
 
     \table
     \header
         \li {4, 1}
-            \b GridViews with GridView.LeftToRight flow
+            \b GridViews with GridView.FlowLeftToRight flow
     \row
         \li \b (H) Left to right \b (V) Top to bottom
             \image gridview-layout-lefttoright-ltr-ttb.png
@@ -1236,7 +1236,7 @@ bool QQuickGridViewPrivate::flick(AxisData &data, qreal minExtent, qreal maxExte
             \image gridview-layout-lefttoright-rtl-btt.png
     \header
         \li {4, 1}
-            \b GridViews with GridView.TopToBottom flow
+            \b GridViews with GridView.FlowTopToBottom flow
     \row
         \li \b (H) Left to right \b (V) Top to bottom
             \image gridview-layout-toptobottom-ltr-ttb.png
@@ -1283,7 +1283,8 @@ void QQuickGridView::setHighlightFollowsCurrentItem(bool autoHighlight)
     \qmlattachedproperty GridView QtQuick::GridView::view
     This attached property holds the view that manages this delegate instance.
 
-    It is attached to each instance of the delegate.
+    It is attached to each instance of the delegate and also to the header, the footer
+    and the highlight delegates.
 
     \snippet qml/gridview/gridview.qml isCurrentItem
 */
@@ -1344,6 +1345,8 @@ void QQuickGridView::setHighlightFollowsCurrentItem(bool autoHighlight)
     The item size of the GridView is determined by cellHeight and cellWidth. It will not resize the items
     based on the size of the root item in the delegate.
 
+    The default \l {QQuickItem::z}{stacking order} of delegate instances is \c 1.
+
     \note Delegates are instantiated as needed and may be destroyed at any time.
     State should \e never be stored in a delegate.
 */
@@ -1372,6 +1375,8 @@ void QQuickGridView::setHighlightFollowsCurrentItem(bool autoHighlight)
 
   The highlightItem is managed by the view unless
   \l highlightFollowsCurrentItem is set to false.
+  The default \l {QQuickItem::z}{stacking order}
+  of the highlight item is \c 0.
 
   \sa highlight, highlightFollowsCurrentItem
 */
@@ -1390,6 +1395,7 @@ void QQuickGridView::setHighlightFollowsCurrentItem(bool autoHighlight)
   An instance of the highlight component is created for each view.
   The geometry of the resulting component instance will be managed by the view
   so as to stay with the current item, unless the highlightFollowsCurrentItem property is false.
+  The default \l {QQuickItem::z}{stacking order} of the highlight item is \c 0.
 
   \sa highlightItem, highlightFollowsCurrentItem
 */
@@ -1466,8 +1472,8 @@ void QQuickGridView::setHighlightFollowsCurrentItem(bool autoHighlight)
   on the \l GridView::flow property.
   \endlist
 
-  \b Note: If GridView::flow is set to GridView.LeftToRight, this is not to be confused if
-  GridView::layoutDirection is set to Qt.RightToLeft. The GridView.LeftToRight flow value simply
+  \b Note: If GridView::flow is set to GridView.FlowLeftToRight, this is not to be confused if
+  GridView::layoutDirection is set to Qt.RightToLeft. The GridView.FlowLeftToRight flow value simply
   indicates that the flow is horizontal.
 
   \sa GridView::effectiveLayoutDirection, GridView::verticalLayoutDirection
@@ -1582,8 +1588,8 @@ void QQuickGridView::setHighlightMoveDuration(int duration)
     Possible values:
 
     \list
-    \li GridView.LeftToRight (default) - Items are laid out from left to right, and the view scrolls vertically
-    \li GridView.TopToBottom - Items are laid out from top to bottom, and the view scrolls horizontally
+    \li GridView.FlowLeftToRight (default) - Items are laid out from left to right, and the view scrolls vertically
+    \li GridView.FlowTopToBottom - Items are laid out from top to bottom, and the view scrolls horizontally
     \endlist
 */
 QQuickGridView::Flow QQuickGridView::flow() const
@@ -1661,9 +1667,9 @@ void QQuickGridView::setCellHeight(qreal cellHeight)
 
     \list
     \li GridView.NoSnap (default) - the view stops anywhere within the visible area.
-    \li GridView.SnapToRow - the view settles with a row (or column for \c GridView.TopToBottom flow)
+    \li GridView.SnapToRow - the view settles with a row (or column for \c GridView.FlowTopToBottom flow)
     aligned with the start of the view.
-    \li GridView.SnapOneRow - the view will settle no more than one row (or column for \c GridView.TopToBottom flow)
+    \li GridView.SnapOneRow - the view will settle no more than one row (or column for \c GridView.FlowTopToBottom flow)
     away from the first visible row at the time the mouse button is released.
     This mode is particularly useful for moving one page at a time.
     \endlist
@@ -1690,7 +1696,8 @@ void QQuickGridView::setSnapMode(SnapMode mode)
     This property holds the component to use as the footer.
 
     An instance of the footer component is created for each view.  The
-    footer is positioned at the end of the view, after any items.
+    footer is positioned at the end of the view, after any items. The
+    default \l {QQuickItem::z}{stacking order} of the footer is \c 1.
 
     \sa header, footerItem
 */
@@ -1700,6 +1707,7 @@ void QQuickGridView::setSnapMode(SnapMode mode)
 
     An instance of the header component is created for each view.  The
     header is positioned at the beginning of the view, before any items.
+    The default \l {QQuickItem::z}{stacking order} of the header is \c 1.
 
     \sa footer, headerItem
 */
@@ -1710,6 +1718,7 @@ void QQuickGridView::setSnapMode(SnapMode mode)
 
     An instance of the header component is created for each view.  The
     header is positioned at the beginning of the view, before any items.
+    The default \l {QQuickItem::z}{stacking order} of the header is \c 1.
 
     \sa header, footerItem
 */
@@ -1719,7 +1728,8 @@ void QQuickGridView::setSnapMode(SnapMode mode)
     This holds the footer item created from the \l footer component.
 
     An instance of the footer component is created for each view.  The
-    footer is positioned at the end of the view, after any items.
+    footer is positioned at the end of the view, after any items. The
+    default \l {QQuickItem::z}{stacking order} of the footer is \c 1.
 
     \sa footer, headerItem
 */
@@ -2127,6 +2137,9 @@ void QQuickGridView::geometryChanged(const QRectF &newGeometry, const QRectF &ol
 void QQuickGridView::initItem(int index, QObject *obj)
 {
     QQuickItemView::initItem(index, obj);
+
+    // setting the view from the FxViewItem wrapper is too late if the delegate
+    // needs access to the view in Component.onCompleted
     QQuickItem *item = qmlobject_cast<QQuickItem*>(obj);
     if (item) {
         QQuickGridViewAttached *attached = static_cast<QQuickGridViewAttached *>(
@@ -2508,13 +2521,13 @@ bool QQuickGridViewPrivate::needsRefillForAddedOrRemovedIndex(int modelIndex) co
     \a mode:
 
     \list
-    \li GridView.Beginning - position item at the top (or left for \c GridView.TopToBottom flow) of the view.
+    \li GridView.Beginning - position item at the top (or left for \c GridView.FlowTopToBottom flow) of the view.
     \li GridView.Center - position item in the center of the view.
     \li GridView.End - position item at bottom (or right for horizontal orientation) of the view.
     \li GridView.Visible - if any part of the item is visible then take no action, otherwise
     bring the item into view.
     \li GridView.Contain - ensure the entire item is visible.  If the item is larger than
-    the view the item is positioned at the top (or left for \c GridView.TopToBottom flow) of the view.
+    the view the item is positioned at the top (or left for \c GridView.FlowTopToBottom flow) of the view.
     \li GridView.SnapPosition - position the item at \l preferredHighlightBegin.  This mode
     is only valid if \l highlightRangeMode is StrictlyEnforceRange or snapping is enabled
     via \l snapMode.

@@ -89,12 +89,16 @@ public:
     QSize sizeHint() const;
     QSize initialSize() const;
 
+    void setFormat(const QSurfaceFormat &format);
+    QSurfaceFormat format() const;
+
 public Q_SLOTS:
     void setSource(const QUrl&);
     void setContent(const QUrl& url, QQmlComponent *component, QObject *item);
 
 Q_SIGNALS:
     void statusChanged(QQuickWidget::Status);
+    void sceneGraphError(QQuickWindow::SceneGraphError error, const QString &message);
 
 private Q_SLOTS:
     void continueExecute();

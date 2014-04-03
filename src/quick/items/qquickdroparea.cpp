@@ -109,9 +109,6 @@ QQuickDropAreaPrivate::~QQuickDropAreaPrivate()
 
     The \l drag.source property is communicated to the source of a drag event as
     the recipient of a drop on the drag target.
-
-    The \l delegate property provides a means to specify a component to be
-    instantiated for each active drag over a drag target.
 */
 
 QQuickDropArea::QQuickDropArea(QQuickItem *parent)
@@ -211,9 +208,11 @@ qreal QQuickDropAreaDrag::y() const
 }
 
 /*!
-    \qmlsignal QtQuick::DropArea::onPositionChanged(DragEvent drag)
+    \qmlsignal QtQuick::DropArea::positionChanged(DragEvent drag)
 
-    This handler is called when the position of a drag has changed.
+    This signal is emitted when the position of a drag has changed.
+
+    The corresponding handler is \c onPositionChanged.
 */
 
 void QQuickDropArea::dragMoveEvent(QDragMoveEvent *event)
@@ -252,9 +251,11 @@ QStringList QQuickDropAreaPrivate::getKeys(const QMimeData *mimeData) const
 }
 
 /*!
-    \qmlsignal QtQuick::DropArea::onEntered(DragEvent drag)
+    \qmlsignal QtQuick::DropArea::entered(DragEvent drag)
 
-    This handler is called when a \a drag enters the bounds of a DropArea.
+    This signal is emitted when a \a drag enters the bounds of a DropArea.
+
+    The corresponding handler is \c onEntered.
 */
 
 void QQuickDropArea::dragEnterEvent(QDragEnterEvent *event)
@@ -285,9 +286,11 @@ void QQuickDropArea::dragEnterEvent(QDragEnterEvent *event)
 }
 
 /*!
-    \qmlsignal QtQuick::DropArea::onExited()
+    \qmlsignal QtQuick::DropArea::exited()
 
-    This handler is called when a drag exits the bounds of a DropArea.
+    This signal is emitted when a drag exits the bounds of a DropArea.
+
+    The corresponding handler is \c onExited.
 */
 
 void QQuickDropArea::dragLeaveEvent(QDragLeaveEvent *)
@@ -306,10 +309,12 @@ void QQuickDropArea::dragLeaveEvent(QDragLeaveEvent *)
 }
 
 /*!
-    \qmlsignal QtQuick::DropArea::onDropped(DragEvent drop)
+    \qmlsignal QtQuick::DropArea::dropped(DragEvent drop)
 
-    This handler is called when a drop event occurs within the bounds of a
+    This signal is emitted when a drop event occurs within the bounds of
     a DropArea.
+
+    The corresponding handler is \c onDropped.
 */
 
 void QQuickDropArea::dropEvent(QDropEvent *event)
@@ -383,8 +388,8 @@ void QQuickDropArea::dropEvent(QDropEvent *event)
     The drop action may be one of:
 
     \list
-    \li Qt.CopyAction Copy the data to the target
-    \li Qt.MoveAction Move the data from the source to the target
+    \li Qt.CopyAction Copy the data to the target.
+    \li Qt.MoveAction Move the data from the source to the target.
     \li Qt.LinkAction Create a link from the source to the target.
     \li Qt.IgnoreAction Ignore the action (do nothing with the data).
     \endlist

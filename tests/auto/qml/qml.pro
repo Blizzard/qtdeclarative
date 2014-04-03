@@ -21,7 +21,6 @@ PUBLICTESTS += \
     qqmlmoduleplugin \
     qqmlnotifier \
     qqmlqt \
-    qqmltranslation \
     qqmlxmlhttprequest \
     qtqmlmodules \
     qquickfolderlistmodel \
@@ -36,7 +35,6 @@ PRIVATETESTS += \
     qqmlexpression \
     qqmldirparser \
     qqmlglobal \
-    qqmlinstruction \
     qqmllanguage \
     qqmlproperty \
     qqmlpropertycache \
@@ -59,7 +57,8 @@ PRIVATETESTS += \
     qqmlinstantiator \
     qv4debugger \
     qqmlenginecleanup \
-    v4misc
+    v4misc \
+    qqmltranslation
 
 qtHaveModule(widgets) {
     PUBLICTESTS += \
@@ -69,7 +68,7 @@ qtHaveModule(widgets) {
 
 SUBDIRS += $$PUBLICTESTS
 SUBDIRS += $$METATYPETESTS
-SUBDIRS += debugger
+!winrt: SUBDIRS += debugger # no QProcess on winrt
 
 contains(QT_CONFIG, private_tests) {
     SUBDIRS += $$PRIVATETESTS

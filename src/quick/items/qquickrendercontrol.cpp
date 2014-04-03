@@ -136,7 +136,7 @@ void QQuickRenderControl::invalidate()
 void QQuickRenderControl::polishItems()
 {
     Q_D(QQuickRenderControl);
-    if (!d->window || !QQuickWindowPrivate::get(d->window)->isRenderable())
+    if (!d->window)
         return;
 
     QQuickWindowPrivate *cd = QQuickWindowPrivate::get(d->window);
@@ -151,7 +151,7 @@ void QQuickRenderControl::polishItems()
 bool QQuickRenderControl::sync()
 {
     Q_D(QQuickRenderControl);
-    if (!d->window || !QQuickWindowPrivate::get(d->window)->isRenderable())
+    if (!d->window)
         return false;
 
     QQuickWindowPrivate *cd = QQuickWindowPrivate::get(d->window);
@@ -162,12 +162,32 @@ bool QQuickRenderControl::sync()
 }
 
 /*!
+  Stop rendering and release resources. This function is typically
+  called when the window is hidden. Requires a current context.
+ */
+void QQuickRenderControl::stop()
+{
+    Q_D(QQuickRenderControl);
+    if (!d->window)
+        return;
+
+    QQuickWindowPrivate *cd = QQuickWindowPrivate::get(d->window);
+    cd->fireAboutToStop();
+    cd->cleanupNodesOnShutdown();
+
+    if (!cd->persistentSceneGraph) {
+        d->rc->invalidate();
+        QCoreApplication::sendPostedEvents(0, QEvent::DeferredDelete);
+    }
+}
+
+/*!
   Render the scenegraph using the current context.
  */
 void QQuickRenderControl::render()
 {
     Q_D(QQuickRenderControl);
-    if (!d->window || !QQuickWindowPrivate::get(d->window)->isRenderable())
+    if (!d->window)
         return;
 
     QQuickWindowPrivate *cd = QQuickWindowPrivate::get(d->window);
@@ -197,7 +217,7 @@ QImage QQuickRenderControl::grab()
         return QImage();
 
     render();
-    QImage grabContent = qt_gl_read_framebuffer(d->window->size(), false, false);
+    QImage grabContent = qt_gl_read_framebuffer(d->window->size() * d->window->devicePixelRatio(), false, false);
     return grabContent;
 }
 

@@ -78,7 +78,7 @@ void tst_qqmlapplicationengine::basicLoading()
     QVERIFY(test->rootObjects()[size -1]);
     QVERIFY(test->rootObjects()[size -1]->property("success").toBool());
 
-    QSignalSpy objectCreated(test, SIGNAL(objectCreated(QObject*,const QUrl&)));
+    QSignalSpy objectCreated(test, SIGNAL(objectCreated(QObject*,QUrl)));
     test->load(testFileUrl("basicTest.qml"));
     QCOMPARE(objectCreated.count(), size);//one less than rootObjects().size() because we missed the first one
     QCOMPARE(test->rootObjects().size(), ++size);
@@ -108,6 +108,7 @@ void tst_qqmlapplicationengine::application()
        Note that checking the output means that on builds with extra debugging, this might fail with a false positive.
        Also the testapp is automatically built and installed in shadow builds, so it does NOT use testData
    */
+#ifndef QT_NO_PROCESS
     QDir::setCurrent(buildDir);
     QProcess *testProcess = new QProcess(this);
     QStringList args;
@@ -117,7 +118,7 @@ void tst_qqmlapplicationengine::application()
     QCOMPARE(testProcess->exitCode(), 0);
     QByteArray test_stdout = testProcess->readAllStandardOutput();
     QByteArray test_stderr = testProcess->readAllStandardError();
-    QByteArray test_stderr_target("Start: testData\nEnd\n");
+    QByteArray test_stderr_target("qml: Start: testData\nqml: End\n");
 #ifdef Q_OS_WIN
     test_stderr_target.replace('\n', QByteArray("\r\n"));
 #endif
@@ -125,6 +126,9 @@ void tst_qqmlapplicationengine::application()
     QCOMPARE(test_stderr, test_stderr_target);
     delete testProcess;
     QDir::setCurrent(srcDir);
+#else // !QT_NO_PROCESS
+    QSKIP("No process support");
+#endif // QT_NO_PROCESS
 }
 
 void tst_qqmlapplicationengine::applicationProperties()

@@ -44,6 +44,7 @@
 
 #include <QtGui/QImage>
 #include <private/qtquickglobal_p.h>
+#include <QtCore/QSet>
 
 QT_BEGIN_NAMESPACE
 
@@ -78,6 +79,10 @@ public:
 
     virtual void releaseResources(QQuickWindow *window) = 0;
 
+    void addWindow(QQuickWindow *win) { m_windows.insert(win); }
+    void removeWindow(QQuickWindow *win) { m_windows.remove(win); }
+    QSet<QQuickWindow *> windows() const { return m_windows; }
+
     // ### make this less of a singleton
     static QSGRenderLoop *instance();
     static void setInstance(QSGRenderLoop *instance);
@@ -88,6 +93,17 @@ public:
 
 Q_SIGNALS:
     void timeToIncubate();
+
+protected:
+    void handleContextCreationFailure(QQuickWindow *window, bool isEs);
+
+public Q_SLOTS:
+    void cleanup();
+
+private:
+    static QSGRenderLoop *s_instance;
+
+    QSet<QQuickWindow *> m_windows;
 };
 
 QT_END_NAMESPACE

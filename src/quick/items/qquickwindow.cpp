@@ -65,6 +65,7 @@
 #include <QtGui/qstylehints.h>
 #include <QtCore/qvarlengtharray.h>
 #include <QtCore/qabstractanimation.h>
+#include <QtCore/QLibraryInfo>
 #include <QtQml/qqmlincubator.h>
 
 #include <QtQuick/private/qquickpixmapcache_p.h>
@@ -216,9 +217,11 @@ void QQuickWindow::exposeEvent(QExposeEvent *)
 }
 
 /*! \reimp */
-void QQuickWindow::resizeEvent(QResizeEvent *)
+void QQuickWindow::resizeEvent(QResizeEvent *ev)
 {
     Q_D(QQuickWindow);
+    if (d->contentItem)
+        d->contentItem->setSize(ev->size());
     if (d->windowManager)
         d->windowManager->resize(this);
 }
@@ -287,7 +290,7 @@ void QQuickWindow::update()
     Q_D(QQuickWindow);
     if (d->windowManager)
         d->windowManager->update(this);
-    else
+    else if (d->renderControl)
         d->renderControl->update();
 }
 
@@ -407,7 +410,6 @@ QQuickWindowPrivate::QQuickWindowPrivate()
     , persistentSceneGraph(true)
     , lastWheelEventAccepted(false)
     , componentCompleted(true)
-    , forceRendering(false)
     , renderTarget(0)
     , renderTargetId(0)
     , incubationController(0)
@@ -433,6 +435,7 @@ void QQuickWindowPrivate::init(QQuickWindow *c, QQuickRenderControl *control)
     contentItemPrivate->window = q;
     contentItemPrivate->windowRefCount = 1;
     contentItemPrivate->flags |= QQuickItem::ItemIsFocusScope;
+    contentItem->setSize(q->size());
 
     customRenderMode = qgetenv("QSG_VISUALIZE");
     renderControl = control;
@@ -449,6 +452,7 @@ void QQuickWindowPrivate::init(QQuickWindow *c, QQuickRenderControl *control)
         sg = renderControl->sceneGraphContext();
         context = renderControl->renderContext(sg);
     } else {
+        windowManager->addWindow(q);
         sg = windowManager->sceneGraphContext();
         context = windowManager->createRenderContext(sg);
     }
@@ -474,22 +478,10 @@ void QQuickWindowPrivate::init(QQuickWindow *c, QQuickRenderControl *control)
 
 QQmlListProperty<QObject> QQuickWindowPrivate::data()
 {
-    initContentItem();
     return QQmlListProperty<QObject>(q_func(), 0, QQuickWindowPrivate::data_append,
                                              QQuickWindowPrivate::data_count,
                                              QQuickWindowPrivate::data_at,
                                              QQuickWindowPrivate::data_clear);
-}
-
-void QQuickWindowPrivate::initContentItem()
-{
-    Q_Q(QQuickWindow);
-    q->connect(q, SIGNAL(widthChanged(int)),
-            contentItem, SLOT(setWidth(int)));
-    q->connect(q, SIGNAL(heightChanged(int)),
-            contentItem, SLOT(setHeight(int)));
-    contentItem->setWidth(q->width());
-    contentItem->setHeight(q->height());
 }
 
 static QMouseEvent *touchToMouseEvent(QEvent::Type type, const QTouchEvent::TouchPoint &p, QTouchEvent *event, QQuickItem *item, bool transformNeeded = true)
@@ -890,7 +882,8 @@ void QQuickWindowPrivate::clearFocusInScope(QQuickItem *scope, QQuickItem *item,
 
 void QQuickWindowPrivate::clearFocusObject()
 {
-    contentItem->setFocus(false, Qt::OtherFocusReason);
+    if (activeFocusItem)
+        activeFocusItem->setFocus(false, Qt::OtherFocusReason);
 }
 
 void QQuickWindowPrivate::notifyFocusChangesRecur(QQuickItem **items, int remaining)
@@ -983,8 +976,6 @@ void QQuickWindowPrivate::cleanup(QSGNode *n)
 
     For easily displaying a scene from a QML file, see \l{QQuickView}.
 
-
-
     \section1 Rendering
 
     QQuickWindow uses a scene graph on top of OpenGL to
@@ -1039,6 +1030,9 @@ void QQuickWindowPrivate::cleanup(QSGNode *n)
     scene graph and its OpenGL context being deleted. The
     sceneGraphInvalidated() signal will be emitted when this happens.
 
+    \note All classes with QSG prefix should be used solely on the scene graph's
+    rendering thread. See \l {Scene Graph and Rendering} for more information.
+
     \sa {Scene Graph - OpenGL Under QML}
 
 */
@@ -1085,10 +1079,12 @@ QQuickWindow::~QQuickWindow()
     Q_D(QQuickWindow);
 
     d->animationController->deleteLater();
-    if (d->renderControl)
+    if (d->renderControl) {
         d->renderControl->windowDestroyed();
-    else
+    } else if (d->windowManager) {
+        d->windowManager->removeWindow(this);
         d->windowManager->windowDestroyed(this);
+    }
 
     QCoreApplication::sendPostedEvents(0, QEvent::DeferredDelete);
     delete d->incubationController; d->incubationController = 0;
@@ -1097,8 +1093,6 @@ QQuickWindow::~QQuickWindow()
 #endif
     delete d->contentItem; d->contentItem = 0;
 }
-
-
 
 /*!
     This function tries to release redundant resources currently held by the QML scene.
@@ -2309,7 +2303,37 @@ void QQuickWindowPrivate::data_clear(QQmlListProperty<QObject> *property)
 bool QQuickWindowPrivate::isRenderable() const
 {
     Q_Q(const QQuickWindow);
-    return (forceRendering || (q->isExposed() && q->isVisible())) && q->geometry().isValid();
+    return ((q->isExposed() && q->isVisible())) && q->geometry().isValid();
+}
+
+void QQuickWindowPrivate::contextCreationFailureMessage(const QSurfaceFormat &format,
+                                                        QString *translatedMessage,
+                                                        QString *untranslatedMessage,
+                                                        bool isEs)
+{
+    const QString contextType = QLatin1String(isEs ? "EGL" : "OpenGL");
+    QString formatStr;
+    QDebug(&formatStr) << format;
+#if defined(Q_OS_WIN32)
+    const bool isDebug = QLibraryInfo::isDebugBuild();
+    const QString eglLibName = QLatin1String(isDebug ? "libEGLd.dll" : "libEGL.dll");
+    const QString glesLibName = QLatin1String(isDebug ? "libGLESv2d.dll" : "libGLESv2.dll");
+     //: %1 Context type (Open GL, EGL), %2 format, ANGLE %3, %4 library names
+    const char msg[] = QT_TRANSLATE_NOOP("QQuickWindow",
+        "Failed to create %1 context for format %2.\n"
+        "This is most likely caused by not having the necessary graphics drivers installed.\n\n"
+        "Install a driver providing OpenGL 2.0 or higher, or, if this is not possible, "
+        "make sure the ANGLE Open GL ES 2.0 emulation libraries (%3, %4 and d3dcompiler_*.dll) "
+        "are available in the application executable's directory or in a location listed in PATH.");
+    *translatedMessage = QQuickWindow::tr(msg).arg(contextType, formatStr, eglLibName, glesLibName);
+    *untranslatedMessage = QString::fromLatin1(msg).arg(contextType, formatStr, eglLibName, glesLibName);
+#else // Q_OS_WIN32
+    //: %1 Context type (Open GL, EGL), %2 format specification
+    const char msg[] = QT_TRANSLATE_NOOP("QQuickWindow",
+                                         "Failed to create %1 context for format %2");
+    *translatedMessage = QQuickWindow::tr(msg).arg(contextType, formatStr);
+    *untranslatedMessage = QString::fromLatin1(msg).arg(contextType, formatStr);
+#endif // !Q_OS_WIN32
 }
 
 /*!
@@ -2693,7 +2717,7 @@ void QQuickWindow::maybeUpdate()
     Q_D(QQuickWindow);
     if (d->renderControl)
         d->renderControl->maybeUpdate();
-    else
+    else if (d->windowManager)
         d->windowManager->maybeUpdate(this);
 }
 
@@ -2817,7 +2841,7 @@ QOpenGLContext *QQuickWindow::openglContext() const
 */
 
 /*!
-    \qmlsignal closing(CloseEvent close)
+    \qmlsignal QtQuick.Window::Window::closing(CloseEvent close)
     \since 5.1
 
     This signal is emitted when the user tries to close the window.
@@ -2826,6 +2850,8 @@ QOpenGLContext *QQuickWindow::openglContext() const
     property is true by default so that the window is allowed to close; but you
     can implement an onClosing() handler and set close.accepted = false if
     you need to do something else before the window can be closed.
+
+    The corresponding handler is \c onClosing.
  */
 
 
@@ -2960,7 +2986,7 @@ QImage QQuickWindow::grabWindow()
         d->syncSceneGraph();
         d->renderSceneGraph(size());
 
-        QImage image = qt_gl_read_framebuffer(size(), false, false);
+        QImage image = qt_gl_read_framebuffer(size() * devicePixelRatio(), false, false);
         d->cleanupNodesOnShutdown();
         d->context->invalidate();
         context.doneCurrent();
@@ -2968,7 +2994,11 @@ QImage QQuickWindow::grabWindow()
         return image;
     }
 
-    return d->renderControl ? d->renderControl->grab() : d->windowManager->grab(this);
+    if (d->renderControl)
+        return d->renderControl->grab();
+    else if (d->windowManager)
+        return d->windowManager->grab(this);
+    return QImage();
 }
 
 /*!

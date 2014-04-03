@@ -231,11 +231,18 @@ struct DrawSet
     int indexCount;
 };
 
+enum BatchCompatibility
+{
+    BatchBreaksOnBlending,
+    BatchBreaksOnCompare,
+    BatchIsCompatible
+};
+
 struct Batch
 {
     Batch() : drawSets(1) {}
     bool geometryWasChanged(QSGGeometryNode *gn);
-    bool isMaterialCompatible(Element *e) const;
+    BatchCompatibility isMaterialCompatible(Element *e) const;
     void invalidate();
     void cleanupRemovedElements();
 
@@ -492,6 +499,8 @@ private:
 
     uint m_rebuild;
     qreal m_zRange;
+    int m_renderOrderRebuildLower;
+    int m_renderOrderRebuildUpper;
 
     GLuint m_bufferStrategy;
     int m_batchNodeThreshold;

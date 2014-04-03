@@ -69,6 +69,7 @@ public:
     virtual ~tst_QJSEngine();
 
 private slots:
+    void callQObjectSlot();
     void constructWithParent();
     void newObject();
     void newArray();
@@ -114,7 +115,8 @@ private slots:
     void jsForInStatement_prototypeProperties();
     void jsForInStatement_mutateWhileIterating();
     void jsForInStatement_arrays();
-    void jsForInStatement_nullAndUndefined();
+    void jsForInStatement_constant();
+    void with_constant();
     void stringObjects();
     void jsStringPrototypeReplaceBugs();
     void getterSetterThisObject_global();
@@ -147,6 +149,7 @@ private slots:
     void arrayPop_QTBUG_35979();
 
     void regexpLastMatch();
+    void indexedAccesses();
 
 signals:
     void testSignal();
@@ -158,6 +161,73 @@ tst_QJSEngine::tst_QJSEngine()
 
 tst_QJSEngine::~tst_QJSEngine()
 {
+}
+
+class OverloadedSlots : public QObject
+{
+    Q_OBJECT
+public:
+    OverloadedSlots()
+    {
+    }
+
+signals:
+    void slotWithoutArgCalled();
+    void slotWithSingleArgCalled(const QString &arg);
+    void slotWithArgumentsCalled(const QString &arg1, const QString &arg2, const QString &arg3);
+
+public slots:
+    void slotToCall() { emit slotWithoutArgCalled(); }
+    void slotToCall(const QString &arg) { emit slotWithSingleArgCalled(arg); }
+    void slotToCall(const QString &arg, const QString &arg2, const QString &arg3 = QString())
+    {
+        slotWithArgumentsCalled(arg, arg2, arg3);
+    }
+};
+
+void tst_QJSEngine::callQObjectSlot()
+{
+    OverloadedSlots dummy;
+    QJSEngine eng;
+    eng.globalObject().setProperty("dummy", eng.newQObject(&dummy));
+    QQmlEngine::setObjectOwnership(&dummy, QQmlEngine::CppOwnership);
+
+    {
+        QSignalSpy spy(&dummy, SIGNAL(slotWithoutArgCalled()));
+        eng.evaluate("dummy.slotToCall();");
+        QCOMPARE(spy.count(), 1);
+    }
+
+    {
+        QSignalSpy spy(&dummy, SIGNAL(slotWithSingleArgCalled(QString)));
+        eng.evaluate("dummy.slotToCall('arg');");
+
+        QCOMPARE(spy.count(), 1);
+        const QList<QVariant> arguments = spy.takeFirst();
+        QCOMPARE(arguments.at(0).toString(), QString("arg"));
+    }
+
+    {
+        QSignalSpy spy(&dummy, SIGNAL(slotWithArgumentsCalled(QString, QString, QString)));
+        eng.evaluate("dummy.slotToCall('arg', 'arg2');");
+        QCOMPARE(spy.count(), 1);
+
+        const QList<QVariant> arguments = spy.takeFirst();
+        QCOMPARE(arguments.at(0).toString(), QString("arg"));
+        QCOMPARE(arguments.at(1).toString(), QString("arg2"));
+        QCOMPARE(arguments.at(2).toString(), QString());
+    }
+
+    {
+        QSignalSpy spy(&dummy, SIGNAL(slotWithArgumentsCalled(QString, QString, QString)));
+        eng.evaluate("dummy.slotToCall('arg', 'arg2', 'arg3');");
+        QCOMPARE(spy.count(), 1);
+
+        const QList<QVariant> arguments = spy.takeFirst();
+        QCOMPARE(arguments.at(0).toString(), QString("arg"));
+        QCOMPARE(arguments.at(1).toString(), QString("arg2"));
+        QCOMPARE(arguments.at(2).toString(), QString("arg3"));
+    }
 }
 
 void tst_QJSEngine::constructWithParent()
@@ -496,6 +566,19 @@ void tst_QJSEngine::newQObject_ownership()
         // has parent, so it should be like QtOwnership
         QVERIFY(child != 0);
         delete parent;
+    }
+    {
+        QPointer<QObject> ptr = new QObject();
+        QVERIFY(ptr != 0);
+        {
+            QQmlEngine::setObjectOwnership(ptr.data(), QQmlEngine::CppOwnership);
+            QJSValue v = eng.newQObject(ptr);
+        }
+        eng.collectGarbage();
+        if (ptr)
+            QGuiApplication::sendPostedEvents(ptr, QEvent::DeferredDelete);
+        QVERIFY(!ptr.isNull());
+        delete ptr.data();
     }
 }
 
@@ -929,6 +1012,7 @@ void tst_QJSEngine::evaluate_data()
     QTest::newRow("/a/g") << QString("/a/g") << -1 << false << -1;
     QTest::newRow("/a/gim") << QString("/a/gim") << -1 << false << -1;
     QTest::newRow("/a/gimp") << QString("/a/gimp") << 1 << true << 1;
+    QTest::newRow("empty-array-concat") << QString("var a = []; var b = [1]; var c = a.concat(b); ") << 1 << false << -1;
 }
 
 void tst_QJSEngine::evaluate()
@@ -1900,7 +1984,7 @@ void tst_QJSEngine::jsForInStatement_arrays()
     }
 }
 
-void tst_QJSEngine::jsForInStatement_nullAndUndefined()
+void tst_QJSEngine::jsForInStatement_constant()
 {
     QJSEngine eng;
     {
@@ -1910,6 +1994,34 @@ void tst_QJSEngine::jsForInStatement_nullAndUndefined()
     }
     {
         QJSValue ret = eng.evaluate("r = true; for (var p in null) r = false; r");
+        QVERIFY(ret.isBool());
+        QVERIFY(ret.toBool());
+    }
+    {
+        QJSValue ret = eng.evaluate("r = false; for (var p in 1) r = true; r");
+        QVERIFY(ret.isBool());
+        QVERIFY(!ret.toBool());
+    }
+    {
+        QJSValue ret = eng.evaluate("r = false; for (var p in 'abc') r = true; r");
+        QVERIFY(ret.isBool());
+        QVERIFY(ret.toBool());
+    }
+}
+
+void tst_QJSEngine::with_constant()
+{
+    QJSEngine eng;
+    {
+        QJSValue ret = eng.evaluate("r = false; with(null) { r= true; } r");
+        QVERIFY(ret.isError());
+    }
+    {
+        QJSValue ret = eng.evaluate("r = false; with(undefined) { r= true; } r");
+        QVERIFY(ret.isError());
+    }
+    {
+        QJSValue ret = eng.evaluate("r = false; with(1) { r= true; } r");
         QVERIFY(ret.isBool());
         QVERIFY(ret.toBool());
     }
@@ -2786,6 +2898,19 @@ void tst_QJSEngine::regexpLastMatch()
         QCOMPARE(match.toString(), QString());
     }
 
+}
+
+void tst_QJSEngine::indexedAccesses()
+{
+    QJSEngine engine;
+    QJSValue v = engine.evaluate("function foo() { return 1[1] } foo()");
+    QVERIFY(v.isUndefined());
+    v = engine.evaluate("function foo() { return /x/[1] } foo()");
+    QVERIFY(v.isUndefined());
+    v = engine.evaluate("function foo() { return \"xy\"[1] } foo()");
+    QVERIFY(v.isString());
+    v = engine.evaluate("function foo() { return \"xy\"[2] } foo()");
+    QVERIFY(v.isUndefined());
 }
 
 QTEST_MAIN(tst_QJSEngine)

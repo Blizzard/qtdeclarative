@@ -53,6 +53,7 @@
 #include <private/qqmlvaluetypewrapper_p.h>
 #include <private/qqmlcontextwrapper_p.h>
 #include <private/qqmllistwrapper_p.h>
+#include <private/qqmlbuiltinfunctions_p.h>
 #include <private/qv8engine_p.h>
 
 #include <private/qv4functionobject_p.h>
@@ -245,8 +246,6 @@ QObjectWrapper::QObjectWrapper(ExecutionEngine *engine, QObject *object)
 
     Scope scope(engine);
     ScopedObject protectThis(scope, this);
-
-    m_destroy = engine->newIdentifier(QStringLiteral("destroy"));
 }
 
 void QObjectWrapper::initializeBindings(ExecutionEngine *engine)
@@ -282,8 +281,8 @@ ReturnedValue QObjectWrapper::getQmlProperty(ExecutionContext *ctx, QQmlContextD
     QV4::Scope scope(ctx);
     QV4::ScopedString name(scope, n);
 
-    if (name->equals(m_destroy) || name->equals(scope.engine->id_toString)) {
-        int index = name->equals(m_destroy) ? QV4::QObjectMethod::DestroyMethod : QV4::QObjectMethod::ToStringMethod;
+    if (name->equals(scope.engine->id_destroy) || name->equals(scope.engine->id_toString)) {
+        int index = name->equals(scope.engine->id_destroy) ? QV4::QObjectMethod::DestroyMethod : QV4::QObjectMethod::ToStringMethod;
         QV4::ScopedValue method(scope, QV4::QObjectMethod::create(ctx->engine->rootContext, m_object, index));
         if (hasProperty)
             *hasProperty = true;
@@ -475,10 +474,10 @@ void QObjectWrapper::setProperty(QObject *object, ExecutionContext *ctx, QQmlPro
             // binding assignment.
             QQmlContextData *callingQmlContext = QV4::QmlContextWrapper::callingContext(ctx->engine);
 
-            QV4::StackFrame frame = ctx->engine->currentStackFrame();
+            QV4::Scoped<QQmlBindingFunction> bindingFunction(scope, f);
+            bindingFunction->initBindingLocation();
 
-            newBinding = new QQmlBinding(value, object, callingQmlContext, frame.source,
-                                         qmlSourceCoordinate(frame.line), qmlSourceCoordinate(frame.column));
+            newBinding = new QQmlBinding(value, object, callingQmlContext);
             newBinding->setTarget(object, *property, callingQmlContext);
         }
     }
@@ -695,7 +694,7 @@ PropertyAttributes QObjectWrapper::query(const Managed *m, StringRef name)
     QQmlContextData *qmlContext = QV4::QmlContextWrapper::callingContext(engine);
     QQmlPropertyData local;
     if (that->findProperty(engine, qmlContext, name, IgnoreRevision, &local)
-        || name->equals(const_cast<StringValue &>(that->m_destroy)) || name->equals(engine->id_toString))
+        || name->equals(engine->id_destroy) || name->equals(engine->id_toString))
         return QV4::Attr_Data;
     else
         return QV4::Object::query(m, name);
@@ -752,13 +751,18 @@ struct QObjectSlotDispatcher : public QtPrivate::QSlotObjectBase
         break;
         case Call: {
             QObjectSlotDispatcher *This = static_cast<QObjectSlotDispatcher*>(this_);
+            QV4::ExecutionEngine *v4 = This->function.engine();
+            // Might be that we're still connected to a signal that's emitted long
+            // after the engine died. We don't track connections in a global list, so
+            // we need this safeguard.
+            if (!v4)
+                break;
+
             QVarLengthArray<int, 9> dummy;
             int *argsTypes = QQmlPropertyCache::methodParameterTypes(r, This->signalIndex, dummy, 0);
 
             int argCount = argsTypes ? argsTypes[0]:0;
 
-            QV4::ExecutionEngine *v4 = This->function.engine();
-            Q_ASSERT(v4);
             QV4::Scope scope(v4);
             QV4::ScopedFunctionObject f(scope, This->function.value());
             QV4::ExecutionContext *ctx = v4->currentContext();
@@ -778,8 +782,10 @@ struct QObjectSlotDispatcher : public QtPrivate::QSlotObjectBase
             if (scope.hasException() && v4->v8Engine) {
                 if (QQmlEngine *qmlEngine = v4->v8Engine->engine()) {
                     QQmlError error = QV4::ExecutionEngine::catchExceptionAsQmlError(ctx);
-                    if (error.description().isEmpty())
-                        error.setDescription(QString(QLatin1String("Unknown exception occurred during evaluation of connected function: %1")).arg(f->name->toQString()));
+                    if (error.description().isEmpty()) {
+                        QV4::ScopedString name(scope, f->name());
+                        error.setDescription(QString(QLatin1String("Unknown exception occurred during evaluation of connected function: %1")).arg(name->toQString()));
+                    }
                     QQmlEnginePrivate::get(qmlEngine)->warning(error);
                 }
             }
@@ -810,7 +816,7 @@ struct QObjectSlotDispatcher : public QtPrivate::QSlotObjectBase
             if (slotIndexToDisconnect != -1) {
                 // This is a QObject function wrapper
                 if (connection->thisObject.isUndefined() == thisObject->isUndefined() &&
-                        (connection->thisObject.isUndefined() || __qmljs_strict_equal(connection->thisObject, thisObject))) {
+                        (connection->thisObject.isUndefined() || RuntimeHelpers::strictEqual(connection->thisObject, thisObject))) {
 
                     QV4::ScopedFunctionObject f(scope, connection->function.value());
                     QPair<QObject *, int> connectedFunctionData = extractQtMethod(f);
@@ -822,9 +828,9 @@ struct QObjectSlotDispatcher : public QtPrivate::QSlotObjectBase
                 }
             } else {
                 // This is a normal JS function
-                if (__qmljs_strict_equal(connection->function, function) &&
+                if (RuntimeHelpers::strictEqual(connection->function, function) &&
                         connection->thisObject.isUndefined() == thisObject->isUndefined() &&
-                        (connection->thisObject.isUndefined() || __qmljs_strict_equal(connection->thisObject, thisObject))) {
+                        (connection->thisObject.isUndefined() || RuntimeHelpers::strictEqual(connection->thisObject, thisObject))) {
                     *ret = true;
                     return;
                 }
@@ -1812,10 +1818,24 @@ ReturnedValue QObjectMethod::callInternal(CallData *callData)
     }
 
     if (method.coreIndex == -1) {
-        method.load(object->metaObject()->method(m_index));
+        const QMetaObject *mo = object->metaObject();
+        const QMetaMethod moMethod = mo->method(m_index);
+        method.load(moMethod);
 
         if (method.coreIndex == -1)
             return QV4::Encode::undefined();
+
+        // Look for overloaded methods
+        QByteArray methodName = moMethod.name();
+        const int methodOffset = mo->methodOffset();
+        for (int ii = m_index - 1; ii >= methodOffset; --ii) {
+            if (methodName == mo->method(ii).name()) {
+                method.setFlags(method.getFlags() | QQmlPropertyData::IsOverload);
+                method.overrideIndexIsProperty = 0;
+                method.overrideIndex = ii;
+                break;
+            }
+        }
     }
 
     if (method.isV4Function()) {

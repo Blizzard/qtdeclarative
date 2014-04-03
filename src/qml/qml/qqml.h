@@ -91,13 +91,13 @@ class QQmlPropertyValueInterceptor;
     const char *className = T::staticMetaObject.className(); \
     const int nameLen = int(strlen(className)); \
     QVarLengthArray<char,48> pointerName(nameLen+2); \
-    memcpy(pointerName.data(), className, nameLen); \
+    memcpy(pointerName.data(), className, size_t(nameLen)); \
     pointerName[nameLen] = '*'; \
     pointerName[nameLen+1] = '\0'; \
     const int listLen = int(strlen("QQmlListProperty<")); \
     QVarLengthArray<char,64> listName(listLen + nameLen + 2); \
-    memcpy(listName.data(), "QQmlListProperty<", listLen); \
-    memcpy(listName.data()+listLen, className, nameLen); \
+    memcpy(listName.data(), "QQmlListProperty<", size_t(listLen)); \
+    memcpy(listName.data()+listLen, className, size_t(nameLen)); \
     listName[listLen+nameLen] = '>'; \
     listName[listLen+nameLen+1] = '\0';
 
@@ -419,7 +419,9 @@ class QQmlEngine;
 class QJSValue;
 class QJSEngine;
 
+#ifndef Q_QDOC
 namespace QtQml {
+#endif
     // declared in namespace to avoid symbol conflicts with QtDeclarative
     Q_QML_EXPORT void qmlExecuteDeferred(QObject *);
     Q_QML_EXPORT QQmlContext *qmlContext(const QObject *);
@@ -427,7 +429,9 @@ namespace QtQml {
     Q_QML_EXPORT QObject *qmlAttachedPropertiesObjectById(int, const QObject *, bool create = true);
     Q_QML_EXPORT QObject *qmlAttachedPropertiesObject(int *, const QObject *,
                                                       const QMetaObject *, bool create);
+#ifndef Q_QDOC
 }
+#endif
 
 #ifdef Q_CC_CLANG
 #pragma clang diagnostic push

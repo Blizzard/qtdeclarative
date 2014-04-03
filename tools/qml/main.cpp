@@ -53,12 +53,15 @@
 #endif // QT_GUI_LIB
 
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QStringList>
 #include <QDebug>
 #include <QStandardPaths>
+#include <QTranslator>
 #include <QtGlobal>
 #include <qqml.h>
 #include <qqmldebug.h>
@@ -348,11 +351,7 @@ static void loadDummyDataFiles(QQmlEngine &engine, const QString& directory)
     QStringList list = dir.entryList();
     for (int i = 0; i < list.size(); ++i) {
         QString qml = list.at(i);
-        QFile f(dir.filePath(qml));
-        f.open(QIODevice::ReadOnly);
-        QByteArray data = f.readAll();
-        QQmlComponent comp(&engine);
-        comp.setData(data, QUrl());
+        QQmlComponent comp(&engine, dir.filePath(qml));
         QObject *dummyData = comp.create();
 
         if (comp.isError()) {
@@ -497,6 +496,10 @@ int main(int argc, char *argv[])
     //Load files
     LoadWatcher lw(&e, files.count());
 
+    // Load dummy data before loading QML-files
+    if (!dummyDir.isEmpty() && QFileInfo (dummyDir).isDir())
+        loadDummyDataFiles(e, dummyDir);
+
     foreach (const QString &path, files) {
         //QUrl::fromUserInput doesn't treat no scheme as relative file paths
         QRegularExpression urlRe("[[:word:]]+://.*");
@@ -519,10 +522,6 @@ int main(int argc, char *argv[])
                 e.load(path);
         }
     }
-
-
-    if (!dummyDir.isEmpty() && QFileInfo (dummyDir).isDir())
-        loadDummyDataFiles(e, dummyDir);
 
     return app->exec();
 }

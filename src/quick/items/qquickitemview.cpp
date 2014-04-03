@@ -51,15 +51,17 @@ QT_BEGIN_NAMESPACE
 #define QML_VIEW_DEFAULTCACHEBUFFER 320
 #endif
 
-FxViewItem::FxViewItem(QQuickItem *i, QQuickItemView *v, bool own)
+FxViewItem::FxViewItem(QQuickItem *i, QQuickItemView *v, bool own, QQuickItemViewAttached *attached)
     : item(i)
     , view(v)
     , transitionableItem(0)
-    , attached(0)
+    , attached(attached)
     , ownItem(own)
     , releaseAfterTransition(false)
     , trackGeom(false)
 {
+    if (attached) // can be null for default components (see createComponentItem)
+        attached->setView(view);
 }
 
 FxViewItem::~FxViewItem()
@@ -684,7 +686,8 @@ void QQuickItemView::setPreferredHighlightBegin(qreal start)
     d->haveHighlightRange = d->highlightRange != NoHighlightRange && d->highlightRangeStart <= d->highlightRangeEnd;
     if (isComponentComplete()) {
         d->updateViewport();
-        d->fixupPosition();
+        if (!isMoving() && !isFlicking())
+            d->fixupPosition();
     }
     emit preferredHighlightBeginChanged();
 }
@@ -698,7 +701,8 @@ void QQuickItemView::resetPreferredHighlightBegin()
     d->highlightRangeStart = 0;
     if (isComponentComplete()) {
         d->updateViewport();
-        d->fixupPosition();
+        if (!isMoving() && !isFlicking())
+            d->fixupPosition();
     }
     emit preferredHighlightBeginChanged();
 }
@@ -719,7 +723,8 @@ void QQuickItemView::setPreferredHighlightEnd(qreal end)
     d->haveHighlightRange = d->highlightRange != NoHighlightRange && d->highlightRangeStart <= d->highlightRangeEnd;
     if (isComponentComplete()) {
         d->updateViewport();
-        d->fixupPosition();
+        if (!isMoving() && !isFlicking())
+            d->fixupPosition();
     }
     emit preferredHighlightEndChanged();
 }
@@ -733,7 +738,8 @@ void QQuickItemView::resetPreferredHighlightEnd()
     d->highlightRangeEnd = 0;
     if (isComponentComplete()) {
         d->updateViewport();
-        d->fixupPosition();
+        if (!isMoving() && !isFlicking())
+            d->fixupPosition();
     }
     emit preferredHighlightEndChanged();
 }
@@ -2312,7 +2318,8 @@ void QQuickItemView::initItem(int, QObject *object)
 {
     QQuickItem* item = qmlobject_cast<QQuickItem*>(object);
     if (item) {
-        item->setZ(1);
+        if (qFuzzyIsNull(item->z()))
+            item->setZ(1);
         item->setParentItem(contentItem());
         QQuickItemPrivate::get(item)->setCulled(true);
     }
@@ -2376,7 +2383,8 @@ QQuickItem *QQuickItemViewPrivate::createComponentItem(QQmlComponent *component,
         item = new QQuickItem;
     }
     if (item) {
-        item->setZ(zValue);
+        if (qFuzzyIsNull(item->z()))
+            item->setZ(zValue);
         QQml_setParent_noEvent(item, q->contentItem());
         item->setParentItem(q->contentItem());
     }

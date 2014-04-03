@@ -1,9 +1,9 @@
 /****************************************************************************
 **
-** Copyright (C) 2014 Digia Plc and/or its subsidiary(-ies).
+** Copyright (C) 2013 Digia Plc and/or its subsidiary(-ies).
 ** Contact: http://www.qt-project.org/legal
 **
-** This file is part of the examples of the Qt Toolkit.
+** This file is part of the test suite of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:BSD$
 ** You may use this file under the terms of the BSD license as follows:
@@ -38,34 +38,45 @@
 **
 ****************************************************************************/
 
-#include <QQuickWidget>
-#include <QtWidgets>
+import QtQuick 2.0
 
-int main(int argc, char **argv)
-{
-    QApplication app(argc, argv);
+ListView {
+  width: 100
+  height: 100
 
-    QMdiArea *toplevel = new QMdiArea;
+  Component.onCompleted: currentIndex = 0
 
-    QLCDNumber *lcd = new QLCDNumber;
-    lcd->display(1337);
-    lcd->setMinimumSize(250,100);
-    toplevel->addSubWindow(lcd);
+  model: ListModel {
+    ListElement {
+      name: "A"
+    }
+    ListElement {
+      name: "B"
+    }
+  }
 
-    QUrl source("qrc:quickwidget/rotatingsquare.qml");
+  delegate: Text {
+    width: ListView.view.width
+    text: model.name
+  }
 
-    QQuickWidget *w = new QQuickWidget;
-    w->resize(300,300);
-    w->setResizeMode(QQuickWidget::SizeRootObjectToView );
-    w->setSource(source);
+  header: Rectangle {
+    width: ListView.view.width
+  }
 
-    toplevel->addSubWindow(w);
+  footer: Rectangle {
+    width: ListView.view.width
+  }
 
-    toplevel->show();
+  highlight: Rectangle {
+    width: ListView.view.width
+  }
 
-    return app.exec();
+  section.property: "name"
+  section.criteria: ViewSection.FirstCharacter
+  section.delegate: Rectangle {
+    objectName: "sectionItem"
+    width: ListView.view.width
+  }
+
 }
-
-
-
-

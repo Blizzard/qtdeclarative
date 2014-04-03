@@ -256,6 +256,8 @@ class MyTypeObject : public QObject
     Q_PROPERTY(MyGroupedObject *grouped READ grouped CONSTANT)
     Q_PROPERTY(MyGroupedObject *nullGrouped READ nullGrouped CONSTANT)
 
+    Q_PROPERTY(MyTypeObject *selfGroupProperty READ selfGroupProperty)
+
 public:
     MyTypeObject()
         : objectPropertyValue(0), componentPropertyValue(0) {}
@@ -550,6 +552,8 @@ public:
 
     MyGroupedObject *nullGrouped() { return 0; }
 
+    MyTypeObject *selfGroupProperty() { return this; }
+
     void doAction() { emit action(); }
 signals:
     void action();
@@ -718,8 +722,14 @@ class MyCustomParserType : public QObject
 class MyCustomParserTypeParser : public QQmlCustomParser
 {
 public:
-    QByteArray compile(const QList<QQmlCustomParserProperty> &) { return QByteArray(); }
-    QByteArray compile(const QV4::CompiledData::QmlUnit *, const QList<const QV4::CompiledData::Binding *> &) { return QByteArray(); }
+    QByteArray compile(const QV4::CompiledData::QmlUnit *, int, const QList<const QV4::CompiledData::Binding *> &) { return QByteArray(); }
+    void setCustomData(QObject *, const QByteArray &) {}
+};
+
+class EnumSupportingCustomParser : public QQmlCustomParser
+{
+public:
+    QByteArray compile(const QV4::CompiledData::QmlUnit *qmlUnit, int objectIndex, const QList<const QV4::CompiledData::Binding *> &bindings);
     void setCustomData(QObject *, const QByteArray &) {}
 };
 
@@ -1090,9 +1100,25 @@ public:
 
 class CustomBindingParser : public QQmlCustomParser
 {
-    virtual QByteArray compile(const QList<QQmlCustomParserProperty> &properties);
-    virtual QByteArray compile(const QV4::CompiledData::QmlUnit *qmlUnit, const QList<const QV4::CompiledData::Binding *> &bindings);
+    virtual QByteArray compile(const QV4::CompiledData::QmlUnit *qmlUnit, int objectIndex, const QList<const QV4::CompiledData::Binding *> &bindings);
     virtual void setCustomData(QObject *object, const QByteArray &data);
+};
+
+class RootObjectInCreationTester : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QObject *subObject READ subObject WRITE setSubObject FINAL)
+    Q_CLASSINFO("DeferredPropertyNames", "subObject");
+public:
+    RootObjectInCreationTester()
+        : obj(0)
+    {}
+
+    QObject *subObject() const { return obj; }
+    void setSubObject(QObject *o) { obj = o; }
+
+private:
+    QObject *obj;
 };
 
 void registerTypes();

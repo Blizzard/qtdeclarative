@@ -111,7 +111,7 @@ ReturnedValue QmlBindingWrapper::call(Managed *that, CallData *)
     Q_ASSERT(This->function);
 
     CallContext *ctx = This->qmlContext;
-    std::fill(ctx->locals, ctx->locals + ctx->function->varCount, Primitive::undefinedValue());
+    std::fill(ctx->locals, ctx->locals + ctx->function->varCount(), Primitive::undefinedValue());
     engine->pushContext(ctx);
     ScopedValue result(scope, This->function->code(ctx, This->function->codeData));
     engine->popContext();
@@ -220,9 +220,13 @@ void Script::parse()
         }
 
         QStringList inheritedLocals;
-        if (inheritContext)
-            for (String * const *i = scope->variables(), * const *ei = i + scope->variableCount(); i < ei; ++i)
-                inheritedLocals.append(*i ? (*i)->toQString() : QString());
+        if (inheritContext) {
+            CallContext *ctx = scope->asCallContext();
+            if (ctx) {
+                for (String * const *i = ctx->variables(), * const *ei = i + ctx->variableCount(); i < ei; ++i)
+                    inheritedLocals.append(*i ? (*i)->toQString() : QString());
+            }
+        }
 
         RuntimeCodegen cg(scope, strictMode);
         cg.generateFromProgram(sourceFile, sourceCode, program, &module, QQmlJS::Codegen::EvalCode, inheritedLocals);
@@ -303,12 +307,10 @@ Function *Script::function()
     return vmFunction;
 }
 
-CompiledData::CompilationUnit *Script::precompile(ExecutionEngine *engine, const QUrl &url, const QString &source, QList<QQmlError> *reportedErrors)
+QV4::CompiledData::CompilationUnit *Script::precompile(IR::Module *module, Compiler::JSUnitGenerator *unitGenerator, ExecutionEngine *engine, const QUrl &url, const QString &source, QList<QQmlError> *reportedErrors)
 {
     using namespace QQmlJS;
     using namespace QQmlJS::AST;
-
-    IR::Module module(engine->debugger != 0);
 
     QQmlJS::Engine ee;
     QQmlJS::Lexer lexer(&ee);
@@ -347,7 +349,7 @@ CompiledData::CompilationUnit *Script::precompile(ExecutionEngine *engine, const
     }
 
     QQmlJS::Codegen cg(/*strict mode*/false);
-    cg.generateFromProgram(url.toString(), source, program, &module, QQmlJS::Codegen::EvalCode);
+    cg.generateFromProgram(url.toString(), source, program, module, QQmlJS::Codegen::EvalCode);
     errors = cg.errors();
     if (!errors.isEmpty()) {
         if (reportedErrors)
@@ -355,10 +357,9 @@ CompiledData::CompilationUnit *Script::precompile(ExecutionEngine *engine, const
         return 0;
     }
 
-    Compiler::JSUnitGenerator jsGenerator(&module);
-    QScopedPointer<EvalInstructionSelection> isel(engine->iselFactory->create(QQmlEnginePrivate::get(engine), engine->executableAllocator, &module, &jsGenerator));
+    QScopedPointer<EvalInstructionSelection> isel(engine->iselFactory->create(QQmlEnginePrivate::get(engine), engine->executableAllocator, module, unitGenerator));
     isel->setUseFastLookups(false);
-    return isel->compile();
+    return isel->compile(/*generate unit data*/false);
 }
 
 ReturnedValue Script::qmlBinding()

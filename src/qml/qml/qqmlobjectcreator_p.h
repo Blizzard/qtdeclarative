@@ -47,42 +47,62 @@
 #include <private/qqmlcompiler_p.h>
 #include <private/qqmltypecompiler_p.h>
 #include <private/qfinitestack_p.h>
+#include <private/qrecursionwatcher_p.h>
+#include <private/qqmlprofiler_p.h>
 
 QT_BEGIN_NAMESPACE
 
 class QQmlAbstractBinding;
 struct QQmlTypeCompiler;
 class QQmlInstantiationInterrupt;
+struct QQmlVmeProfiler;
+
+struct QQmlObjectCreatorSharedState
+{
+    QQmlContextData *rootContext;
+    QQmlContextData *creationContext;
+    QFiniteStack<QQmlAbstractBinding*> allCreatedBindings;
+    QFiniteStack<QQmlParserStatus*> allParserStatusCallbacks;
+    QFiniteStack<QObject*> allCreatedObjects;
+    QQmlComponentAttached *componentAttached;
+    QList<QQmlEnginePrivate::FinalizeCallback> finalizeCallbacks;
+    QQmlVmeProfiler profiler;
+    QRecursionNode recursionNode;
+};
 
 class QQmlObjectCreator
 {
     Q_DECLARE_TR_FUNCTIONS(QQmlObjectCreator)
-    struct SharedState;
 public:
-    QQmlObjectCreator(QQmlContextData *parentContext, QQmlCompiledData *compiledData, QQmlContextData *creationContext);
+    QQmlObjectCreator(QQmlContextData *parentContext, QQmlCompiledData *compiledData, QQmlContextData *creationContext, void *activeVMEDataForRootContext = 0);
     ~QQmlObjectCreator();
 
-    QObject *create(int subComponentIndex = -1, QObject *parent = 0);
+    QObject *create(int subComponentIndex = -1, QObject *parent = 0, QQmlInstantiationInterrupt *interrupt = 0);
+    bool populateDeferredProperties(QObject *instance);
     QQmlContextData *finalize(QQmlInstantiationInterrupt &interrupt);
+    void clear();
 
     QQmlComponentAttached **componentAttachment() { return &sharedState->componentAttached; }
 
-    QList<QQmlEnginePrivate::FinalizeCallback> finalizeCallbacks;
+    QList<QQmlEnginePrivate::FinalizeCallback> *finalizeCallbacks() { return &sharedState->finalizeCallbacks; }
 
     QList<QQmlError> errors;
 
     QQmlContextData *parentContextData() const { return parentContext; }
+    QFiniteStack<QObject*> &allCreatedObjects() const { return sharedState->allCreatedObjects; }
 
 private:
-    QQmlObjectCreator(QQmlContextData *contextData, QQmlCompiledData *compiledData, SharedState *inheritedSharedState);
+    QQmlObjectCreator(QQmlContextData *contextData, QQmlCompiledData *compiledData, QQmlObjectCreatorSharedState *inheritedSharedState);
 
     void init(QQmlContextData *parentContext);
 
-    QObject *createInstance(int index, QObject *parent = 0);
+    QObject *createInstance(int index, QObject *parent = 0, bool isContextObject = false);
 
-    bool populateInstance(int index, QObject *instance, QQmlRefPointer<QQmlPropertyCache> cache, QObject *bindingTarget, QQmlPropertyData *valueTypeProperty);
+    bool populateInstance(int index, QObject *instance,
+                          QObject *bindingTarget, QQmlPropertyData *valueTypeProperty,
+                          const QBitArray &bindingsToSkip = QBitArray());
 
-    void setupBindings();
+    void setupBindings(const QBitArray &bindingsToSkip);
     bool setPropertyBinding(QQmlPropertyData *property, const QV4::CompiledData::Binding *binding);
     void setPropertyValue(QQmlPropertyData *property, const QV4::CompiledData::Binding *binding);
     void setupFunctions();
@@ -90,13 +110,14 @@ private:
     QString stringAt(int idx) const { return qmlUnit->header.stringAt(idx); }
     void recordError(const QV4::CompiledData::Location &location, const QString &description);
 
-    struct SharedState {
-        QQmlContextData *rootContext;
-        QQmlContextData *creationContext;
-        QFiniteStack<QQmlAbstractBinding*> allCreatedBindings;
-        QFiniteStack<QQmlParserStatus*> allParserStatusCallbacks;
-        QQmlComponentAttached *componentAttached;
-    };
+    enum Phase {
+        Startup,
+        CreatingObjects,
+        CreatingObjectsPhase2,
+        ObjectsCreated,
+        Finalizing,
+        Done
+    } phase;
 
     QQmlEngine *engine;
     QQmlCompiledData *compiledData;
@@ -107,7 +128,8 @@ private:
     const QVector<QQmlPropertyCache *> &propertyCaches;
     const QVector<QByteArray> &vmeMetaObjectData;
     QHash<int, int> objectIndexToId;
-    QFlagPointer<SharedState> sharedState;
+    QFlagPointer<QQmlObjectCreatorSharedState> sharedState;
+    void *activeVMEDataForRootContext;
 
     QObject *_qobject;
     QObject *_scopeObject;
