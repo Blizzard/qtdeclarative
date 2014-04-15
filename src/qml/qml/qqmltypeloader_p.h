@@ -213,7 +213,7 @@ private:
 };
 
 class QQmlDataLoaderThread;
-class QQmlDataLoader
+class Q_QML_PRIVATE_EXPORT QQmlDataLoader
 {
 public:
     QQmlDataLoader(QQmlEngine *);
