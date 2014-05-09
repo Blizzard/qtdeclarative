@@ -75,6 +75,12 @@ public:
             *offset = m_quickWidget->mapTo(m_quickWidget->window(), QPoint());
         return m_quickWidget->window()->windowHandle();
     }
+
+    QWidget *parentWidget()
+    {
+        return m_quickWidget;
+    }
+
 private:
     QQuickWidget *m_quickWidget;
 };

@@ -65,6 +65,8 @@ public:
     QQuickWindow *window() const;
     virtual QWindow *renderWindow(QPoint */*offset*/) { return 0; }
     static QWindow *renderWindowFor(QQuickWindow *win, QPoint *offset = 0);
+    virtual QWidget *parentWidget() { return 0; }
+    static QWidget *parentWidgetFor(QQuickWindow *win);
 
     void windowDestroyed();
 
