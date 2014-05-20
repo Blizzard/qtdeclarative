@@ -1333,7 +1333,7 @@ void QQuickKeysAttached::keyPressed(QKeyEvent *event, bool post)
         for (int ii = 0; ii < d->targets.count(); ++ii) {
             QQuickItem *i = d->targets.at(ii);
             if (i && i->isVisible()) {
-                d->item->window()->sendEvent(i, event);
+                QCoreApplication::sendEvent(i, event);
                 if (event->isAccepted()) {
                     d->inPress = false;
                     return;
@@ -1375,7 +1375,7 @@ void QQuickKeysAttached::keyReleased(QKeyEvent *event, bool post)
         for (int ii = 0; ii < d->targets.count(); ++ii) {
             QQuickItem *i = d->targets.at(ii);
             if (i && i->isVisible()) {
-                d->item->window()->sendEvent(i, event);
+                QCoreApplication::sendEvent(i, event);
                 if (event->isAccepted()) {
                     d->inRelease = false;
                     return;
@@ -2132,8 +2132,6 @@ bool QQuickItemPrivate::qt_tab_all_widgets()
 */
 bool QQuickItemPrivate::canAcceptTabFocus(QQuickItem *item)
 {
-    bool result = true;
-
     if (!item->window())
         return false;
 
@@ -2141,14 +2139,13 @@ bool QQuickItemPrivate::canAcceptTabFocus(QQuickItem *item)
         return true;
 
 #ifndef QT_NO_ACCESSIBILITY
-    result = false;
     if (QObject *acc = qmlAttachedPropertiesObject<QQuickAccessibleAttached>(item, false)) {
         int role = acc->property("role").toInt();
         if (role == QAccessible::EditableText
                 || role == QAccessible::Table
                 || role == QAccessible::List
                 || role == QAccessible::SpinBox) {
-            result = true;
+            return true;
         } else if (role == QAccessible::ComboBox) {
             QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(item);
             return iface->state().editable;
@@ -2156,7 +2153,11 @@ bool QQuickItemPrivate::canAcceptTabFocus(QQuickItem *item)
     }
 #endif
 
-    return result;
+    QVariant readonly = item->property("readOnly");
+    if (readonly.isValid() && !readonly.toBool() && item->property("text").isValid())
+        return true;
+
+    return false;
 }
 
 /*!
@@ -6390,10 +6391,12 @@ void QQuickItem::setFocus(bool focus, Qt::FocusReason reason)
         while (scope && !scope->isFocusScope() && scope->parentItem())
             scope = scope->parentItem();
         if (d->window) {
-            if (focus)
-                QQuickWindowPrivate::get(d->window)->setFocusInScope(scope, this, reason);
-            else
-                QQuickWindowPrivate::get(d->window)->clearFocusInScope(scope, this, reason);
+            if (reason != Qt::PopupFocusReason) {
+                if (focus)
+                    QQuickWindowPrivate::get(d->window)->setFocusInScope(scope, this, reason);
+                else
+                    QQuickWindowPrivate::get(d->window)->clearFocusInScope(scope, this, reason);
+            }
         } else {
             // do the focus changes from setFocusInScope/clearFocusInScope that are
             // unrelated to a window

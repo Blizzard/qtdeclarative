@@ -68,6 +68,7 @@
 #include "qv4sequenceobject_p.h"
 #include "qv4qobjectwrapper_p.h"
 #include "qv4qmlextensions_p.h"
+#include "qv4memberdata_p.h"
 
 #include <QtCore/QTextStream>
 
@@ -214,8 +215,11 @@ ExecutionEngine::ExecutionEngine(EvalISelFactory *factory)
 
     identifierTable = new IdentifierTable(this);
 
-    emptyClass =  new (classPool.allocate(sizeof(InternalClass))) InternalClass(this);
+    classPool = new InternalClassPool;
+
+    emptyClass =  new (classPool) InternalClass(this);
     executionContextClass = InternalClass::create(this, ExecutionContext::staticVTable(), 0);
+    constructClass = InternalClass::create(this, Object::staticVTable(), 0);
     stringClass = InternalClass::create(this, String::staticVTable(), 0);
     regExpValueClass = InternalClass::create(this, RegExp::staticVTable(), 0);
 
@@ -252,6 +256,8 @@ ExecutionEngine::ExecutionEngine(EvalISelFactory *factory)
     id_destroy = newIdentifier(QStringLiteral("destroy"));
     id_valueOf = newIdentifier(QStringLiteral("valueOf"));
 
+    memberDataClass = InternalClass::create(this, MemberData::staticVTable(), 0);
+
     ObjectPrototype *objectPrototype = new (memoryManager) ObjectPrototype(InternalClass::create(this, ObjectPrototype::staticVTable(), 0));
     objectClass = InternalClass::create(this, Object::staticVTable(), objectPrototype);
     Q_ASSERT(objectClass->vtable == Object::staticVTable());
@@ -285,9 +291,12 @@ ExecutionEngine::ExecutionEngine(EvalISelFactory *factory)
     DatePrototype *datePrototype = new (memoryManager) DatePrototype(InternalClass::create(this, DatePrototype::staticVTable(), objectPrototype));
     dateClass = InternalClass::create(this, DateObject::staticVTable(), datePrototype);
 
-    FunctionPrototype *functionPrototype = new (memoryManager) FunctionPrototype(InternalClass::create(this, FunctionPrototype::staticVTable(), objectPrototype));
-    functionClass = InternalClass::create(this, FunctionObject::staticVTable(), functionPrototype);
+    InternalClass *functionProtoClass = InternalClass::create(this, FunctionObject::staticVTable(), objectPrototype);
     uint index;
+    functionProtoClass = functionProtoClass->addMember(id_prototype, Attr_NotEnumerable, &index);
+    Q_ASSERT(index == FunctionObject::Index_Prototype);
+    FunctionPrototype *functionPrototype = new (memoryManager) FunctionPrototype(functionProtoClass);
+    functionClass = InternalClass::create(this, FunctionObject::staticVTable(), functionPrototype);
     functionClass = functionClass->addMember(id_prototype, Attr_NotEnumerable|Attr_NotConfigurable, &index);
     Q_ASSERT(index == FunctionObject::Index_Prototype);
     protoClass = objectClass->addMember(id_constructor, Attr_NotEnumerable, &index);
@@ -422,6 +431,7 @@ ExecutionEngine::~ExecutionEngine()
 
     delete m_qmlExtensions;
     emptyClass->destroy();
+    delete classPool;
     delete bumperPointerAllocator;
     delete regExpCache;
     delete regExpAllocator;
@@ -457,7 +467,7 @@ void ExecutionEngine::initRootContext()
 
 InternalClass *ExecutionEngine::newClass(const InternalClass &other)
 {
-    return new (classPool.allocate(sizeof(InternalClass))) InternalClass(other);
+    return new (classPool) InternalClass(other);
 }
 
 ExecutionContext *ExecutionEngine::pushGlobalContext()
@@ -890,7 +900,7 @@ void ExecutionEngine::markObjects()
     if (m_qmlExtensions)
         m_qmlExtensions->markObjects(this);
 
-    emptyClass->markObjects();
+    classPool->markObjects(this);
 
     for (QSet<CompiledData::CompilationUnit*>::ConstIterator it = compilationUnits.constBegin(), end = compilationUnits.constEnd();
          it != end; ++it)

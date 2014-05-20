@@ -147,6 +147,7 @@ public:
     void loadAsync(QQmlDataBlob *b);
     void loadWithStaticData(QQmlDataBlob *b, const QByteArray &);
     void loadWithStaticDataAsync(QQmlDataBlob *b, const QByteArray &);
+    void loadWithCachedUnit(QQmlDataBlob *b, const QQmlPrivate::CachedQmlUnit *unit);
     void callCompleted(QQmlDataBlob *b);
     void callDownloadProgressChanged(QQmlDataBlob *b, qreal p);
     void initializeEngine(QQmlExtensionInterface *, const char *);
@@ -157,6 +158,7 @@ protected:
 private:
     void loadThread(QQmlDataBlob *b);
     void loadWithStaticDataThread(QQmlDataBlob *b, const QByteArray &);
+    void loadWithCachedUnitThread(QQmlDataBlob *b, const QQmlPrivate::CachedQmlUnit *unit);
     void callCompletedMain(QQmlDataBlob *b);
     void callDownloadProgressChangedMain(QQmlDataBlob *b, qreal p);
     void initializeEngineMain(QQmlExtensionInterface *iface, const char *uri);
@@ -777,6 +779,12 @@ void QQmlDataLoaderThread::loadWithStaticDataAsync(QQmlDataBlob *b, const QByteA
     postMethodToThread(&This::loadWithStaticDataThread, b, d);
 }
 
+void QQmlDataLoaderThread::loadWithCachedUnit(QQmlDataBlob *b, const QQmlPrivate::CachedQmlUnit *unit)
+{
+    b->addref();
+    callMethodInThread(&This::loadWithCachedUnitThread, b, unit);
+}
+
 void QQmlDataLoaderThread::callCompleted(QQmlDataBlob *b)
 {
     b->addref();
@@ -812,6 +820,12 @@ void QQmlDataLoaderThread::loadThread(QQmlDataBlob *b)
 void QQmlDataLoaderThread::loadWithStaticDataThread(QQmlDataBlob *b, const QByteArray &d)
 {
     m_loader->loadWithStaticDataThread(b, d);
+    b->release();
+}
+
+void QQmlDataLoaderThread::loadWithCachedUnitThread(QQmlDataBlob *b, const QQmlPrivate::CachedQmlUnit *unit)
+{
+    m_loader->loadWithCachedUnitThread(b, unit);
     b->release();
 }
 
@@ -965,11 +979,40 @@ void QQmlDataLoader::loadWithStaticData(QQmlDataBlob *blob, const QByteArray &da
     }
 }
 
+void QQmlDataLoader::loadWithCachedUnit(QQmlDataBlob *blob, const QQmlPrivate::CachedQmlUnit *unit)
+{
+#ifdef DATABLOB_DEBUG
+    qWarning("QQmlDataLoader::loadWithUnitFcatory(%s, data): %s thread", qPrintable(blob->m_url.toString()),
+             m_thread->isThisThread()?"Compile":"Engine");
+#endif
+
+    blob->startLoading(this);
+
+    if (m_thread->isThisThread()) {
+        unlock();
+        loadWithCachedUnitThread(blob, unit);
+        lock();
+    } else {
+        unlock();
+        m_thread->loadWithCachedUnit(blob, unit);
+        lock();
+        if (!blob->isCompleteOrError())
+            blob->m_data.setIsAsync(true);
+    }
+}
+
 void QQmlDataLoader::loadWithStaticDataThread(QQmlDataBlob *blob, const QByteArray &data)
 {
     ASSERT_LOADTHREAD();
 
     setData(blob, data);
+}
+
+void QQmlDataLoader::loadWithCachedUnitThread(QQmlDataBlob *blob, const QQmlPrivate::CachedQmlUnit *unit)
+{
+    ASSERT_LOADTHREAD();
+
+    setCachedUnit(blob, unit);
 }
 
 void QQmlDataLoader::loadThread(QQmlDataBlob *blob)
@@ -1165,6 +1208,24 @@ void QQmlDataLoader::setData(QQmlDataBlob *blob, const QQmlDataBlob::Data &d)
     blob->tryDone();
 }
 
+void QQmlDataLoader::setCachedUnit(QQmlDataBlob *blob, const QQmlPrivate::CachedQmlUnit *unit)
+{
+    QML_MEMORY_SCOPE_URL(blob->url());
+    blob->m_inCallback = true;
+
+    blob->initializeFromCachedUnit(unit);
+
+    if (!blob->isError() && !blob->isWaiting())
+        blob->allDependenciesDone();
+
+    if (blob->status() != QQmlDataBlob::Error)
+        blob->m_data.setStatus(QQmlDataBlob::WaitingForDependencies);
+
+    blob->m_inCallback = false;
+
+    blob->tryDone();
+}
+
 void QQmlDataLoader::shutdownThread()
 {
     if (!m_thread->isShutdown())
@@ -1172,7 +1233,7 @@ void QQmlDataLoader::shutdownThread()
 }
 
 QQmlTypeLoader::Blob::Blob(const QUrl &url, QQmlDataBlob::Type type, QQmlTypeLoader *loader)
-  : QQmlDataBlob(url, type), m_typeLoader(loader), m_importCache(loader), m_stringPool(0), m_isSingleton(false)
+  : QQmlDataBlob(url, type), m_typeLoader(loader), m_importCache(loader), m_isSingleton(false)
 {
 }
 
@@ -1539,7 +1600,11 @@ QQmlTypeData *QQmlTypeLoader::getType(const QUrl &url, Mode mode)
         typeData = new QQmlTypeData(url, this);
         // TODO: if (compiledData == 0), is it safe to omit this insertion?
         m_typeCache.insert(url, typeData);
-        QQmlDataLoader::load(typeData, mode);
+        if (const QQmlPrivate::CachedQmlUnit *cachedUnit = QQmlMetaType::findCachedCompilationUnit(url)) {
+            QQmlDataLoader::loadWithCachedUnit(typeData, cachedUnit);
+        } else {
+            QQmlDataLoader::load(typeData, mode);
+        }
     }
 
     typeData->addref();
@@ -1577,7 +1642,12 @@ QQmlScriptBlob *QQmlTypeLoader::getScript(const QUrl &url)
     if (!scriptBlob) {
         scriptBlob = new QQmlScriptBlob(url, this);
         m_scriptCache.insert(url, scriptBlob);
-        QQmlDataLoader::load(scriptBlob);
+
+        if (const QQmlPrivate::CachedQmlUnit *cachedUnit = QQmlMetaType::findCachedCompilationUnit(url)) {
+            QQmlDataLoader::loadWithCachedUnit(scriptBlob, cachedUnit);
+        } else {
+            QQmlDataLoader::load(scriptBlob);
+        }
     }
 
     scriptBlob->addref();
@@ -2046,7 +2116,7 @@ void QQmlTypeData::done()
         const TypeReference &type = *it;
         Q_ASSERT(!type.typeData || type.typeData->isCompleteOrError());
         if (type.typeData && type.typeData->isError()) {
-            QString typeName = m_document->jsGenerator.strings.at(it.key());
+            QString typeName = m_document->stringAt(it.key());
 
             QList<QQmlError> errors = type.typeData->errors();
             QQmlError error;
@@ -2137,13 +2207,34 @@ void QQmlTypeData::dataReceived(const Data &data)
     QQmlEngine *qmlEngine = typeLoader()->engine();
     m_document.reset(new QmlIR::Document(QV8Engine::getV4(qmlEngine)->debugger != 0));
     QmlIR::IRBuilder compiler(QV8Engine::get(qmlEngine)->illegalNames());
-    if (!compiler.generateFromQml(code, finalUrl(), finalUrlString(), m_document.data())) {
-        setError(compiler.errors);
+    if (!compiler.generateFromQml(code, finalUrlString(), finalUrlString(), m_document.data())) {
+        QList<QQmlError> errors;
+        foreach (const QQmlJS::DiagnosticMessage &msg, compiler.errors) {
+            QQmlError e;
+            e.setUrl(finalUrl());
+            e.setLine(msg.loc.startLine);
+            e.setColumn(msg.loc.startColumn);
+            e.setDescription(msg.message);
+            errors << e;
+        }
+        setError(errors);
         return;
     }
 
-    m_stringPool = &m_document->jsGenerator.strings;
+    continueLoadFromIR();
+}
 
+void QQmlTypeData::initializeFromCachedUnit(const QQmlPrivate::CachedQmlUnit *unit)
+{
+    QQmlEngine *qmlEngine = typeLoader()->engine();
+    m_document.reset(new QmlIR::Document(QV8Engine::getV4(qmlEngine)->debugger != 0));
+    unit->loadIR(m_document.data(), unit);
+    continueLoadFromIR();
+}
+
+void QQmlTypeData::continueLoadFromIR()
+{
+    m_document->collectTypeReferences();
     m_importCache.setBaseUrl(finalUrl(), finalUrlString());
 
     // For remote URLs, we don't delay the loading of the implicit import
@@ -2172,7 +2263,7 @@ void QQmlTypeData::dataReceived(const Data &data)
 
     QList<QQmlError> errors;
 
-    foreach (QV4::CompiledData::Import *import, m_document->imports) {
+    foreach (const QV4::CompiledData::Import *import, m_document->imports) {
         if (!addImport(import, &errors)) {
             Q_ASSERT(errors.size());
             QQmlError error(errors.takeFirst());
@@ -2192,7 +2283,6 @@ void QQmlTypeData::dataReceived(const Data &data)
             return;
         }
     }
-
 }
 
 void QQmlTypeData::allDependenciesDone()
@@ -2230,6 +2320,11 @@ void QQmlTypeData::downloadProgressChanged(qreal p)
         TypeDataCallback *callback = m_callbacks.at(ii);
         callback->typeDataProgress(this, p);
     }
+}
+
+QString QQmlTypeData::stringAt(int index) const
+{
+    return m_document->jsGenerator.stringTable.stringForIndex(index);
 }
 
 void QQmlTypeData::compile()
@@ -2299,15 +2394,7 @@ void QQmlTypeData::resolveTypes()
         }
     }
 
-    QV4::CompiledData::TypeReferenceMap typeReferences;
-    QStringList names;
-    if (m_document) {
-        typeReferences = m_document->typeReferences;
-        names = m_document->jsGenerator.strings;
-    } else {
-        // ### collect from available QV4::CompiledData::QmlUnit
-    }
-    for (QV4::CompiledData::TypeReferenceMap::ConstIterator unresolvedRef = typeReferences.constBegin(), end = typeReferences.constEnd();
+    for (QV4::CompiledData::TypeReferenceMap::ConstIterator unresolvedRef = m_document->typeReferences.constBegin(), end = m_document->typeReferences.constEnd();
          unresolvedRef != end; ++unresolvedRef) {
 
         TypeReference ref; // resolved reference
@@ -2319,7 +2406,7 @@ void QQmlTypeData::resolveTypes()
         QQmlImportNamespace *typeNamespace = 0;
         QList<QQmlError> errors;
 
-        const QString name = names.at(unresolvedRef.key());
+        const QString name = stringAt(unresolvedRef.key());
         bool typeFound = m_importCache.resolveType(name, &ref.type,
                 &majorVersion, &minorVersion, &typeNamespace, &errors);
         if (!typeNamespace && !typeFound && !m_implicitImportLoaded) {
@@ -2573,7 +2660,6 @@ void QQmlScriptData::clear()
 
 QQmlScriptBlob::QQmlScriptBlob(const QUrl &url, QQmlTypeLoader *loader)
 : QQmlTypeLoader::Blob(url, JavaScriptFile, loader), m_scriptData(0)
-, m_irUnit(QV8Engine::getV4(loader->engine())->debugger != 0)
 {
 }
 
@@ -2594,55 +2680,47 @@ void QQmlScriptBlob::dataReceived(const Data &data)
 {
     QString source = QString::fromUtf8(data.data(), data.size());
 
-    m_scriptData = new QQmlScriptData();
-    m_scriptData->url = finalUrl();
-    m_scriptData->urlString = finalUrlString();
-
-    QQmlError metaDataError;
-    m_irUnit.extractScriptMetaData(source, &metaDataError);
-    if (metaDataError.isValid()) {
-        metaDataError.setUrl(finalUrl());
-        setError(metaDataError);
+    QV4::ExecutionEngine *v4 = QV8Engine::getV4(m_typeLoader->engine());
+    QmlIR::Document irUnit(v4->debugger != 0);
+    QQmlJS::DiagnosticMessage metaDataError;
+    irUnit.extractScriptMetaData(source, &metaDataError);
+    if (!metaDataError.message.isEmpty()) {
+        QQmlError e;
+        e.setUrl(finalUrl());
+        e.setLine(metaDataError.loc.startLine);
+        e.setColumn(metaDataError.loc.startColumn);
+        e.setDescription(metaDataError.message);
+        setError(e);
         return;
     }
 
-    m_stringPool = &m_irUnit.jsGenerator.strings;
-
     QList<QQmlError> errors;
-    QV4::ExecutionEngine *v4 = QV8Engine::getV4(m_typeLoader->engine());
-    m_scriptData->m_precompiledScript = QV4::Script::precompile(&m_irUnit.jsModule, &m_irUnit.jsGenerator, v4, m_scriptData->url, source, &errors);
-    if (m_scriptData->m_precompiledScript)
-        m_scriptData->m_precompiledScript->ref();
+    QV4::CompiledData::CompilationUnit *unit = QV4::Script::precompile(&irUnit.jsModule, &irUnit.jsGenerator, v4, finalUrl(), source, &errors);
+    if (unit)
+        unit->ref();
     source.clear();
     if (!errors.isEmpty()) {
+        if (unit)
+            unit->deref();
         setError(errors);
         return;
     }
+    irUnit.javaScriptCompilationUnit = unit;
 
     QmlIR::QmlUnitGenerator qmlGenerator;
-    QV4::CompiledData::QmlUnit *qmlUnit = qmlGenerator.generate(m_irUnit);
-    if (m_scriptData->m_precompiledScript) {
-        Q_ASSERT(!m_scriptData->m_precompiledScript->data);
-        Q_ASSERT((void*)qmlUnit == (void*)&qmlUnit->header);
-        // The js unit owns the data and will free the qml unit.
-        m_scriptData->m_precompiledScript->data = &qmlUnit->header;
-    }
+    QV4::CompiledData::QmlUnit *qmlUnit = qmlGenerator.generate(irUnit);
+    Q_ASSERT(!unit->data);
+    Q_ASSERT((void*)qmlUnit == (void*)&qmlUnit->header);
+    // The js unit owns the data and will free the qml unit.
+    unit->data = &qmlUnit->header;
 
-    m_importCache.setBaseUrl(finalUrl(), finalUrlString());
+    initializeFromCompilationUnit(unit);
+    unit->deref();
+}
 
-    for (quint32 i = 0; i < qmlUnit->nImports; ++i) {
-        const QV4::CompiledData::Import *import = qmlUnit->importAt(i);
-        if (!addImport(import, &errors)) {
-            Q_ASSERT(errors.size());
-            QQmlError error(errors.takeFirst());
-            error.setUrl(m_importCache.baseUrl());
-            error.setLine(import->location.line);
-            error.setColumn(import->location.column);
-            errors.prepend(error); // put it back on the list after filling out information.
-            setError(errors);
-            return;
-        }
-    }
+void QQmlScriptBlob::initializeFromCachedUnit(const QQmlPrivate::CachedQmlUnit *unit)
+{
+    initializeFromCompilationUnit(unit->createCompilationUnit());
 }
 
 void QQmlScriptBlob::done()
@@ -2687,6 +2765,11 @@ void QQmlScriptBlob::done()
     m_importCache.populateCache(m_scriptData->importCache);
 }
 
+QString QQmlScriptBlob::stringAt(int index) const
+{
+    return m_scriptData->m_precompiledScript->data->stringAt(index);
+}
+
 void QQmlScriptBlob::scriptImported(QQmlScriptBlob *blob, const QV4::CompiledData::Location &location, const QString &qualifier, const QString &nameSpace)
 {
     ScriptReference ref;
@@ -2696,6 +2779,37 @@ void QQmlScriptBlob::scriptImported(QQmlScriptBlob *blob, const QV4::CompiledDat
     ref.nameSpace = nameSpace;
 
     m_scripts << ref;
+}
+
+void QQmlScriptBlob::initializeFromCompilationUnit(QV4::CompiledData::CompilationUnit *unit)
+{
+    Q_ASSERT(!m_scriptData);
+    m_scriptData = new QQmlScriptData();
+    m_scriptData->url = finalUrl();
+    m_scriptData->urlString = finalUrlString();
+    m_scriptData->m_precompiledScript = unit;
+    if (m_scriptData->m_precompiledScript)
+        m_scriptData->m_precompiledScript->ref();
+
+    m_importCache.setBaseUrl(finalUrl(), finalUrlString());
+
+    Q_ASSERT(m_scriptData->m_precompiledScript->data->flags & QV4::CompiledData::Unit::IsQml);
+    const QV4::CompiledData::QmlUnit *qmlUnit = reinterpret_cast<const QV4::CompiledData::QmlUnit*>(m_scriptData->m_precompiledScript->data);
+
+    QList<QQmlError> errors;
+    for (quint32 i = 0; i < qmlUnit->nImports; ++i) {
+        const QV4::CompiledData::Import *import = qmlUnit->importAt(i);
+        if (!addImport(import, &errors)) {
+           Q_ASSERT(errors.size());
+            QQmlError error(errors.takeFirst());
+            error.setUrl(m_importCache.baseUrl());
+            error.setLine(import->location.line);
+            error.setColumn(import->location.column);
+            errors.prepend(error); // put it back on the list after filling out information.
+            setError(errors);
+            return;
+        }
+    }
 }
 
 QQmlQmldirData::QQmlQmldirData(const QUrl &url, QQmlTypeLoader *loader)
@@ -2731,6 +2845,11 @@ void QQmlQmldirData::setPriority(int priority)
 void QQmlQmldirData::dataReceived(const Data &data)
 {
     m_content = QString::fromUtf8(data.data(), data.size());
+}
+
+void QQmlQmldirData::initializeFromCachedUnit(const QQmlPrivate::CachedQmlUnit *)
+{
+    Q_UNIMPLEMENTED();
 }
 
 QT_END_NAMESPACE

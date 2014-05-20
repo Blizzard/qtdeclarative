@@ -48,6 +48,7 @@
 #include <qstandarditemmodel.h>
 #include <QtCore/qnumeric.h>
 #include <qqmlengine.h>
+#include <qqmlcomponent.h>
 #include <stdlib.h>
 #include <private/qv4alloca_p.h>
 
@@ -151,6 +152,11 @@ private slots:
     void regexpLastMatch();
     void indexedAccesses();
 
+    void prototypeChainGc();
+    void prototypeChainGc_QTBUG38299();
+
+    void dynamicProperties();
+
 signals:
     void testSignal();
 };
@@ -162,6 +168,9 @@ tst_QJSEngine::tst_QJSEngine()
 tst_QJSEngine::~tst_QJSEngine()
 {
 }
+
+Q_DECLARE_METATYPE(Qt::KeyboardModifier)
+Q_DECLARE_METATYPE(Qt::KeyboardModifiers)
 
 class OverloadedSlots : public QObject
 {
@@ -175,6 +184,7 @@ signals:
     void slotWithoutArgCalled();
     void slotWithSingleArgCalled(const QString &arg);
     void slotWithArgumentsCalled(const QString &arg1, const QString &arg2, const QString &arg3);
+    void slotWithOverloadedArgumentsCalled(const QString &arg, Qt::KeyboardModifier modifier, Qt::KeyboardModifiers moreModifiers);
 
 public slots:
     void slotToCall() { emit slotWithoutArgCalled(); }
@@ -182,6 +192,10 @@ public slots:
     void slotToCall(const QString &arg, const QString &arg2, const QString &arg3 = QString())
     {
         slotWithArgumentsCalled(arg, arg2, arg3);
+    }
+    void slotToCall(const QString &arg, Qt::KeyboardModifier modifier, Qt::KeyboardModifiers blah = Qt::ShiftModifier)
+    {
+        emit slotWithOverloadedArgumentsCalled(arg, modifier, blah);
     }
 };
 
@@ -227,6 +241,18 @@ void tst_QJSEngine::callQObjectSlot()
         QCOMPARE(arguments.at(0).toString(), QString("arg"));
         QCOMPARE(arguments.at(1).toString(), QString("arg2"));
         QCOMPARE(arguments.at(2).toString(), QString("arg3"));
+    }
+
+    {
+        QSignalSpy spy(&dummy, SIGNAL(slotWithOverloadedArgumentsCalled(QString, Qt::KeyboardModifier, Qt::KeyboardModifiers)));
+        eng.evaluate(QStringLiteral("dummy.slotToCall('arg', %1);").arg(QString::number(Qt::ControlModifier)));
+        QCOMPARE(spy.count(), 1);
+
+        const QList<QVariant> arguments = spy.first();
+        QCOMPARE(arguments.at(0).toString(), QString("arg"));
+        QCOMPARE(arguments.at(1).toInt(), int(Qt::ControlModifier));
+        QCOMPARE(int(qvariant_cast<Qt::KeyboardModifiers>(arguments.at(2))), int(Qt::ShiftModifier));
+
     }
 }
 
@@ -1013,6 +1039,7 @@ void tst_QJSEngine::evaluate_data()
     QTest::newRow("/a/gim") << QString("/a/gim") << -1 << false << -1;
     QTest::newRow("/a/gimp") << QString("/a/gimp") << 1 << true << 1;
     QTest::newRow("empty-array-concat") << QString("var a = []; var b = [1]; var c = a.concat(b); ") << 1 << false << -1;
+    QTest::newRow("object-literal") << QString("var a = {\"0\":\"#\",\"2\":\"#\",\"5\":\"#\",\"8\":\"#\",\"6\":\"#\",\"12\":\"#\",\"13\":\"#\",\"16\":\"#\",\"18\":\"#\",\"39\":\"#\",\"40\":\"#\"}") << 1 << false << -1;
 }
 
 void tst_QJSEngine::evaluate()
@@ -1209,6 +1236,14 @@ void tst_QJSEngine::valueConversion_QVariant()
     QCOMPARE(qjsvalue_cast<QVariant>(QJSValue(123)), QVariant(123));
 
     QVERIFY(eng.toScriptValue(QVariant(QMetaType::VoidStar, 0)).isNull());
+
+    {
+        QVariantMap map;
+        map.insert("42", "the answer to life the universe and everything");
+        QJSValue val = eng.toScriptValue(map);
+        QVERIFY(val.isObject());
+        QCOMPARE(val.property(42).toString(), map.value(QStringLiteral("42")).toString());
+    }
 }
 
 void tst_QJSEngine::valueConversion_basic2()
@@ -2911,6 +2946,69 @@ void tst_QJSEngine::indexedAccesses()
     QVERIFY(v.isString());
     v = engine.evaluate("function foo() { return \"xy\"[2] } foo()");
     QVERIFY(v.isUndefined());
+}
+
+void tst_QJSEngine::prototypeChainGc()
+{
+    QJSEngine engine;
+
+    QJSValue getProto = engine.evaluate("Object.getPrototypeOf");
+
+    QJSValue factory = engine.evaluate("function() { return Object.create(Object.create({})); }");
+    QVERIFY(factory.isCallable());
+    QJSValue obj = factory.call();
+    engine.collectGarbage();
+
+    QJSValue proto = getProto.call(QJSValueList() << obj);
+    proto = getProto.call(QJSValueList() << proto);
+    QVERIFY(proto.isObject());
+}
+
+void tst_QJSEngine::prototypeChainGc_QTBUG38299()
+{
+    QJSEngine engine;
+    engine.evaluate("var mapping = {"
+                    "'prop1': \"val1\",\n"
+                    "'prop2': \"val2\"\n"
+                    "}\n"
+                    "\n"
+                    "delete mapping.prop2\n"
+                    "delete mapping.prop1\n"
+                    "\n");
+    // Don't hang!
+    engine.collectGarbage();
+}
+
+void tst_QJSEngine::dynamicProperties()
+{
+    {
+        QJSEngine engine;
+        QObject *obj = new QObject;
+        QJSValue wrapper = engine.newQObject(obj);
+        wrapper.setProperty("someRandomProperty", 42);
+        QCOMPARE(wrapper.property("someRandomProperty").toInt(), 42);
+        QVERIFY(!qmlContext(obj));
+    }
+    {
+        QQmlEngine qmlEngine;
+        QQmlComponent component(&qmlEngine);
+        component.setData("import QtQml 2.0; QtObject { property QtObject subObject: QtObject {} }", QUrl());
+        QObject *root = component.create(0);
+        QVERIFY(root);
+        QVERIFY(qmlContext(root));
+
+        QJSValue wrapper = qmlEngine.newQObject(root);
+        wrapper.setProperty("someRandomProperty", 42);
+        QVERIFY(!wrapper.hasProperty("someRandomProperty"));
+
+        QObject *subObject = qvariant_cast<QObject*>(root->property("subObject"));
+        QVERIFY(subObject);
+        QVERIFY(qmlContext(subObject));
+
+        wrapper = qmlEngine.newQObject(subObject);
+        wrapper.setProperty("someRandomProperty", 42);
+        QVERIFY(!wrapper.hasProperty("someRandomProperty"));
+    }
 }
 
 QTEST_MAIN(tst_QJSEngine)

@@ -450,7 +450,7 @@ static void appendReplacementString(QString *result, const QString &input, const
             uint substStart = JSC::Yarr::offsetNoMatch;
             uint substEnd = JSC::Yarr::offsetNoMatch;
             if (ch == '$') {
-                *result += QLatin1Char(ch);
+                *result += QChar(ch);
                 continue;
             } else if (ch == '&') {
                 substStart = matchOffsets[0];
@@ -463,7 +463,8 @@ static void appendReplacementString(QString *result, const QString &input, const
                 substEnd = input.length();
             } else if (ch >= '1' && ch <= '9') {
                 uint capture = ch - '0';
-                if (capture > 0 && capture < static_cast<uint>(captureCount)) {
+                Q_ASSERT(capture > 0);
+                if (capture < static_cast<uint>(captureCount)) {
                     substStart = matchOffsets[capture * 2];
                     substEnd = matchOffsets[capture * 2 + 1];
                 }
@@ -498,8 +499,8 @@ ReturnedValue StringPrototype::method_replace(CallContext *ctx)
     int numCaptures = 0;
     int numStringMatches = 0;
 
-    uint allocatedMatchOffsets = 32;
-    uint _matchOffsets[32];
+    uint allocatedMatchOffsets = 64;
+    uint _matchOffsets[64];
     uint *matchOffsets = _matchOffsets;
     uint nMatchOffsets = 0;
 
@@ -507,21 +508,24 @@ ReturnedValue StringPrototype::method_replace(CallContext *ctx)
     Scoped<RegExpObject> regExp(scope, searchValue);
     if (regExp) {
         uint offset = 0;
+
+        // We extract the pointer here to work around a compiler bug on Android.
+        Scoped<RegExp> re(scope, regExp->value);
         while (true) {
             int oldSize = nMatchOffsets;
-            if (allocatedMatchOffsets < nMatchOffsets + regExp->value->captureCount() * 2) {
-                allocatedMatchOffsets = qMax(allocatedMatchOffsets * 2, nMatchOffsets + regExp->value->captureCount() * 2);
+            if (allocatedMatchOffsets < nMatchOffsets + re->captureCount() * 2) {
+                allocatedMatchOffsets = qMax(allocatedMatchOffsets * 2, nMatchOffsets + re->captureCount() * 2);
                 uint *newOffsets = (uint *)malloc(allocatedMatchOffsets*sizeof(uint));
                 memcpy(newOffsets, matchOffsets, nMatchOffsets*sizeof(uint));
                 if (matchOffsets != _matchOffsets)
                     free(matchOffsets);
                 matchOffsets = newOffsets;
             }
-            if (regExp->value->match(string, offset, matchOffsets + oldSize) == JSC::Yarr::offsetNoMatch) {
+            if (re->match(string, offset, matchOffsets + oldSize) == JSC::Yarr::offsetNoMatch) {
                 nMatchOffsets = oldSize;
                 break;
             }
-            nMatchOffsets += regExp->value->captureCount() * 2;
+            nMatchOffsets += re->captureCount() * 2;
             if (!regExp->global)
                 break;
             offset = qMax(offset + 1, matchOffsets[oldSize + 1]);

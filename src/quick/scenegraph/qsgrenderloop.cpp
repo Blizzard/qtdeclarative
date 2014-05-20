@@ -89,15 +89,17 @@ QSGRenderLoop::~QSGRenderLoop()
 
 void QSGRenderLoop::cleanup()
 {
-    foreach (QQuickWindow *w, windows()) {
+    if (!s_instance)
+        return;
+    foreach (QQuickWindow *w, s_instance->windows()) {
         QQuickWindowPrivate *wd = QQuickWindowPrivate::get(w);
-        if (wd->windowManager == this) {
-           windowDestroyed(w);
+        if (wd->windowManager == s_instance) {
+           s_instance->windowDestroyed(w);
            wd->windowManager = 0;
         }
     }
+    delete s_instance;
     s_instance = 0;
-    delete this;
 }
 
 class QSGGuiThreadRenderLoop : public QSGRenderLoop
@@ -216,7 +218,7 @@ QSGRenderLoop *QSGRenderLoop::instance()
             }
         }
 
-        QObject::connect(QCoreApplication::instance(), SIGNAL(aboutToQuit()), s_instance, SLOT(cleanup()));
+        qAddPostRoutine(QSGRenderLoop::cleanup);
     }
     return s_instance;
 }
@@ -327,10 +329,10 @@ void QSGGuiThreadRenderLoop::renderWindow(QQuickWindow *window)
     if (!gl) {
         gl = new QOpenGLContext();
         gl->setFormat(window->requestedFormat());
-        if (QSGContext::sharedOpenGLContext())
-            gl->setShareContext(QSGContext::sharedOpenGLContext());
+        if (QOpenGLContextPrivate::globalShareContext())
+            gl->setShareContext(QOpenGLContextPrivate::globalShareContext());
         if (!gl->create()) {
-            const bool isEs = gl->isES();
+            const bool isEs = gl->isOpenGLES();
             delete gl;
             gl = 0;
             handleContextCreationFailure(window, isEs);

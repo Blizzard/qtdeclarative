@@ -98,7 +98,10 @@ QQmlObjectCreator::QQmlObjectCreator(QQmlContextData *parentContext, QQmlCompile
     sharedState->allCreatedObjects.allocate(compiledData->totalObjectCount);
     sharedState->creationContext = creationContext;
     sharedState->rootContext = 0;
-    sharedState->profiler.profiler = QQmlEnginePrivate::get(engine)->profiler;
+
+    QQmlProfiler *profiler = QQmlEnginePrivate::get(engine)->profiler;
+    Q_QML_PROFILE_IF_ENABLED(profiler,
+            sharedState->profiler.init(profiler, compiledData->totalParserStatusCount));
 }
 
 QQmlObjectCreator::QQmlObjectCreator(QQmlContextData *parentContext, QQmlCompiledData *compiledData, QQmlObjectCreatorSharedState *inheritedSharedState)
@@ -222,8 +225,6 @@ QObject *QQmlObjectCreator::create(int subComponentIndex, QObject *parent, QQmlI
         ddata->compiledData = compiledData;
         ddata->compiledData->addref();
     }
-
-    Q_QML_VME_PROFILE(sharedState->profiler, stop());
 
     phase = CreatingObjectsPhase2;
 
@@ -744,7 +745,7 @@ bool QQmlObjectCreator::setPropertyBinding(QQmlPropertyData *property, const QV4
     // ### resolve this at compile time
     if (property && property->propType == qMetaTypeId<QQmlScriptString>()) {
         QQmlScriptString ss(binding->valueAsScriptString(&qmlUnit->header), context->asQQmlContext(), _scopeObject);
-        ss.d.data()->bindingId = QQmlBinding::Invalid;
+        ss.d.data()->bindingId = binding->value.compiledScriptIndex;
         ss.d.data()->lineNumber = binding->location.line;
         ss.d.data()->columnNumber = binding->location.column;
         ss.d.data()->isStringLiteral = binding->type == QV4::CompiledData::Binding::Type_String;
@@ -819,7 +820,7 @@ bool QQmlObjectCreator::setPropertyBinding(QQmlPropertyData *property, const QV4
         QV4::Function *runtimeFunction = compiledData->compilationUnit->runtimeFunctions[binding->value.compiledScriptIndex];
 
         QV4::Scope scope(_qmlContext);
-        QV4::ScopedFunctionObject function(scope, QV4::FunctionObject::creatScriptFunction(_qmlContext, runtimeFunction, /*createProto*/ false));
+        QV4::ScopedFunctionObject function(scope, QV4::FunctionObject::createScriptFunction(_qmlContext, runtimeFunction, /*createProto*/ false));
 
         if (binding->flags & QV4::CompiledData::Binding::IsSignalHandlerExpression) {
             int signalIndex = _propertyCache->methodIndexToSignalIndex(property->coreIndex);
@@ -997,7 +998,7 @@ void QQmlObjectCreator::setupFunctions()
         if (!property->isVMEFunction())
             continue;
 
-        function = QV4::FunctionObject::creatScriptFunction(_qmlContext, runtimeFunction);
+        function = QV4::FunctionObject::createScriptFunction(_qmlContext, runtimeFunction);
         _vmeMetaObject->setVmeMethod(property->coreIndex, function);
     }
 }
@@ -1014,6 +1015,7 @@ void QQmlObjectCreator::recordError(const QV4::CompiledData::Location &location,
 
 QObject *QQmlObjectCreator::createInstance(int index, QObject *parent, bool isContextObject)
 {
+    QQmlObjectCreationProfiler profiler(sharedState->profiler.profiler);
     ActiveOCRestorer ocRestorer(this, QQmlEnginePrivate::get(engine));
 
     bool isComponent = false;
@@ -1023,21 +1025,23 @@ QObject *QQmlObjectCreator::createInstance(int index, QObject *parent, bool isCo
     QQmlParserStatus *parserStatus = 0;
     bool installPropertyCache = true;
 
+    const QV4::CompiledData::Object *obj = qmlUnit->objectAt(index);
     if (compiledData->isComponent(index)) {
         isComponent = true;
         QQmlComponent *component = new QQmlComponent(engine, compiledData, index, parent);
+        Q_QML_OC_PROFILE(sharedState->profiler, profiler.update(QStringLiteral("<component>"),
+                context->url, obj->location.line, obj->location.column));
         QQmlComponentPrivate::get(component)->creationContext = context;
         instance = component;
         ddata = QQmlData::get(instance, /*create*/true);
     } else {
-        const QV4::CompiledData::Object *obj = qmlUnit->objectAt(index);
-
         QQmlCompiledData::TypeReference *typeRef = resolvedTypes.value(obj->inheritedTypeNameIndex);
         Q_ASSERT(typeRef);
         installPropertyCache = !typeRef->isFullyDynamicType;
         QQmlType *type = typeRef->type;
         if (type) {
-            Q_QML_VME_PROFILE(sharedState->profiler, start(type->qmlTypeName(), context->url, obj->location.line, obj->location.column));
+            Q_QML_OC_PROFILE(sharedState->profiler, profiler.update(type->qmlTypeName(),
+                    context->url, obj->location.line, obj->location.column));
             instance = type->create();
             if (!instance) {
                 recordError(obj->location, tr("Unable to create object of type %1").arg(stringAt(obj->inheritedTypeNameIndex)));
@@ -1059,23 +1063,23 @@ QObject *QQmlObjectCreator::createInstance(int index, QObject *parent, bool isCo
             sharedState->allCreatedObjects.push(instance);
         } else {
             Q_ASSERT(typeRef->component);
+            Q_QML_OC_PROFILE(sharedState->profiler, profiler.update(typeRef->component->name,
+                    context->url, obj->location.line, obj->location.column));
             if (typeRef->component->qmlUnit->isSingleton())
             {
                 recordError(obj->location, tr("Composite Singleton Type %1 is not creatable").arg(stringAt(obj->inheritedTypeNameIndex)));
                 return 0;
             }
-            Q_QML_VME_PROFILE(sharedState->profiler, startBackground(typeRef->component->name));
+
             QQmlObjectCreator subCreator(context, typeRef->component, sharedState.data());
             instance = subCreator.create();
-            Q_QML_VME_PROFILE(sharedState->profiler, foreground(context->url, obj->location.line, obj->location.column));
             if (!instance) {
                 errors += subCreator.errors;
                 return 0;
             }
         }
-        // ### use no-event variant
         if (parent)
-            instance->setParent(parent);
+            QQml_setParent_noEvent(instance, parent);
 
         ddata = QQmlData::get(instance, /*create*/true);
         ddata->lineNumber = obj->location.line;
@@ -1101,6 +1105,9 @@ QObject *QQmlObjectCreator::createInstance(int index, QObject *parent, bool isCo
 
     if (parserStatus) {
         parserStatus->classBegin();
+        // push() the profiler state here, together with the parserStatus, as we'll pop() them
+        // together, too.
+        Q_QML_OC_PROFILE(sharedState->profiler, sharedState->profiler.push(profiler));
         sharedState->allParserStatusCallbacks.push(parserStatus);
         parserStatus->d = &sharedState->allParserStatusCallbacks.top();
     }
@@ -1118,7 +1125,7 @@ QObject *QQmlObjectCreator::createInstance(int index, QObject *parent, bool isCo
     if (customParser) {
         QHash<int, QQmlCompiledData::CustomParserData>::ConstIterator entry = compiledData->customParserData.find(index);
         if (entry != compiledData->customParserData.constEnd()) {
-            customParser->setCustomData(instance, entry->compilationArtifact);
+            customParser->setCustomData(instance, entry->compilationArtifact, compiledData);
             bindingsToSkip = entry->bindings;
         }
     }
@@ -1126,7 +1133,7 @@ QObject *QQmlObjectCreator::createInstance(int index, QObject *parent, bool isCo
     if (isComponent)
         return instance;
 
-    QQmlRefPointer<QQmlPropertyCache> cache = propertyCaches.value(index);
+    QQmlRefPointer<QQmlPropertyCache> cache = propertyCaches.at(index);
     Q_ASSERT(!cache.isNull());
     if (installPropertyCache) {
         if (ddata->propertyCache)
@@ -1187,7 +1194,7 @@ QQmlContextData *QQmlObjectCreator::finalize(QQmlInstantiationInterrupt &interru
     if (QQmlVME::componentCompleteEnabled()) { // the qml designer does the component complete later
         QQmlTrace trace("VME Component Complete");
         while (!sharedState->allParserStatusCallbacks.isEmpty()) {
-            Q_QML_VME_PROFILE(sharedState->profiler, pop());
+            QQmlObjectCompletionProfiler profiler(&sharedState->profiler);
             QQmlParserStatus *status = sharedState->allParserStatusCallbacks.pop();
 
             if (status && status->d) {
@@ -1198,7 +1205,6 @@ QQmlContextData *QQmlObjectCreator::finalize(QQmlInstantiationInterrupt &interru
             if (watcher.hasRecursed() || interrupt.shouldInterrupt())
                 return 0;
         }
-        Q_QML_VME_PROFILE(sharedState->profiler, clear());
     }
 
     {
@@ -1247,20 +1253,12 @@ void QQmlObjectCreator::clear()
     while (!sharedState->allCreatedObjects.isEmpty())
         delete sharedState->allCreatedObjects.pop();
 
-    // If profiling is switched off during a VME run and then switched back on
-    // before or during the next run background ranges from the first run will
-    // be reported in the second run because we don't clear() here. We accept
-    // that as the collected data will be incomplete anyway and because not
-    // calling clear() here is benefitial for the non-profiling case.
-    Q_QML_VME_PROFILE(sharedState->profiler, clear(true));
-
     phase = Done;
 }
 
 bool QQmlObjectCreator::populateInstance(int index, QObject *instance, QObject *bindingTarget, QQmlPropertyData *valueTypeProperty, const QBitArray &bindingsToSkip)
 {
     const QV4::CompiledData::Object *obj = qmlUnit->objectAt(index);
-    Q_QML_VME_PROFILE(sharedState->profiler, push());
 
     QQmlData *declarativeData = QQmlData::get(instance, /*create*/true);
 
@@ -1274,7 +1272,7 @@ bool QQmlObjectCreator::populateInstance(int index, QObject *instance, QObject *
     QV4::Scope valueScope(v4);
     QV4::ScopedValue scopeObjectProtector(valueScope);
 
-    QQmlRefPointer<QQmlPropertyCache> cache = propertyCaches.value(index);
+    QQmlRefPointer<QQmlPropertyCache> cache = propertyCaches.at(index);
 
     QQmlVMEMetaObject *vmeMetaObject = 0;
     const QByteArray data = vmeMetaObjectData.value(index);

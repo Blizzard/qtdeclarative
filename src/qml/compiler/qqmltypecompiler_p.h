@@ -99,11 +99,13 @@ public:
     QHash<int, QQmlCompiledData::CustomParserData> *customParserData();
     QQmlJS::MemoryPool *memoryPool();
     QStringRef newStringRef(const QString &string);
-    const QStringList &stringPool() const;
+    const QV4::Compiler::StringTableGenerator *stringPool() const;
     void setCustomParserBindings(const QVector<int> &bindings);
     void setDeferredBindingsPerObject(const QHash<int, QBitArray> &deferredBindingsPerObject);
 
     const QHash<int, QQmlCustomParser*> &customParserCache() const { return customParsers; }
+
+    QString bindingAsString(const QmlIR::Object *object, int scriptIndex) const;
 
 private:
     QList<QQmlError> errors;
@@ -195,6 +197,20 @@ private:
     QHash<int, QQmlCompiledData::TypeReference *> *resolvedTypes;
 };
 
+class QQmlCustomParserScriptIndexer: public QQmlCompilePass
+{
+public:
+    QQmlCustomParserScriptIndexer(QQmlTypeCompiler *typeCompiler);
+
+    void annotateBindingsWithScriptStrings();
+
+private:
+    void scanObjectRecursively(int objectIndex, bool annotateScriptBindings = false);
+
+    const QList<QmlIR::Object*> &qmlObjects;
+    const QHash<int, QQmlCustomParser*> &customParsers;
+};
+
 // Annotate properties bound to aliases with a flag
 class QQmlAliasAnnotator : public QQmlCompilePass
 {
@@ -202,6 +218,18 @@ public:
     QQmlAliasAnnotator(QQmlTypeCompiler *typeCompiler);
 
     void annotateBindingsToAliases();
+private:
+    const QList<QmlIR::Object*> &qmlObjects;
+    const QVector<QQmlPropertyCache *> propertyCaches;
+};
+
+class QQmlScriptStringScanner : public QQmlCompilePass
+{
+public:
+    QQmlScriptStringScanner(QQmlTypeCompiler *typeCompiler);
+
+    void scan();
+
 private:
     const QList<QmlIR::Object*> &qmlObjects;
     const QVector<QQmlPropertyCache *> propertyCaches;
@@ -238,7 +266,7 @@ protected:
     QList<int> _objectsWithAliases;
 
     QHash<int, QQmlCompiledData::TypeReference*> *resolvedTypes;
-    const QVector<QQmlPropertyCache *> propertyCaches;
+    QVector<QQmlPropertyCache *> propertyCaches;
     QVector<QByteArray> *vmeMetaObjectData;
     QHash<int, int> *objectIndexToIdForRoot;
     QHash<int, QHash<int, int> > *objectIndexToIdPerComponent;
@@ -254,8 +282,8 @@ public:
 
     // Re-implemented for QQmlCustomParser
     virtual const QQmlImports &imports() const;
-    virtual QQmlJS::AST::Node *astForBinding(int objectIndex, int scriptIndex) const;
     virtual QQmlBinding::Identifier bindingIdentifier(const QV4::CompiledData::Binding *binding, QQmlCustomParser *parser);
+    virtual QString bindingAsString(int objectIndex, const QV4::CompiledData::Binding *binding) const;
 
 private:
     bool validateObject(int objectIndex, const QV4::CompiledData::Binding *instantiatingBinding, bool populatingValueTypeGroupProperty = false);
@@ -340,7 +368,6 @@ private:
     bool detectTranslationCallAndConvertBinding(QmlIR::Binding *binding);
 
     const QList<QmlIR::Object*> &qmlObjects;
-    const QHash<int, QQmlCustomParser*> &customParsers;
     QV4::IR::Module *jsModule;
 
     bool _canSimplify;

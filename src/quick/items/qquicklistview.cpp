@@ -1837,19 +1837,23 @@ QQuickListView::~QQuickListView()
 */
 
 /*!
-    \qmlattachedsignal QtQuick::ListView::onAdd()
-    This attached signal handler is called immediately after an item is added to the view.
+    \qmlattachedsignal QtQuick::ListView::add()
+    This attached signal is emitted immediately after an item is added to the view.
 
     If an \l add transition is specified, it is applied immediately after
-    this signal handler is called.
+    this signal is handled.
+
+    The corresponding handler is \c onAdd.
 */
 
 /*!
-    \qmlattachedsignal QtQuick::ListView::onRemove()
-    This attached handler is called immediately before an item is removed from the view.
+    \qmlattachedsignal QtQuick::ListView::remove()
+    This attached signal is emitted immediately before an item is removed from the view.
 
     If a \l remove transition has been specified, it is applied after
-    this signal handler is called, providing that delayRemove is false.
+    this signal is handled, providing that \l delayRemove is false.
+
+    The corresponding handler is \c onRemove.
 */
 
 /*!
@@ -2499,7 +2503,7 @@ void QQuickListView::setSnapMode(SnapMode mode)
     populated, or when the view's \l model changes. (In those cases, the \l populate transition is
     applied instead.) Additionally, this transition should \e not animate the height of the new item;
     doing so will cause any items beneath the new item to be laid out at the wrong position. Instead,
-    the height can be animated within \l onAdd in the delegate.
+    the height can be animated within the \l {add}{onAdd} handler in the delegate.
 
     \sa addDisplaced, populate, ViewTransition
 */
@@ -2856,11 +2860,11 @@ void QQuickListView::geometryChanged(const QRectF &newGeometry, const QRectF &ol
     Q_D(QQuickListView);
     if (d->isRightToLeft()) {
         // maintain position relative to the right edge
-        int dx = newGeometry.width() - oldGeometry.width();
+        qreal dx = newGeometry.width() - oldGeometry.width();
         setContentX(contentX() - dx);
     } else if (d->isBottomToTop()) {
         // maintain position relative to the bottom edge
-        int dy = newGeometry.height() - oldGeometry.height();
+        qreal dy = newGeometry.height() - oldGeometry.height();
         setContentY(contentY() - dy);
     }
     QQuickItemView::geometryChanged(newGeometry, oldGeometry);
@@ -2970,7 +2974,7 @@ bool QQuickListViewPrivate::applyInsertionChange(const QQmlChangeSet::Insert &ch
     }
 
     // index can be the next item past the end of the visible items list (i.e. appended)
-    int pos = 0;
+    qreal pos = 0;
     if (visibleItems.count()) {
         pos = index < visibleItems.count() ? visibleItems.at(index)->position()
                                                 : visibleItems.last()->endPosition()+spacing;
@@ -2981,7 +2985,7 @@ bool QQuickListViewPrivate::applyInsertionChange(const QQmlChangeSet::Insert &ch
         // Insert items before the visible item.
         int insertionIdx = index;
         int i = 0;
-        int from = tempPos - displayMarginBeginning - buffer;
+        qreal from = tempPos - displayMarginBeginning - buffer;
 
         for (i = count-1; i >= 0; --i) {
             if (pos > from && insertionIdx < visibleIndex) {
@@ -3012,7 +3016,7 @@ bool QQuickListViewPrivate::applyInsertionChange(const QQmlChangeSet::Insert &ch
         }
     } else {
         int i = 0;
-        int to = buffer+displayMarginEnd+tempPos+size();
+        qreal to = buffer + displayMarginEnd + tempPos + size();
         for (i = 0; i < count && pos <= to; ++i) {
             FxViewItem *item = 0;
             if (change.isMove() && (item = currentChanges.removedItems.take(change.moveKey(modelIndex + i))))

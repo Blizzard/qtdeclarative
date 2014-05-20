@@ -538,6 +538,10 @@ void QSGRenderThread::sync()
     if (current) {
         QQuickWindowPrivate *d = QQuickWindowPrivate::get(window);
         bool hadRenderer = d->renderer != 0;
+        // If the scene graph was touched since the last sync() make sure it sends the
+        // changed signal.
+        if (d->renderer)
+            d->renderer->clearChangedFlag();
         d->syncSceneGraph();
         if (!hadRenderer && d->renderer) {
             QSG_RT_DEBUG(" - renderer was created, hooking up changed signal");
@@ -850,6 +854,7 @@ void QSGThreadedRenderLoop::show(QQuickWindow *window)
 
     Window win;
     win.window = window;
+    win.actualWindowFormat = window->format();
     win.thread = new QSGRenderThread(this, QQuickWindowPrivate::get(window)->context);
     win.timerId = 0;
     win.updateDuringSync = false;
@@ -945,11 +950,11 @@ void QSGThreadedRenderLoop::handleExposure(Window *w)
 
         if (!w->thread->gl) {
             w->thread->gl = new QOpenGLContext();
-            if (QSGContext::sharedOpenGLContext())
-                w->thread->gl->setShareContext(QSGContext::sharedOpenGLContext());
+            if (QOpenGLContextPrivate::globalShareContext())
+                w->thread->gl->setShareContext(QOpenGLContextPrivate::globalShareContext());
             w->thread->gl->setFormat(w->window->requestedFormat());
             if (!w->thread->gl->create()) {
-                const bool isEs = w->thread->gl->isES();
+                const bool isEs = w->thread->gl->isOpenGLES();
                 delete w->thread->gl;
                 w->thread->gl = 0;
                 handleContextCreationFailure(w->window, isEs);
@@ -1102,7 +1107,7 @@ void QSGThreadedRenderLoop::releaseResources(QQuickWindow *window, bool inDestru
         if (!window->handle()) {
             QSG_GUI_DEBUG(w->window, " - using fallback surface");
             fallback = new QOffscreenSurface();
-            fallback->setFormat(window->requestedFormat());
+            fallback->setFormat(w->actualWindowFormat);
             fallback->create();
         }
 

@@ -167,6 +167,11 @@ bool QQmlTypeCompiler::compile()
     }
 
     {
+        QQmlCustomParserScriptIndexer cpi(this);
+        cpi.annotateBindingsWithScriptStrings();
+    }
+
+    {
         QQmlAliasAnnotator annotator(this);
         annotator.annotateBindingsToAliases();
     }
@@ -202,37 +207,39 @@ bool QQmlTypeCompiler::compile()
     }
 
     // Compile JS binding expressions and signal handlers
-    {
-        QmlIR::JSCodeGen v4CodeGenerator(typeData->finalUrlString(), document->code, &document->jsModule, &document->jsParserEngine, document->program, compiledData->importCache, document->jsGenerator.strings);
+    if (!document->javaScriptCompilationUnit) {
+        {
+            // We can compile script strings ahead of time, but they must be compiled
+            // without type optimizations as their scope is always entirely dynamic.
+            QQmlScriptStringScanner sss(this);
+            sss.scan();
+        }
+
+        QmlIR::JSCodeGen v4CodeGenerator(typeData->finalUrlString(), document->code, &document->jsModule, &document->jsParserEngine, document->program, compiledData->importCache, &document->jsGenerator.stringTable);
         QQmlJSCodeGenerator jsCodeGen(this, &v4CodeGenerator);
         if (!jsCodeGen.generateCodeForComponents())
             return false;
-    }
 
-    {
         QQmlJavaScriptBindingExpressionSimplificationPass pass(this);
         pass.reduceTranslationBindings();
+
+        QV4::ExecutionEngine *v4 = engine->v4engine();
+        QScopedPointer<QV4::EvalInstructionSelection> isel(v4->iselFactory->create(engine, v4->executableAllocator, &document->jsModule, &document->jsGenerator));
+        isel->setUseFastLookups(false);
+        document->javaScriptCompilationUnit = isel->compile(/*generated unit data*/false);
     }
-
-    QV4::ExecutionEngine *v4 = engine->v4engine();
-
-    QScopedPointer<QV4::EvalInstructionSelection> isel(v4->iselFactory->create(engine, v4->executableAllocator, &document->jsModule, &document->jsGenerator));
-    isel->setUseFastLookups(false);
-    QV4::CompiledData::CompilationUnit *jsUnit = isel->compile(/*generated unit data*/false);
 
     // Generate QML compiled type data structures
 
     QmlIR::QmlUnitGenerator qmlGenerator;
     QV4::CompiledData::QmlUnit *qmlUnit = qmlGenerator.generate(*document);
 
-    if (jsUnit) {
-        Q_ASSERT(!jsUnit->data);
-        Q_ASSERT((void*)qmlUnit == (void*)&qmlUnit->header);
-        // The js unit owns the data and will free the qml unit.
-        jsUnit->data = &qmlUnit->header;
-    }
+    Q_ASSERT(document->javaScriptCompilationUnit);
+    Q_ASSERT((void*)qmlUnit == (void*)&qmlUnit->header);
+    // The js unit owns the data and will free the qml unit.
+    document->javaScriptCompilationUnit->data = &qmlUnit->header;
 
-    compiledData->compilationUnit = jsUnit;
+    compiledData->compilationUnit = document->javaScriptCompilationUnit;
     if (compiledData->compilationUnit)
         compiledData->compilationUnit->ref();
     compiledData->qmlUnit = qmlUnit; // ownership transferred to m_compiledData
@@ -282,6 +289,8 @@ bool QQmlTypeCompiler::compile()
     compiledData->totalBindingsCount = bindingCount;
     compiledData->totalParserStatusCount = parserStatusCount;
     compiledData->totalObjectCount = objectCount;
+
+    Q_ASSERT(compiledData->propertyCaches.count() == static_cast<int>(compiledData->qmlUnit->nObjects));
 
     return errors.isEmpty();
 }
@@ -335,9 +344,10 @@ int QQmlTypeCompiler::rootObjectIndex() const
 
 void QQmlTypeCompiler::setPropertyCaches(const QVector<QQmlPropertyCache *> &caches)
 {
-    Q_ASSERT(compiledData->propertyCaches.isEmpty());
     compiledData->propertyCaches = caches;
     Q_ASSERT(caches.count() >= document->indexOfRootObject);
+    if (compiledData->rootPropertyCache)
+        compiledData->rootPropertyCache->release();
     compiledData->rootPropertyCache = caches.at(document->indexOfRootObject);
     compiledData->rootPropertyCache->addref();
 }
@@ -383,9 +393,9 @@ QStringRef QQmlTypeCompiler::newStringRef(const QString &string)
     return document->jsParserEngine.newStringRef(string);
 }
 
-const QStringList &QQmlTypeCompiler::stringPool() const
+const QV4::Compiler::StringTableGenerator *QQmlTypeCompiler::stringPool() const
 {
-    return document->jsGenerator.strings;
+    return &document->jsGenerator.stringTable;
 }
 
 void QQmlTypeCompiler::setCustomParserBindings(const QVector<int> &bindings)
@@ -396,6 +406,11 @@ void QQmlTypeCompiler::setCustomParserBindings(const QVector<int> &bindings)
 void QQmlTypeCompiler::setDeferredBindingsPerObject(const QHash<int, QBitArray> &deferredBindingsPerObject)
 {
     compiledData->deferredBindingsPerObject = deferredBindingsPerObject;
+}
+
+QString QQmlTypeCompiler::bindingAsString(const QmlIR::Object *object, int scriptIndex) const
+{
+    return object->bindingAsString(document, scriptIndex);
 }
 
 QQmlCompilePass::QQmlCompilePass(QQmlTypeCompiler *typeCompiler)
@@ -1139,8 +1154,8 @@ bool QQmlEnumTypeResolver::tryQualifiedEnumAssignment(const QmlIR::Object *obj, 
         COMPILE_EXCEPTION(binding, tr("Invalid property assignment: \"%1\" is a read-only property").arg(stringAt(binding->propertyNameIndex)));
 
     Q_ASSERT(binding->type = QV4::CompiledData::Binding::Type_Script);
-    QString string = stringAt(binding->stringIndex);
-    if (!string.at(0).isUpper())
+    const QString string = compiler->bindingAsString(obj, binding->value.compiledScriptIndex);
+    if (!string.constData()->isUpper())
         return true;
 
     int dot = string.indexOf(QLatin1Char('.'));
@@ -1229,6 +1244,35 @@ int QQmlEnumTypeResolver::evaluateEnum(const QString &scope, const QByteArray &e
     return -1;
 }
 
+QQmlCustomParserScriptIndexer::QQmlCustomParserScriptIndexer(QQmlTypeCompiler *typeCompiler)
+    : QQmlCompilePass(typeCompiler)
+    , qmlObjects(*typeCompiler->qmlObjects())
+    , customParsers(typeCompiler->customParserCache())
+{
+}
+
+void QQmlCustomParserScriptIndexer::annotateBindingsWithScriptStrings()
+{
+    scanObjectRecursively(compiler->rootObjectIndex());
+}
+
+void QQmlCustomParserScriptIndexer::scanObjectRecursively(int objectIndex, bool annotateScriptBindings)
+{
+    const QmlIR::Object * const obj = qmlObjects.at(objectIndex);
+    if (!annotateScriptBindings)
+        annotateScriptBindings = customParsers.contains(obj->inheritedTypeNameIndex);
+    for (QmlIR::Binding *binding = obj->firstBinding(); binding; binding = binding->next) {
+        if (binding->type >= QV4::CompiledData::Binding::Type_Object) {
+            scanObjectRecursively(binding->value.objectIndex, annotateScriptBindings);
+            continue;
+        } else if (binding->type != QV4::CompiledData::Binding::Type_Script)
+            continue;
+        if (!annotateScriptBindings)
+            continue;
+        const QString script = compiler->bindingAsString(obj, binding->value.compiledScriptIndex);
+        binding->stringIndex = compiler->registerString(script);
+    }
+}
 
 QQmlAliasAnnotator::QQmlAliasAnnotator(QQmlTypeCompiler *typeCompiler)
     : QQmlCompilePass(typeCompiler)
@@ -1256,6 +1300,45 @@ void QQmlAliasAnnotator::annotateBindingsToAliases()
             QQmlPropertyData *pd = binding->propertyNameIndex != 0 ? resolver.property(stringAt(binding->propertyNameIndex), &notInRevision) : defaultProperty;
             if (pd && pd->isAlias())
                 binding->flags |= QV4::CompiledData::Binding::IsBindingToAlias;
+        }
+    }
+}
+
+QQmlScriptStringScanner::QQmlScriptStringScanner(QQmlTypeCompiler *typeCompiler)
+    : QQmlCompilePass(typeCompiler)
+    , qmlObjects(*typeCompiler->qmlObjects())
+    , propertyCaches(typeCompiler->propertyCaches())
+{
+
+}
+
+void QQmlScriptStringScanner::scan()
+{
+    const int scriptStringMetaType = qMetaTypeId<QQmlScriptString>();
+    for (int i = 0; i < qmlObjects.count(); ++i) {
+        QQmlPropertyCache *propertyCache = propertyCaches.at(i);
+        if (!propertyCache)
+            continue;
+
+        const QmlIR::Object *obj = qmlObjects.at(i);
+
+        QmlIR::PropertyResolver resolver(propertyCache);
+        QQmlPropertyData *defaultProperty = obj->indexOfDefaultProperty != -1 ? propertyCache->parent()->defaultProperty() : propertyCache->defaultProperty();
+
+        for (QmlIR::Binding *binding = obj->firstBinding(); binding; binding = binding->next) {
+            if (binding->type != QV4::CompiledData::Binding::Type_Script)
+                continue;
+            bool notInRevision = false;
+            QQmlPropertyData *pd = binding->propertyNameIndex != 0 ? resolver.property(stringAt(binding->propertyNameIndex), &notInRevision) : defaultProperty;
+            if (!pd || pd->propType != scriptStringMetaType)
+                continue;
+
+            QmlIR::CompiledFunctionOrExpression *foe = obj->functionsAndExpressions->slowAt(binding->value.compiledScriptIndex);
+            if (foe)
+                foe->disableAcceleratedLookups = true;
+
+            QString script = compiler->bindingAsString(obj, binding->value.compiledScriptIndex);
+            binding->stringIndex = compiler->registerString(script);
         }
     }
 }
@@ -1325,6 +1408,7 @@ void QQmlComponentAndAliasResolver::findAndRegisterImplicitComponents(const QmlI
 
         QmlIR::Object *syntheticComponent = pool->New<QmlIR::Object>();
         syntheticComponent->init(pool, compiler->registerString(QString::fromUtf8(componentType->typeName())), compiler->registerString(QString()));
+        syntheticComponent->location = binding->valueLocation;
 
         if (!resolvedTypes->contains(syntheticComponent->inheritedTypeNameIndex)) {
             QQmlCompiledData::TypeReference *typeRef = new QQmlCompiledData::TypeReference;
@@ -1336,6 +1420,10 @@ void QQmlComponentAndAliasResolver::findAndRegisterImplicitComponents(const QmlI
 
         qmlObjects->append(syntheticComponent);
         const int componentIndex = qmlObjects->count() - 1;
+        // Keep property caches symmetric
+        QQmlPropertyCache *componentCache = enginePrivate->cache(&QQmlComponent::staticMetaObject);
+        componentCache->addref();
+        propertyCaches.append(componentCache);
 
         QmlIR::Binding *syntheticBinding = pool->New<QmlIR::Binding>();
         *syntheticBinding = *binding;
@@ -1360,7 +1448,7 @@ bool QQmlComponentAndAliasResolver::resolve()
     const int objCountWithoutSynthesizedComponents = qmlObjects->count();
     for (int i = 0; i < objCountWithoutSynthesizedComponents; ++i) {
         const QmlIR::Object *obj = qmlObjects->at(i);
-        QQmlPropertyCache *cache = propertyCaches.value(i);
+        QQmlPropertyCache *cache = propertyCaches.at(i);
         if (obj->inheritedTypeNameIndex == 0 && !cache)
             continue;
 
@@ -1373,7 +1461,8 @@ bool QQmlComponentAndAliasResolver::resolve()
                 isExplicitComponent = true;
         }
         if (!isExplicitComponent) {
-            findAndRegisterImplicitComponents(obj, cache);
+            if (cache)
+                findAndRegisterImplicitComponents(obj, cache);
             continue;
         }
 
@@ -1432,6 +1521,10 @@ bool QQmlComponentAndAliasResolver::resolve()
 
     resolveAliases();
 
+    // Implicit component insertion may have added objects and thus we also need
+    // to extend the symmetric propertyCaches.
+    compiler->setPropertyCaches(propertyCaches);
+
     return true;
 }
 
@@ -1477,7 +1570,7 @@ bool QQmlComponentAndAliasResolver::resolveAliases()
     foreach (int objectIndex, _objectsWithAliases) {
         const QmlIR::Object *obj = qmlObjects->at(objectIndex);
 
-        QQmlPropertyCache *propertyCache = propertyCaches.value(objectIndex);
+        QQmlPropertyCache *propertyCache = propertyCaches.at(objectIndex);
         Q_ASSERT(propertyCache);
 
         int effectiveSignalIndex = propertyCache->signalHandlerIndexCacheStart + propertyCache->propertyIndexCache.count();
@@ -1533,7 +1626,7 @@ bool QQmlComponentAndAliasResolver::resolveAliases()
                 flags |= QML_ALIAS_FLAG_PTR;
                 propertyFlags |= QQmlPropertyData::IsQObjectDerived;
             } else {
-                QQmlPropertyCache *targetCache = propertyCaches.value(targetObjectIndex);
+                QQmlPropertyCache *targetCache = propertyCaches.at(targetObjectIndex);
                 Q_ASSERT(targetCache);
                 QmlIR::PropertyResolver resolver(targetCache);
 
@@ -1646,22 +1739,22 @@ const QQmlImports &QQmlPropertyValidator::imports() const
     return *compiler->imports();
 }
 
-QQmlJS::AST::Node *QQmlPropertyValidator::astForBinding(int objectIndex, int scriptIndex) const
-{
-    const QmlIR::Object *obj = compiler->qmlObjects()->at(objectIndex);
-    // ####
-    int reverseIndex = obj->runtimeFunctionIndices->indexOf(scriptIndex);
-    if (reverseIndex == -1)
-        return 0;
-    QmlIR::CompiledFunctionOrExpression *foe = obj->functionsAndExpressions->slowAt(reverseIndex);
-    return foe ? foe->node : 0;
-}
-
 QQmlBinding::Identifier QQmlPropertyValidator::bindingIdentifier(const QV4::CompiledData::Binding *binding, QQmlCustomParser *)
 {
     const int id = customParserBindings.count();
     customParserBindings.append(binding->value.compiledScriptIndex);
     return id;
+}
+
+QString QQmlPropertyValidator::bindingAsString(int objectIndex, const QV4::CompiledData::Binding *binding) const
+{
+    const QmlIR::Object *object = compiler->qmlObjects()->value(objectIndex);
+    if (!object)
+        return QString();
+    int reverseIndex = object->runtimeFunctionIndices->indexOf(binding->value.compiledScriptIndex);
+    if (reverseIndex == -1)
+        return QString();
+    return compiler->bindingAsString(object, reverseIndex);
 }
 
 typedef QVarLengthArray<const QV4::CompiledData::Binding *, 8> GroupPropertyVector;
@@ -1753,11 +1846,6 @@ bool QQmlPropertyValidator::validateObject(int objectIndex, const QV4::CompiledD
                 customBindings << binding;
                 customParserBindings.setBit(i);
                 continue;
-            } else if (binding->type == QV4::CompiledData::Binding::Type_Object
-                       || binding->type == QV4::CompiledData::Binding::Type_GroupProperty) {
-                customBindings << binding;
-                customParserBindings.setBit(i);
-                continue;
             }
         }
 
@@ -1808,7 +1896,7 @@ bool QQmlPropertyValidator::validateObject(int objectIndex, const QV4::CompiledD
 
         bool seenSubObjectWithId = false;
 
-        if (binding->type >= QV4::CompiledData::Binding::Type_Object) {
+        if (binding->type >= QV4::CompiledData::Binding::Type_Object && !customParser) {
             qSwap(_seenObjectWithId, seenSubObjectWithId);
             const bool subObjectValid = validateObject(binding->value.objectIndex, binding, pd && QQmlValueTypeFactory::valueType(pd->propType));
             qSwap(_seenObjectWithId, seenSubObjectWithId);
@@ -1919,7 +2007,7 @@ bool QQmlPropertyValidator::validateObject(int objectIndex, const QV4::CompiledD
         customParser->compiler = this;
         QQmlCompiledData::CustomParserData data;
         data.bindings = customParserBindings;
-        data.compilationArtifact = customParser->compile(qmlUnit, objectIndex, customBindings);
+        data.compilationArtifact = customParser->compile(qmlUnit, customBindings);
         customParser->compiler = 0;
         customParserData->insert(objectIndex, data);
         const QList<QQmlError> parserErrors = customParser->errors();
@@ -2270,7 +2358,7 @@ bool QQmlPropertyValidator::validateObjectBinding(QQmlPropertyData *property, co
     } else if (property->isQList()) {
         const int listType = enginePrivate->listType(property->propType);
         if (!QQmlMetaType::isInterface(listType)) {
-            QQmlPropertyCache *source = propertyCaches.value(binding->value.objectIndex);
+            QQmlPropertyCache *source = propertyCaches.at(binding->value.objectIndex);
             if (!canCoerce(listType, source)) {
                 recordError(binding->valueLocation, tr("Cannot assign object to list"));
                 return false;
@@ -2295,7 +2383,7 @@ bool QQmlPropertyValidator::validateObjectBinding(QQmlPropertyData *property, co
         bool isAssignable = false;
         // Determine isAssignable value
         if (propertyMetaObject) {
-            QQmlPropertyCache *c = propertyCaches.value(binding->value.objectIndex);
+            QQmlPropertyCache *c = propertyCaches.at(binding->value.objectIndex);
             while (c && !isAssignable) {
                 isAssignable |= c == propertyMetaObject;
                 c = c->parent();
@@ -2390,7 +2478,7 @@ bool QQmlJSCodeGenerator::compileJavaScriptCodeInObjectsRecursively(int objectIn
             functionsToCompile << *foe;
         }
         const QVector<int> runtimeFunctionIndices = v4CodeGen->generateJSCodeForFunctionsAndBindings(functionsToCompile);
-        QList<QQmlError> jsErrors = v4CodeGen->errors();
+        QList<QQmlError> jsErrors = v4CodeGen->qmlErrors();
         if (!jsErrors.isEmpty()) {
             foreach (const QQmlError &e, jsErrors)
                 compiler->recordError(e);
@@ -2475,7 +2563,6 @@ void QQmlDefaultPropertyMerger::mergeDefaultProperties(int objectIndex)
 QQmlJavaScriptBindingExpressionSimplificationPass::QQmlJavaScriptBindingExpressionSimplificationPass(QQmlTypeCompiler *typeCompiler)
     : QQmlCompilePass(typeCompiler)
     , qmlObjects(*typeCompiler->qmlObjects())
-    , customParsers(typeCompiler->customParserCache())
     , jsModule(typeCompiler->jsIRModule())
 {
 
@@ -2494,10 +2581,6 @@ void QQmlJavaScriptBindingExpressionSimplificationPass::reduceTranslationBinding
 void QQmlJavaScriptBindingExpressionSimplificationPass::reduceTranslationBindings(int objectIndex)
 {
     const QmlIR::Object *obj = qmlObjects.at(objectIndex);
-    // Don't feed QV4::CompiledData::Binding::Type_Translation into custom parsers.
-    const bool allowTranslations = !customParsers.contains(obj->inheritedTypeNameIndex);
-    if (!allowTranslations)
-        return;
 
     for (QmlIR::Binding *binding = obj->firstBinding(); binding; binding = binding->next) {
         if (binding->type != QV4::CompiledData::Binding::Type_Script)
@@ -2571,12 +2654,13 @@ void QQmlJavaScriptBindingExpressionSimplificationPass::visitFunctionCall(const 
                 return;
             }
             slot = param->index;
+            _functionParameters.append(slot);
         } else if (QV4::IR::Const *param = args->expr->asConst()) {
             slot = --_synthesizedConsts;
             Q_ASSERT(!_temps.contains(slot));
             _temps[slot] = param;
+            _functionParameters.append(slot);
         }
-        _functionParameters.append(slot);
         args = args->next;
     }
 
@@ -2714,6 +2798,44 @@ bool QQmlJavaScriptBindingExpressionSimplificationPass::detectTranslationCallAnd
         binding->type = QV4::CompiledData::Binding::Type_TranslationById;
         binding->stringIndex = compiler->registerString(id);
         binding->value.translationData = translationData;
+        return true;
+    } else if (*_nameOfFunctionCalled == QStringLiteral("QT_TR_NOOP") || *_nameOfFunctionCalled == QStringLiteral("QT_TRID_NOOP")) {
+        QVector<int>::ConstIterator param = _functionParameters.constBegin();
+        QVector<int>::ConstIterator end = _functionParameters.constEnd();
+        if (param == end)
+            return false;
+
+        QV4::IR::String *stringParam = _temps[*param]->asString();
+        if (!stringParam)
+            return false;
+
+        ++param;
+        if (param != end)
+            return false;
+
+        binding->type = QV4::CompiledData::Binding::Type_String;
+        binding->stringIndex = compiler->registerString(*stringParam->value);
+        return true;
+    } else if (*_nameOfFunctionCalled == QStringLiteral("QT_TRANSLATE_NOOP")) {
+        QVector<int>::ConstIterator param = _functionParameters.constBegin();
+        QVector<int>::ConstIterator end = _functionParameters.constEnd();
+        if (param == end)
+            return false;
+
+        ++param;
+        if (param == end)
+            return false;
+
+        QV4::IR::String *stringParam = _temps[*param]->asString();
+        if (!stringParam)
+            return false;
+
+        ++param;
+        if (param != end)
+            return false;
+
+        binding->type = QV4::CompiledData::Binding::Type_String;
+        binding->stringIndex = compiler->registerString(*stringParam->value);
         return true;
     }
     return false;

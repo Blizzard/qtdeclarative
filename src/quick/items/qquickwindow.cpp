@@ -2789,12 +2789,12 @@ QOpenGLContext *QQuickWindow::openglContext() const
 /*!
     \fn void QQuickWindow::sceneGraphError(SceneGraphError error, const QString &message)
 
-    This signal is emitted when an error occurred during scene graph initialization.
+    This signal is emitted when an \a error occurred during scene graph initialization.
 
     Applications should connect to this signal if they wish to handle errors,
     like OpenGL context creation failures, in a custom way. When no slot is
     connected to the signal, the behavior will be different: Quick will print
-    the message, or show a message box, and terminate the application.
+    the \a message, or show a message box, and terminate the application.
 
     This signal will be emitted from the gui thread.
 
@@ -2977,7 +2977,7 @@ QImage QQuickWindow::grabWindow()
 
         QOpenGLContext context;
         context.setFormat(requestedFormat());
-        context.setShareContext(QSGContext::sharedOpenGLContext());
+        context.setShareContext(QOpenGLContextPrivate::globalShareContext());
         context.create();
         context.makeCurrent(this);
         d->context->initialize(&context);
@@ -3183,8 +3183,7 @@ QQmlIncubationController *QQuickWindow::incubationController() const
     context in the same state as it was when the signal handler was entered. Failing to
     do so can result in the scene not rendering properly.
 
-    \sa scenegraphInvalidated()
-
+    \sa sceneGraphInvalidated()
     \since 5.3
  */
 
@@ -3242,6 +3241,10 @@ QSGTexture *QQuickWindow::createTextureFromImage(const QImage &image) const
     support QSGTexture::Repeat. Other values from CreateTextureOption are
     ignored.
 
+    The returned texture will be using \c GL_TEXTURE_2D as texture target and
+    \c GL_RGBA as internal format. Reimplement QSGTexture to create textures
+    with different parameters.
+
     \warning This function will return 0 if the scene graph has not yet been
     initialized.
 
@@ -3253,7 +3256,7 @@ QSGTexture *QQuickWindow::createTextureFromImage(const QImage &image) const
 
     This function can be called from any thread.
 
-    \sa sceneGraphInitialized()
+    \sa sceneGraphInitialized(), QSGTexture
  */
 
 QSGTexture *QQuickWindow::createTextureFromImage(const QImage &image, CreateTextureOptions options) const
@@ -3276,13 +3279,17 @@ QSGTexture *QQuickWindow::createTextureFromImage(const QImage &image, CreateText
 
     The caller of the function is responsible for deleting the returned texture.
 
+    The returned texture will be using \c GL_TEXTURE_2D as texture target and
+    assumes that internal format is \c {GL_RGBA}. Reimplement QSGTexture to
+    create textures with different parameters.
+
     Use \a options to customize the texture attributes. The TextureUsesAtlas
     option is ignored.
 
     \warning This function will return 0 if the scenegraph has not yet been
     initialized.
 
-    \sa sceneGraphInitialized()
+    \sa sceneGraphInitialized(), QSGTexture
  */
 QSGTexture *QQuickWindow::createTextureFromId(uint id, const QSize &size, CreateTextureOptions options) const
 {

@@ -567,6 +567,7 @@ void QSGPlainTexture::setImage(const QImage &image)
     m_has_alpha = image.hasAlphaChannel();
     m_dirty_texture = true;
     m_dirty_bind_options = true;
+    m_mipmaps_generated = false;
  }
 
 int QSGPlainTexture::textureId() const
@@ -688,7 +689,7 @@ void QSGPlainTexture::bind()
 #ifdef QT_OPENGL_ES
         internalFormat = GL_BGRA;
 #else
-        if (context->isES())
+        if (context->isOpenGLES())
             internalFormat = GL_BGRA;
 #endif // QT_OPENGL_ES
     } else if (!wrongfullyReportsBgra8888Support

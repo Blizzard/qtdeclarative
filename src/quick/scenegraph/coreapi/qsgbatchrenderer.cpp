@@ -2191,7 +2191,7 @@ void Renderer::renderUnmergedBatch(const Batch *batch)
         if (g->drawingMode() == GL_LINE_STRIP || g->drawingMode() == GL_LINE_LOOP || g->drawingMode() == GL_LINES)
             glLineWidth(g->lineWidth());
 #if !defined(QT_OPENGL_ES_2)
-        else if (!QOpenGLContext::currentContext()->isES() && g->drawingMode() == GL_POINTS)
+        else if (!QOpenGLContext::currentContext()->isOpenGLES() && g->drawingMode() == GL_POINTS)
             glPointSize(g->lineWidth());
 #endif
 
@@ -2475,7 +2475,9 @@ void Renderer::renderRenderNode(Batch *batch)
     QMatrix4x4 matrix;
     while (xform != rootNode()) {
         if (xform->type() == QSGNode::TransformNodeType) {
-            matrix = qsg_matrixForRoot(e->root) * static_cast<QSGTransformNode *>(xform)->combinedMatrix();
+            matrix = static_cast<QSGTransformNode *>(xform)->combinedMatrix();
+            if (e->root)
+                matrix = qsg_matrixForRoot(e->root) * matrix;
             break;
         }
         xform = xform->parent();
