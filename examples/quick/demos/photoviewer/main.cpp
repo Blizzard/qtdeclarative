@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013 Digia Plc and/or its subsidiary(-ies).
+** Copyright (C) 2014 Digia Plc and/or its subsidiary(-ies).
 ** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
@@ -39,77 +39,21 @@
 **
 ****************************************************************************/
 
-#ifndef QV4PROFILERSERVICE_P_H
-#define QV4PROFILERSERVICE_P_H
+#include <QApplication>
+#include <QQmlApplicationEngine>
+#include <QTranslator>
+#include <QDebug>
 
-//
-//  W A R N I N G
-//  -------------
-//
-// This file is not part of the Qt API.  It exists purely as an
-// implementation detail.  This header file may change from version to
-// version without notice, or even be removed.
-//
-// We mean it.
-//
-
-#include <private/qqmlconfigurabledebugservice_p.h>
-
-QT_BEGIN_NAMESPACE
-
-
-struct Q_AUTOTEST_EXPORT QV4ProfilerData
+int main(int argc, char *argv[])
 {
-    int messageType;
-    QString filename;
-    QString functionname;
-    int lineNumber;
-    double totalTime;
-    double selfTime;
-    int treeLevel;
+    QApplication app(argc, argv);
 
-    QByteArray toByteArray() const;
-};
+    QTranslator qtTranslator;
+    qtTranslator.load("qml_" + QLocale::system().name(), ":/i18n/");
+    app.installTranslator(&qtTranslator);
 
-class QQmlEngine;
-class QV4ProfilerServicePrivate;
+    QQmlApplicationEngine engine;
+    engine.load(QUrl(QStringLiteral("qrc:///main.qml")));
 
-class Q_AUTOTEST_EXPORT QV4ProfilerService : public QQmlConfigurableDebugService
-{
-    Q_OBJECT
-public:
-    enum MessageType {
-        V4Entry,
-        V4Complete,
-        V4SnapshotChunk,
-        V4SnapshotComplete,
-        V4Started,
-
-        V4MaximumMessage
-    };
-
-    QV4ProfilerService(QObject *parent = 0);
-    ~QV4ProfilerService();
-
-    static QV4ProfilerService *instance();
-
-public Q_SLOTS:
-    void startProfiling(const QString &title);
-    void stopProfiling(const QString &title);
-    void takeSnapshot();
-    void deleteSnapshots();
-
-    void sendProfilingData();
-
-protected:
-    void stateAboutToBeChanged(State state);
-    void messageReceived(const QByteArray &);
-
-private:
-    Q_DISABLE_COPY(QV4ProfilerService)
-    Q_DECLARE_PRIVATE(QV4ProfilerService)
-};
-
-QT_END_NAMESPACE
-
-#endif // QV4PROFILERSERVICE_P_H
+    return app.exec();
+}

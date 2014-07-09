@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013 Digia Plc and/or its subsidiary(-ies).
+** Copyright (C) 2014 Digia Plc and/or its subsidiary(-ies).
 ** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
@@ -39,12 +39,24 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick 2.2
+import QtQuick.Controls 1.1
 import QtQml.Models 2.1
 import "PhotoViewerCore"
 
-Rectangle {
+ApplicationWindow {
     id: mainWindow
+
+    visible: true
+
+    Rectangle {
+        focus: true
+
+        Keys.onBackPressed: {
+            event.accepted = true
+            backButton.clicked()
+        }
+    }
 
     property real downloadProgress: 0
     property bool imageLoading: false
@@ -96,7 +108,14 @@ Rectangle {
 
     ListView { anchors.fill: parent; model: albumVisualModel.parts.browser; interactive: false }
 
-    Button { id: backButton; label: qsTr("Back"); rotation: 3; x: parent.width - backButton.width - 6; y: -backButton.height - 8 }
+    Button {
+        id: backButton
+        label: qsTr("Back")
+        rotation: 3
+        x: parent.width - backButton.width - 6
+        y: -backButton.height - 8
+        visible: Qt.platform.os !== "android"
+    }
 
     Rectangle { id: photosShade; color: 'black'; width: parent.width; height: parent.height; opacity: 0; visible: opacity != 0.0 }
 
