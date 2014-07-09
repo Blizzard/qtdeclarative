@@ -71,6 +71,8 @@
 QT_BEGIN_NAMESPACE
 
 
+QQuickText::RenderType defaultRenderType = QQuickText::QtRendering;
+
 const QChar QQuickTextPrivate::elideChar = QChar(0x2026);
 
 QQuickTextPrivate::QQuickTextPrivate()
@@ -80,7 +82,7 @@ QQuickTextPrivate::QQuickTextPrivate()
     , elideMode(QQuickText::ElideNone), hAlign(QQuickText::AlignLeft), vAlign(QQuickText::AlignTop)
     , format(QQuickText::AutoText), wrapMode(QQuickText::NoWrap)
     , style(QQuickText::Normal)
-    , renderType(QQuickText::QtRendering)
+    , renderType(defaultRenderType)
     , updateType(UpdatePaintNode)
     , maximumLineCountValid(false), updateOnComponentComplete(true), richText(false)
     , styledText(false), widthExceeded(false), heightExceeded(false), internalWidthUpdate(false)
@@ -2703,6 +2705,11 @@ QString QQuickText::linkAt(qreal x, qreal y) const
 {
     Q_D(const QQuickText);
     return d->anchorAt(QPointF(x, y));
+}
+
+void QQuickText::setDefaultRenderType(RenderType type)
+{
+    defaultRenderType = type;
 }
 
 QT_END_NAMESPACE

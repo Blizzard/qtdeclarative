@@ -132,6 +132,8 @@ public:
     enum FontSizeMode { FixedSize = 0x0, HorizontalFit = 0x01, VerticalFit = 0x02,
                         Fit = HorizontalFit | VerticalFit };
 
+    static void setDefaultRenderType(RenderType type);
+
     QString text() const;
     void setText(const QString &);
 
