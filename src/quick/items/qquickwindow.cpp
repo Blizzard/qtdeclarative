@@ -1394,12 +1394,14 @@ void QQuickWindowPrivate::deliverKeyEvent(QKeyEvent *e)
 QMouseEvent *QQuickWindowPrivate::cloneMouseEvent(QMouseEvent *event, QPointF *transformedLocalPos)
 {
     int caps = QGuiApplicationPrivate::mouseEventCaps(event);
+    Qt::MouseEventFlags flags = QGuiApplicationPrivate::mouseEventFlags(event);
     QVector2D velocity = QGuiApplicationPrivate::mouseEventVelocity(event);
     QMouseEvent *me = new QMouseEvent(event->type(),
                                       transformedLocalPos ? *transformedLocalPos : event->localPos(),
                                       event->windowPos(), event->screenPos(),
                                       event->button(), event->buttons(), event->modifiers());
     QGuiApplicationPrivate::setMouseEventCapsAndVelocity(me, caps, velocity);
+    QGuiApplicationPrivate::setMouseEventFlags(me, flags);
     QGuiApplicationPrivate::setMouseEventSource(me, QGuiApplicationPrivate::mouseEventSource(event));
     me->setTimestamp(event->timestamp());
     return me;
