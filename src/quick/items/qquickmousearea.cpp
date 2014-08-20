@@ -750,7 +750,8 @@ void QQuickMouseArea::mouseReleaseEvent(QMouseEvent *event)
                 d->drag->setActive(false);
 #endif
             // If we don't accept hover, we need to reset containsMouse.
-            if (!acceptHoverEvents())
+            // Also, if the mouse event came from touch event, always reset hover state
+            if (!acceptHoverEvents() || event->source() != Qt::MouseEventNotSynthesized)
                 setHovered(false);
             QQuickWindow *w = window();
             if (w && w->mouseGrabberItem() == this)
