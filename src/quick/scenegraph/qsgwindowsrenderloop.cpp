@@ -439,6 +439,17 @@ void QSGWindowsRenderLoop::renderWindow(QQuickWindow *window)
     if (!d->isRenderable())
         return;
 
+    if (!m_gl->makeCurrent(window)) {
+        // NOTE: this is a workaround, sometimes the Context gets lost (e.g.
+        // when locking the windows-session (WindowsKey+L) and logging back in)
+        // See https://bugreports.qt-project.org/browse/QTBUG-29223
+        window->setPersistentOpenGLContext(false);
+        window->setPersistentSceneGraph(false);
+        hide(window);
+        delete m_gl;
+        show(window);
+    }
+
     if (!m_gl->makeCurrent(window))
         return;
 
