@@ -226,7 +226,7 @@ QQuickFlickablePrivate::QQuickFlickablePrivate()
     , lastPressTime(0)
     , deceleration(QML_FLICK_DEFAULTDECELERATION)
     , maxVelocity(QML_FLICK_DEFAULTMAXVELOCITY), reportedVelocitySmoothing(100)
-    , delayedPressEvent(0), pressDelay(0), fixupDuration(400)
+    , delayedPressEvent(0), pressDelay(0), scrollVelocity(0), fixupDuration(400)
     , flickBoost(1.0), fixupMode(Normal), vTime(0), visibleArea(0)
     , flickableDirection(QQuickFlickable::AutoFlickDirection)
     , boundsBehavior(QQuickFlickable::DragAndOvershootBounds)
@@ -1281,10 +1281,18 @@ void QQuickFlickable::wheelEvent(QWheelEvent *event)
     if (yflick() && yDelta != 0) {
         bool valid = false;
         if (yDelta > 0 && contentY() > -minYExtent()) {
-            d->vData.velocity = qMax(yDelta*2 - d->vData.smoothVelocity.value(), qreal(d->maxVelocity/4));
+            if (d->scrollVelocity > 0) {
+                d->vData.velocity = d->scrollVelocity;
+            } else {
+                d->vData.velocity = qMax(yDelta*2 - d->vData.smoothVelocity.value(), qreal(d->maxVelocity/4));
+            }
             valid = true;
         } else if (yDelta < 0 && contentY() < -maxYExtent()) {
-            d->vData.velocity = qMin(yDelta*2 - d->vData.smoothVelocity.value(), qreal(-d->maxVelocity/4));
+            if (d->scrollVelocity > 0) {
+                d->vData.velocity = -d->scrollVelocity;
+            } else {
+                d->vData.velocity = qMin(yDelta*2 - d->vData.smoothVelocity.value(), qreal(-d->maxVelocity/4));
+            }
             valid = true;
         }
         if (valid) {
@@ -2285,6 +2293,21 @@ void QQuickFlickable::setPressDelay(int delay)
         return;
     d->pressDelay = delay;
     emit pressDelayChanged();
+}
+
+qreal QQuickFlickable::scrollVelocity() const
+{
+    Q_D(const QQuickFlickable);
+    return d->scrollVelocity;
+}
+
+void QQuickFlickable::setScrollVelocity(qreal velocity)
+{
+    Q_D(QQuickFlickable);
+    if (d->scrollVelocity == velocity)
+        return;
+    d->scrollVelocity = velocity;
+    emit scrollVelocityChanged();
 }
 
 /*!

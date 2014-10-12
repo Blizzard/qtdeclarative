@@ -87,6 +87,7 @@ class Q_QUICK_PRIVATE_EXPORT QQuickFlickable : public QQuickItem
 
     Q_PROPERTY(bool interactive READ isInteractive WRITE setInteractive NOTIFY interactiveChanged)
     Q_PROPERTY(int pressDelay READ pressDelay WRITE setPressDelay NOTIFY pressDelayChanged)
+    Q_PROPERTY(qreal scrollVelocity WRITE setScrollVelocity READ scrollVelocity NOTIFY scrollVelocityChanged)
 
     Q_PROPERTY(bool atXEnd READ isAtXEnd NOTIFY isAtBoundaryChanged)
     Q_PROPERTY(bool atYEnd READ isAtYEnd NOTIFY isAtBoundaryChanged)
@@ -158,6 +159,9 @@ public:
     int pressDelay() const;
     void setPressDelay(int delay);
 
+    qreal scrollVelocity() const;
+    void setScrollVelocity(qreal);
+
     qreal maximumFlickVelocity() const;
     void setMaximumFlickVelocity(qreal);
 
@@ -219,6 +223,7 @@ Q_SIGNALS:
     void maximumFlickVelocityChanged();
     void flickDecelerationChanged();
     void pressDelayChanged();
+    void scrollVelocityChanged();
     void movementStarted();
     void movementEnded();
     void flickStarted();
