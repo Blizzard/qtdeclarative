@@ -236,6 +236,7 @@ public:
     QMouseEvent *delayedPressEvent;
     QBasicTimer delayedPressTimer;
     int pressDelay;
+    qreal scrollVelocity;
     int fixupDuration;
     qreal flickBoost;
 
