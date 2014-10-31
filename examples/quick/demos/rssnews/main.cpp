@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013 Digia Plc and/or its subsidiary(-ies).
+** Copyright (C) 2014 Digia Plc and/or its subsidiary(-ies).
 ** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the examples of the Qt Toolkit.
@@ -37,14 +37,5 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-
-import QtQuick 2.0
-
-Text {
-    width: 64
-    font.pixelSize: 14
-    font.bold: false
-    wrapMode: Text.WordWrap
-    lineHeight: 0.75
-    color: "#676764"
-}
+#include "../../shared/shared.h"
+DECLARATIVE_EXAMPLE_MAIN(demos/rssnews/rssnews)
