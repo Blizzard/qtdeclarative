@@ -287,15 +287,6 @@ QWindow *QQuickRenderControl::renderWindowFor(QQuickWindow *win, QPoint *offset)
     return 0;
 }
 
-QWidget *QQuickRenderControl::parentWidgetFor(QQuickWindow *win)
-{
-    if (!win)
-        return 0;
-    QQuickRenderControl *rc = QQuickWindowPrivate::get(win)->renderControl;
-    if (rc)
-        return rc->parentWidget();
-    return 0;
-}
 
 
 QT_END_NAMESPACE
