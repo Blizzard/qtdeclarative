@@ -1,7 +1,7 @@
 /****************************************************************************
 **
-** Copyright (C) 2014 Digia Plc and/or its subsidiary(-ies).
-** Contact: http://www.qt-project.org/legal
+** Copyright (C) 2015 The Qt Company Ltd.
+** Contact: http://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
@@ -10,9 +10,9 @@
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and Digia. For licensing terms and
-** conditions see http://qt.digia.com/licensing. For further information
-** use the contact form at http://qt.digia.com/contact-us.
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see http://www.qt.io/terms-conditions. For further
+** information use the contact form at http://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
@@ -23,8 +23,8 @@
 ** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
 ** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
 **
-** In addition, as a special exception, Digia gives you certain additional
-** rights. These rights are described in the Digia Qt LGPL Exception
+** As a special exception, The Qt Company gives you certain additional
+** rights. These rights are described in The Qt Company LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** $QT_END_LICENSE$
@@ -33,6 +33,8 @@
 #include <QtTest/QtTest>
 
 #include <QJSEngine>
+#include <QQmlEngine>
+#include <QQmlComponent>
 #include <private/qv4engine_p.h>
 #include <private/qv4debugging_p.h>
 #include <private/qv8engine_p.h>
@@ -80,9 +82,10 @@ public:
         QV4::ExecutionEngine *v4 = v4Engine();
         QV4::Scope scope(v4);
 
-        QV4::Scoped<QV4::String> name(scope, v4->newString(functionName));
-        QV4::ScopedValue function(scope, BuiltinFunction::create(v4->rootContext, name, injectedFunction));
-        v4->globalObject->put(name, function);
+        QV4::ScopedString name(scope, v4->newString(functionName));
+        QV4::ScopedContext ctx(scope, v4->rootContext());
+        QV4::ScopedValue function(scope, BuiltinFunction::create(ctx, name, injectedFunction));
+        v4->globalObject()->put(name, function);
     }
 
 signals:
@@ -125,10 +128,10 @@ protected:
         destination->insert(name, value);
     }
 
-    virtual void addObject(const QString &name, QV4::ValueRef value)
+    virtual void addObject(const QString &name, const QV4::Value &value)
     {
         QV4::Scope scope(engine());
-        QV4::ScopedObject obj(scope, value->asObject());
+        QV4::ScopedObject obj(scope, value.asObject());
 
         QVariantMap props, *prev = &props;
         qSwap(destination, prev);
@@ -182,6 +185,14 @@ public:
 
         m_stackTrace = debugger->stackTrace();
 
+        while (!m_expressionRequests.isEmpty()) {
+            ExpressionRequest request = m_expressionRequests.takeFirst();
+            QVariantMap result;
+            collector.setDestination(&result);
+            debugger->evaluateExpression(request.frameNr, request.expression, &collector);
+            m_expressionResults << result[QString::fromLatin1("body")];
+        }
+
         if (m_captureContextInfo)
             captureContextInfo(debugger);
 
@@ -233,6 +244,13 @@ public:
     QList<QVariantMap> m_capturedLocals;
     QVariant m_thrownValue;
 
+    struct ExpressionRequest {
+        QString expression;
+        int frameNr;
+    };
+    QVector<ExpressionRequest> m_expressionRequests;
+    QVector<QVariant> m_expressionResults;
+
     // Utility methods:
     void dumpStackTrace() const
     {
@@ -259,6 +277,7 @@ private slots:
     void addBreakPointWhilePaused();
     void removeBreakPointForNextInstruction();
     void conditionalBreakPoint();
+    void conditionalBreakPointInQml();
 
     // context access:
     void readArguments();
@@ -268,6 +287,10 @@ private slots:
 
     // exceptions:
     void pauseOnThrow();
+    void breakInCatch();
+    void breakInWith();
+
+    void evaluateExpression();
 
 private:
     void evaluateJavaScript(const QString &script, const QString &fileName, int lineNumber = 1)
@@ -428,6 +451,42 @@ void tst_qv4debugger::conditionalBreakPoint()
     QCOMPARE(m_debuggerAgent->m_capturedLocals[0]["i"].toInt(), 11);
 }
 
+void tst_qv4debugger::conditionalBreakPointInQml()
+{
+    QQmlEngine engine;
+    QV4::ExecutionEngine *v4 = QV8Engine::getV4(&engine);
+    v4->enableDebugger();
+
+    QScopedPointer<QThread> debugThread(new QThread);
+    debugThread->start();
+    QScopedPointer<TestAgent> debuggerAgent(new TestAgent);
+    debuggerAgent->addDebugger(v4->debugger);
+    debuggerAgent->moveToThread(debugThread.data());
+
+    QQmlComponent component(&engine);
+    component.setData("import QtQml 2.0\n"
+                      "QtObject {\n"
+                      "    id: root\n"
+                      "    property int foo: 42\n"
+                      "    property bool success: false\n"
+                      "    Component.onCompleted: {\n"
+                      "        success = true;\n" // breakpoint here
+                      "    }\n"
+                      "}\n", QUrl("test.qml"));
+
+    debuggerAgent->addBreakPoint("test.qml", 7, /*enabled*/true, "root.foo == 42");
+
+    QScopedPointer<QObject> obj(component.create());
+    QCOMPARE(obj->property("success").toBool(), true);
+
+    QCOMPARE(debuggerAgent->m_statesWhenPaused.count(), 1);
+    QCOMPARE(debuggerAgent->m_statesWhenPaused.at(0).fileName, QStringLiteral("test.qml"));
+    QCOMPARE(debuggerAgent->m_statesWhenPaused.at(0).lineNumber, 7);
+
+    debugThread->quit();
+    debugThread->wait();
+}
+
 void tst_qv4debugger::readArguments()
 {
     m_debuggerAgent->m_captureContextInfo = true;
@@ -554,6 +613,69 @@ void tst_qv4debugger::pauseOnThrow()
     QCOMPARE(m_debuggerAgent->m_stackTrace.size(), 2);
     QCOMPARE(m_debuggerAgent->m_thrownValue.type(), QVariant::String);
     QCOMPARE(m_debuggerAgent->m_thrownValue.toString(), QString("hard"));
+}
+
+void tst_qv4debugger::breakInCatch()
+{
+    QString script =
+            "try {\n"
+            "    throw 'catch...'\n"
+            "} catch (e) {\n"
+            "    console.log(e, 'me');\n"
+            "}\n";
+
+    m_debuggerAgent->addBreakPoint("breakInCatch", 4);
+    evaluateJavaScript(script, "breakInCatch");
+    QVERIFY(m_debuggerAgent->m_wasPaused);
+    QCOMPARE(m_debuggerAgent->m_pauseReason, BreakPoint);
+    QCOMPARE(m_debuggerAgent->m_statesWhenPaused.count(), 1);
+    QV4::Debugging::Debugger::ExecutionState state = m_debuggerAgent->m_statesWhenPaused.first();
+    QCOMPARE(state.fileName, QString("breakInCatch"));
+    QCOMPARE(state.lineNumber, 4);
+}
+
+void tst_qv4debugger::breakInWith()
+{
+    QString script =
+            "with (42) {\n"
+            "    console.log('give the answer');\n"
+            "}\n";
+
+    m_debuggerAgent->addBreakPoint("breakInWith", 2);
+    evaluateJavaScript(script, "breakInWith");
+    QVERIFY(m_debuggerAgent->m_wasPaused);
+    QCOMPARE(m_debuggerAgent->m_pauseReason, BreakPoint);
+    QCOMPARE(m_debuggerAgent->m_statesWhenPaused.count(), 1);
+    QV4::Debugging::Debugger::ExecutionState state = m_debuggerAgent->m_statesWhenPaused.first();
+    QCOMPARE(state.fileName, QString("breakInWith"));
+    QCOMPARE(state.lineNumber, 2);
+}
+
+void tst_qv4debugger::evaluateExpression()
+{
+    QString script =
+            "function testFunction() {\n"
+            "    var x = 10\n"
+            "    return x\n" // breakpoint
+            "}\n"
+            "var x = 20\n"
+            "testFunction()\n";
+
+    TestAgent::ExpressionRequest request;
+    request.expression = "x";
+    request.frameNr = 0;
+    m_debuggerAgent->m_expressionRequests << request;
+    request.expression = "x";
+    request.frameNr = 1;
+    m_debuggerAgent->m_expressionRequests << request;
+
+    m_debuggerAgent->addBreakPoint("evaluateExpression", 3);
+
+    evaluateJavaScript(script, "evaluateExpression");
+
+    QCOMPARE(m_debuggerAgent->m_expressionResults.count(), 2);
+    QCOMPARE(m_debuggerAgent->m_expressionResults[0].toInt(), 10);
+    QCOMPARE(m_debuggerAgent->m_expressionResults[1].toInt(), 20);
 }
 
 QTEST_MAIN(tst_qv4debugger)

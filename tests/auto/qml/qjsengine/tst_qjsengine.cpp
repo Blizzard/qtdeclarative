@@ -1,7 +1,7 @@
 /****************************************************************************
 **
-** Copyright (C) 2014 Digia Plc and/or its subsidiary(-ies).
-** Contact: http://www.qt-project.org/legal
+** Copyright (C) 2015 The Qt Company Ltd.
+** Contact: http://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
@@ -10,9 +10,9 @@
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and Digia. For licensing terms and
-** conditions see http://qt.digia.com/licensing. For further information
-** use the contact form at http://qt.digia.com/contact-us.
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see http://www.qt.io/terms-conditions. For further
+** information use the contact form at http://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
@@ -23,8 +23,8 @@
 ** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
 ** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
 **
-** In addition, as a special exception, Digia gives you certain additional
-** rights. These rights are described in the Digia Qt LGPL Exception
+** As a special exception, The Qt Company gives you certain additional
+** rights. These rights are described in The Qt Company LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** $QT_END_LICENSE$
@@ -70,6 +70,7 @@ private slots:
     void newArray_HooliganTask233836();
     void newVariant();
     void newVariant_valueOfToString();
+    void newVariant_valueOfEnum();
     void newRegExp();
     void jsRegExp();
     void newDate();
@@ -172,6 +173,12 @@ private slots:
     void translateFromBuiltinCallback();
 
     void privateMethods();
+
+    void engineForObject();
+    void intConversion_QTBUG43309();
+    void toFixed();
+
+    void argumentEvaluationOrder();
 
 signals:
     void testSignal();
@@ -436,6 +443,17 @@ void tst_QJSEngine::newVariant_valueOfToString()
         QVERIFY(value.isObject());
         QVERIFY(value.strictlyEquals(object));
         QCOMPARE(object.toString(), QString::fromLatin1("QVariant(QPoint)"));
+    }
+}
+
+void tst_QJSEngine::newVariant_valueOfEnum()
+{
+    QJSEngine eng;
+    {
+        QJSValue object = eng.toScriptValue(QVariant::fromValue(Qt::ControlModifier));
+        QJSValue value = object.property("valueOf").callWithInstance(object);
+        QVERIFY(value.isNumber());
+        QCOMPARE(value.toInt(), static_cast<qint32>(Qt::ControlModifier));
     }
 }
 
@@ -802,8 +820,18 @@ void tst_QJSEngine::globalObjectProperties_enumerate()
         << "unescape"
         << "SyntaxError"
         << "undefined"
-        // JavaScriptCore
         << "JSON"
+        << "ArrayBuffer"
+        << "DataView"
+        << "Int8Array"
+        << "Uint8Array"
+        << "Uint8ClampedArray"
+        << "Int16Array"
+        << "Uint16Array"
+        << "Int32Array"
+        << "Uint32Array"
+        << "Float32Array"
+        << "Float64Array"
         ;
     QSet<QString> actualNames;
     {
@@ -1816,6 +1844,7 @@ void tst_QJSEngine::errorConstructors()
             QJSValue ret = eng.evaluate(code);
             QVERIFY(ret.isError());
             QVERIFY(ret.toString().startsWith(name));
+            qDebug() << ret.property("stack").toString();
             QCOMPARE(ret.property("lineNumber").toInt(), i+2);
         }
     }
@@ -3138,6 +3167,8 @@ void tst_QJSEngine::callConstants()
                     "  var one; one();\n"
                     "  var two = null; two();\n"
                     "}\n");
+    QJSValue exceptionResult = engine.evaluate("true()");
+    QCOMPARE(exceptionResult.toString(), QString("TypeError: true is not a function"));
 }
 
 void tst_QJSEngine::installTranslatorFunctions()
@@ -3599,6 +3630,60 @@ void tst_QJSEngine::privateMethods()
         it.next();
         QVERIFY(!privateMethods.contains(it.name()));
     }
+}
+
+void tst_QJSEngine::engineForObject()
+{
+    QObject object;
+    {
+        QJSEngine engine;
+        QVERIFY(!qjsEngine(&object));
+        QJSValue wrapper = engine.newQObject(&object);
+        QQmlEngine::setObjectOwnership(&object, QQmlEngine::CppOwnership);
+        QCOMPARE(qjsEngine(&object), wrapper.engine());
+    }
+    QVERIFY(!qjsEngine(&object));
+}
+
+void tst_QJSEngine::intConversion_QTBUG43309()
+{
+    // This failed in the interpreter:
+    QJSEngine engine;
+    QString jsCode = "var n = 0.1; var m = (n*255) | 0; m";
+    QJSValue result = engine.evaluate( jsCode );
+    QVERIFY(result.isNumber());
+    QCOMPARE(result.toNumber(), 25.0);
+}
+
+// QTBUG-44039 and QTBUG-43885:
+void tst_QJSEngine::toFixed()
+{
+    QJSEngine engine;
+    QJSValue result = engine.evaluate(QStringLiteral("(12.5).toFixed()"));
+    QVERIFY(result.isString());
+    QCOMPARE(result.toString(), QStringLiteral("13"));
+    result = engine.evaluate(QStringLiteral("(12.05).toFixed(1)"));
+    QVERIFY(result.isString());
+    QCOMPARE(result.toString(), QStringLiteral("12.1"));
+}
+
+void tst_QJSEngine::argumentEvaluationOrder()
+{
+    QJSEngine engine;
+    QJSValue ok = engine.evaluate(
+            "function record(arg1, arg2) {\n"
+            "    parameters = [arg1, arg2]\n"
+            "}\n"
+            "function test() {\n"
+            "    var i = 2;\n"
+            "    record(i, i += 2);\n"
+            "}\n"
+            "test()\n"
+            "parameters[0] == 2 && parameters[1] == 4");
+    qDebug() << ok.toString();
+    QVERIFY(ok.isBool());
+    QVERIFY(ok.toBool());
+
 }
 
 QTEST_MAIN(tst_QJSEngine)

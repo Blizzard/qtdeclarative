@@ -1,7 +1,7 @@
 ﻿/****************************************************************************
 **
-** Copyright (C) 2013 Digia Plc and/or its subsidiary(-ies).
-** Contact: http://www.qt-project.org/legal
+** Copyright (C) 2015 The Qt Company Ltd.
+** Contact: http://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
 **
@@ -10,15 +10,15 @@
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and Digia.  For licensing terms and
-** conditions see http://qt.digia.com/licensing.  For further information
-** use the contact form at http://qt.digia.com/contact-us.
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see http://www.qt.io/terms-conditions. For further
+** information use the contact form at http://www.qt.io/contact-us.
 **
 ** GNU Free Documentation License Usage
 ** Alternatively, this file may be used under the terms of the GNU Free
 ** Documentation License version 1.3 as published by the Free Software
 ** Foundation and appearing in the file included in the packaging of
-** this file.  Please review the following information to ensure
+** this file. Please review the following information to ensure
 ** the GNU Free Documentation License version 1.3 requirements
 ** will be met: http://www.gnu.org/copyleft/fdl.html.
 ** $QT_END_LICENSE$
@@ -292,6 +292,52 @@ qmlRegisterRevision<BaseType,1>("MyTypes", 1, 1);
 
 This is useful when deriving from base classes provided by other authors,
 e.g. when extending classes from the Qt Quick module.
+
+
+\section2 Registering Extension Objects
+
+When integrating existing classes and technology into QML, APIs will
+often need tweaking to fit better into the declarative environment.
+Although the best results are usually obtained by modifying the original
+classes directly, if this is either not possible or is complicated by some
+other concerns, extension objects allow limited extension possibilities
+without direct modifications.
+
+\e{Extension objects} add additional properties to an existing type. Extension
+objects can only add properties, not signals or methods. An extended type
+definition allows the programmer to supply an additional type, known as the
+\e{extension type}, when registering the class. The properties are transparently
+merged with the original target class when used from within QML. For example:
+
+\snippet referenceexamples/extended/example.qml 0
+
+The \c leftMargin property is a new property added to an existing C++ type, \l
+QLineEdit, without modifying its source code.
+
+The \l qmlRegisterExtendedType() function is for registering extended types.
+Note that it has two forms.
+
+\code
+template<typename T, typename ExtendedT>
+int qmlRegisterExtendedType(const char *uri, int versionMajor, int versionMinor, const char *qmlName)
+
+template<typename T, typename ExtendedT>
+int qmlRegisterExtendedType()
+\endcode
+
+This functions should be used instead of the regular \c qmlRegisterType()
+variations. The arguments are identical to the corresponding non-extension
+registration functions, except for the ExtendedT parameter which is the type of
+the extension object.
+
+An extension class is a regular QObject, with a constructor that takes a QObject
+pointer. However, the extension class creation is delayed until the first
+extended property is accessed. The extension class is created and the target
+object is passed in as the parent. When the property on the original is
+accessed, the corresponding property on the extension object is used instead.
+
+The \l{Extending QML - Extension Objects Example}{Extension Objects Example}
+demonstrates a usage of extension objects.
 
 
 \section1 Defining QML-Specific Types and Attributes

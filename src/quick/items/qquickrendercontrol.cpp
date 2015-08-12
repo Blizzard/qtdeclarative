@@ -1,7 +1,7 @@
 /****************************************************************************
 **
-** Copyright (C) 2014 Digia Plc and/or its subsidiary(-ies).
-** Contact: http://www.qt-project.org/legal
+** Copyright (C) 2015 The Qt Company Ltd.
+** Contact: http://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
@@ -10,9 +10,9 @@
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and Digia. For licensing terms and
-** conditions see http://qt.digia.com/licensing. For further information
-** use the contact form at http://qt.digia.com/contact-us.
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see http://www.qt.io/terms-conditions. For further
+** information use the contact form at http://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
@@ -23,8 +23,8 @@
 ** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
 ** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
 **
-** In addition, as a special exception, Digia gives you certain additional
-** rights. These rights are described in the Digia Qt LGPL Exception
+** As a special exception, The Qt Company gives you certain additional
+** rights. These rights are described in The Qt Company LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** $QT_END_LICENSE$
@@ -36,7 +36,7 @@
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QTime>
-#include <QtCore/private/qabstractanimation_p.h>
+#include <QtQuick/private/qquickanimatorcontroller_p.h>
 
 #include <QtGui/QOpenGLContext>
 #include <QtGui/private/qguiapplication_p.h>
@@ -106,7 +106,7 @@ extern Q_GUI_EXPORT QImage qt_gl_read_framebuffer(const QSize &size, bool alpha_
   rendered by calling render(). After making the context current, applications
   are expected to call render().
 
-  \li QQuickRenderControl::sceneChanged() Inidcates that the scene has changed
+  \li QQuickRenderControl::sceneChanged() Indicates that the scene has changed
   meaning that, before rendering, polishing and synchronizing is also necessary.
 
   \endlist
@@ -170,8 +170,26 @@ void QQuickRenderControlPrivate::windowDestroyed()
 }
 
 /*!
+  Prepares rendering the Qt Quick scene outside the gui thread.
+
+  \a targetThread specifies the thread on which synchronization and
+  rendering will happen. There is no need to call this function in a
+  single threaded scenario.
+ */
+void QQuickRenderControl::prepareThread(QThread *targetThread)
+{
+    Q_D(QQuickRenderControl);
+    d->rc->moveToThread(targetThread);
+    QQuickWindowPrivate::get(d->window)->animationController->moveToThread(targetThread);
+}
+
+/*!
   Initializes the scene graph resources. The context \a gl has to
   be the current context.
+
+  \note Qt Quick does not take ownership of the context. It is up to the
+  application to destroy it after a call to invalidate() or after the
+  QQuickRenderControl instance is destroyed.
  */
 void QQuickRenderControl::initialize(QOpenGLContext *gl)
 {
@@ -274,7 +292,6 @@ void QQuickRenderControl::invalidate()
     // application right after returning from this function. Invalidating is
     // also essential to allow a subsequent initialize() to succeed.
     d->rc->invalidate();
-    QCoreApplication::sendPostedEvents(0, QEvent::DeferredDelete);
 
     d->initialized = false;
 }
@@ -296,6 +313,10 @@ void QQuickRenderControl::render()
     \fn void QQuickRenderControl::renderRequested()
 
     This signal is emitted when the scene graph needs to be rendered. It is not necessary to call sync().
+
+    \note Avoid triggering rendering directly when this signal is
+    emitted. Instead, prefer deferring it by using a timer for example. This
+    will lead to better performance.
 */
 
 /*!
@@ -304,6 +325,10 @@ void QQuickRenderControl::render()
     This signal is emitted when the scene graph is updated, meaning that
     polishItems() and sync() needs to be called. If sync() returns
     true, then render() needs to be called.
+
+    \note Avoid triggering polishing, synchronization and rendering directly
+    when this signal is emitted. Instead, prefer deferring it by using a timer
+    for example. This will lead to better performance.
 */
 
 /*!
@@ -342,6 +367,11 @@ void QQuickRenderControlPrivate::maybeUpdate()
 
   If \a offset in non-null, it is set to the offset of the control
   inside the window.
+
+  \note While not mandatory, reimplementing this function becomes essential for
+  supporting multiple screens with different device pixel ratios and properly positioning
+  popup windows opened from QML. Therefore providing it in subclasses is highly
+  recommended.
 */
 
 /*!

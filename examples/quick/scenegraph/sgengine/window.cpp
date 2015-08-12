@@ -1,7 +1,7 @@
 /****************************************************************************
 **
-** Copyright (C) 2014 Digia Plc and/or its subsidiary(-ies).
-** Contact: http://www.qt-project.org/legal
+** Copyright (C) 2015 The Qt Company Ltd.
+** Contact: http://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
 **
@@ -17,8 +17,8 @@
 **     notice, this list of conditions and the following disclaimer in
 **     the documentation and/or other materials provided with the
 **     distribution.
-**   * Neither the name of Digia Plc and its Subsidiary(-ies) nor the names
-**     of its contributors may be used to endorse or promote products derived
+**   * Neither the name of The Qt Company Ltd nor the names of its
+**     contributors may be used to endorse or promote products derived
 **     from this software without specific prior written permission.
 **
 **
@@ -47,6 +47,7 @@
 #include <QSGTransformNode>
 #include <QScreen>
 #include <QVariantAnimation>
+#include <QOpenGLFunctions>
 
 class Item {
 public:
@@ -213,13 +214,14 @@ void Window::initialize()
     m_sgRenderer->setClearColor(QColor(32, 32, 32));
 
     // With QSGEngine::createTextureFromId
+    QOpenGLFunctions glFuncs(m_context.data());
     GLuint glTexture;
-    glGenTextures(1, &glTexture);
-    glBindTexture(GL_TEXTURE_2D, glTexture);
+    glFuncs.glGenTextures(1, &glTexture);
+    glFuncs.glBindTexture(GL_TEXTURE_2D, glTexture);
     QImage smile = QImage(":/scenegraph/sgengine/face-smile.png").scaled(48, 48, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     smile = smile.convertToFormat(QImage::Format_RGBA8888_Premultiplied);
     Q_ASSERT(!smile.isNull());
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, smile.width(), smile.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, smile.constBits());
+    glFuncs.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, smile.width(), smile.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, smile.constBits());
     m_smileTexture.reset(m_sgEngine->createTextureFromId(glTexture, smile.size(), QFlag(QSGEngine::TextureOwnsGLTexture | QSGEngine::TextureHasAlphaChannel)));
 
     // With QSGEngine::createTextureFromImage
