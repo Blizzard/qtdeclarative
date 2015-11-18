@@ -724,6 +724,7 @@ void QQuickKeyNavigationAttached::setFocusNavigation(QQuickItem *currentItem, co
 {
     QQuickItem *initialItem = currentItem;
     bool isNextItem = false;
+    QVector<QQuickItem *> visitedItems;
     do {
         isNextItem = false;
         if (currentItem->isVisible() && currentItem->isEnabled()) {
@@ -734,13 +735,14 @@ void QQuickKeyNavigationAttached::setFocusNavigation(QQuickItem *currentItem, co
             if (attached) {
                 QQuickItem *tempItem = qvariant_cast<QQuickItem*>(attached->property(dir));
                 if (tempItem) {
+                    visitedItems.append(currentItem);
                     currentItem = tempItem;
                     isNextItem = true;
                 }
             }
         }
     }
-    while (currentItem != initialItem && isNextItem);
+    while (currentItem != initialItem && isNextItem && !visitedItems.contains(currentItem));
 }
 
 struct SigMap {
@@ -5766,7 +5768,7 @@ void QQuickItemPrivate::itemChange(QQuickItem::ItemChange change, const QQuickIt
 
     In Qt Quick 2.0, this property has minimal impact on performance.
 
-    By default is true.
+    By default, this property is set to \c true.
 */
 /*!
     \property QQuickItem::smooth
@@ -5778,7 +5780,7 @@ void QQuickItemPrivate::itemChange(QQuickItem::ItemChange change, const QQuickIt
 
     In Qt Quick 2.0, this property has minimal impact on performance.
 
-    By default is true.
+    By default, this property is set to \c true.
 */
 bool QQuickItem::smooth() const
 {
@@ -5800,10 +5802,10 @@ void QQuickItem::setSmooth(bool smooth)
 /*!
     \qmlproperty bool QtQuick::Item::activeFocusOnTab
 
-    This property holds whether the item wants to be in tab focus
-    chain. By default this is set to false.
+    This property holds whether the item wants to be in the tab focus
+    chain. By default, this is set to \c false.
 
-    The tab focus chain traverses elements by visiting first the
+    The tab focus chain traverses elements by first visiting the
     parent, and then its children in the order they occur in the
     children property. Pressing the tab key on an item in the tab
     focus chain will move keyboard focus to the next item in the
@@ -5812,14 +5814,14 @@ void QQuickItem::setSmooth(bool smooth)
 
     To set up a manual tab focus chain, see \l KeyNavigation. Tab
     key events used by Keys or KeyNavigation have precedence over
-    focus chain behavior, ignore the events in other key handlers
+    focus chain behavior; ignore the events in other key handlers
     to allow it to propagate.
 */
 /*!
     \property QQuickItem::activeFocusOnTab
 
-    This property holds whether the item wants to be in tab focus
-    chain. By default this is set to false.
+    This property holds whether the item wants to be in the tab focus
+    chain. By default, this is set to \c false.
 */
 bool QQuickItem::activeFocusOnTab() const
 {
@@ -7310,9 +7312,11 @@ bool QQuickItem::event(QEvent *ev)
         dropEvent(static_cast<QDropEvent*>(ev));
         break;
 #endif // QT_NO_DRAGANDDROP
+#ifndef QT_NO_GESTURES
     case QEvent::NativeGesture:
         ev->ignore();
         break;
+#endif // QT_NO_GESTURES
     default:
         return QObject::event(ev);
     }
@@ -7424,6 +7428,8 @@ QQuickItemLayer::~QQuickItemLayer()
 
     None of the other layer properties have any effect when the layer
     is disabled.
+
+    \sa {Item Layers}
  */
 void QQuickItemLayer::setEnabled(bool e)
 {
@@ -7547,7 +7553,7 @@ void QQuickItemLayer::deactivateEffect()
     The effect is typically a \l ShaderEffect component, although any \l Item component can be
     assigned. The effect should have a source texture property with a name matching \l layer.samplerName.
 
-    \sa layer.samplerName
+    \sa layer.samplerName, {Item Layers}
  */
 
 void QQuickItemLayer::setEffect(QQmlComponent *component)
@@ -7587,6 +7593,8 @@ void QQuickItemLayer::setEffect(QQmlComponent *component)
 
     \note Some OpenGL ES 2 implementations do not support mipmapping of
     non-power-of-two textures.
+
+    \sa {Item Layers}
  */
 
 void QQuickItemLayer::setMipmap(bool mipmap)
@@ -7620,6 +7628,7 @@ void QQuickItemLayer::setMipmap(bool mipmap)
     be used with caution, as support for these formats in the underlying
     hardare and driver is often not present.
 
+    \sa {Item Layers}
  */
 
 void QQuickItemLayer::setFormat(QQuickShaderEffectSource::Format f)
@@ -7642,6 +7651,8 @@ void QQuickItemLayer::setFormat(QQuickShaderEffectSource::Format f)
     rendered into the texture. The source rectangle can be larger than
     the item itself. If the rectangle is null, which is the default,
     then the whole item is rendered to the texture.
+
+    \sa {Item Layers}
  */
 
 void QQuickItemLayer::setSourceRect(const QRectF &sourceRect)
@@ -7660,6 +7671,8 @@ void QQuickItemLayer::setSourceRect(const QRectF &sourceRect)
     \qmlproperty bool QtQuick::Item::layer.smooth
 
     Holds whether the layer is smoothly transformed.
+
+    \sa {Item Layers}
  */
 
 void QQuickItemLayer::setSmooth(bool s)
@@ -7683,6 +7696,8 @@ void QQuickItemLayer::setSmooth(bool s)
     \note Some platforms have a limit on how small framebuffer objects can be,
     which means the actual texture size might be larger than the requested
     size.
+
+    \sa {Item Layers}
  */
 
 void QQuickItemLayer::setSize(const QSize &size)
@@ -7713,6 +7728,8 @@ void QQuickItemLayer::setSize(const QSize &size)
 
     \note Some OpenGL ES 2 implementations do not support the GL_REPEAT
     wrap mode with non-power-of-two textures.
+
+    \sa {Item Layers}
  */
 
 void QQuickItemLayer::setWrapMode(QQuickShaderEffectSource::WrapMode mode)
@@ -7735,7 +7752,7 @@ void QQuickItemLayer::setWrapMode(QQuickShaderEffectSource::WrapMode mode)
     This value must match the name of the effect's source texture property
     so that the Item can pass the layer's offscreen surface to the effect correctly.
 
-    \sa layer.effect, ShaderEffect
+    \sa layer.effect, ShaderEffect, {Item Layers}
  */
 
 void QQuickItemLayer::setName(const QByteArray &name) {

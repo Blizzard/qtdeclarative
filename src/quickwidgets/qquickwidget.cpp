@@ -202,6 +202,8 @@ void QQuickWidgetPrivate::itemGeometryChanged(QQuickItem *resizeItem, const QRec
 
 void QQuickWidgetPrivate::render(bool needsSync)
 {
+    Q_ASSERT(context);
+
     if (!context->makeCurrent(offscreenSurface)) {
         qWarning("QQuickWidget: Cannot render due to failing makeCurrent()");
         return;
@@ -1072,7 +1074,10 @@ void QQuickWidget::showEvent(QShowEvent *)
     Q_D(QQuickWidget);
     d->updatePending = false;
     d->createContext();
-    d->render(true);
+    if (d->offscreenWindow->openglContext())
+        d->render(true);
+    else
+        triggerUpdate();
 }
 
 /*! \reimp */
@@ -1116,13 +1121,18 @@ void QQuickWidget::wheelEvent(QWheelEvent *e)
 }
 #endif
 
-
+/*!
+   \reimp
+*/
 void QQuickWidget::focusInEvent(QFocusEvent * event)
 {
     Q_D(QQuickWidget);
     d->offscreenWindow->focusInEvent(event);
 }
 
+/*!
+   \reimp
+*/
 void QQuickWidget::focusOutEvent(QFocusEvent * event)
 {
     Q_D(QQuickWidget);
