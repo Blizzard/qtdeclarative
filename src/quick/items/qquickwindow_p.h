@@ -190,6 +190,7 @@ public:
     void cleanup(QSGNode *);
 
     void polishItems();
+    void forcePolish();
     void syncSceneGraph();
     void renderSceneGraph(const QSize &size);
 
@@ -202,7 +203,10 @@ public:
     QQuickItem *dirtyItemList;
     QList<QSGNode *> cleanupNodeList;
 
-    QSet<QQuickItem *> itemsToPolish;
+    QVector<QQuickItem *> itemsToPolish;
+
+    qreal devicePixelRatio;
+    QMetaObject::Connection physicalDpiChangedConnection;
 
     void updateDirtyNodes();
     void cleanupNodes();

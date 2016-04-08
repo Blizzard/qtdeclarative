@@ -40,6 +40,7 @@
 #include "qquicktextnode_p.h"
 #include "qquickimage_p_p.h"
 #include "qquicktextutil_p.h"
+#include "qquicktextdocument_p.h"
 
 #include <QtQuick/private/qsgtexture_p.h>
 
@@ -87,7 +88,16 @@ QQuickTextPrivate::QQuickTextPrivate()
 }
 
 QQuickTextPrivate::ExtraData::ExtraData()
-    : lineHeight(1.0)
+    : padding(0)
+    , topPadding(0)
+    , leftPadding(0)
+    , rightPadding(0)
+    , bottomPadding(0)
+    , explicitTopPadding(false)
+    , explicitLeftPadding(false)
+    , explicitRightPadding(false)
+    , explicitBottomPadding(false)
+    , lineHeight(1.0)
     , doc(0)
     , minimumPixelSize(12)
     , minimumPointSize(12)
@@ -105,149 +115,6 @@ void QQuickTextPrivate::init()
     q->setAcceptedMouseButtons(Qt::LeftButton);
     q->setFlag(QQuickItem::ItemHasContents);
 }
-
-QQuickTextDocumentWithImageResources::QQuickTextDocumentWithImageResources(QQuickItem *parent)
-: QTextDocument(parent), outstanding(0)
-{
-    setUndoRedoEnabled(false);
-    documentLayout()->registerHandler(QTextFormat::ImageObject, this);
-    connect(this, SIGNAL(baseUrlChanged(QUrl)), this, SLOT(reset()));
-}
-
-QQuickTextDocumentWithImageResources::~QQuickTextDocumentWithImageResources()
-{
-    if (!m_resources.isEmpty())
-        qDeleteAll(m_resources);
-}
-
-QVariant QQuickTextDocumentWithImageResources::loadResource(int type, const QUrl &name)
-{
-    QVariant resource = QTextDocument::loadResource(type, name);
-    if (resource.isNull() && type == QTextDocument::ImageResource) {
-        QQmlContext *context = qmlContext(parent());
-        QUrl url = baseUrl().resolved(name);
-        QQuickPixmap *p = loadPixmap(context, url);
-        resource = p->image();
-    }
-
-    return resource;
-}
-
-void QQuickTextDocumentWithImageResources::requestFinished()
-{
-    outstanding--;
-    if (outstanding == 0) {
-        markContentsDirty(0, characterCount());
-        emit imagesLoaded();
-    }
-}
-
-QSizeF QQuickTextDocumentWithImageResources::intrinsicSize(
-        QTextDocument *, int, const QTextFormat &format)
-{
-    if (format.isImageFormat()) {
-        QTextImageFormat imageFormat = format.toImageFormat();
-
-        const int width = qRound(imageFormat.width());
-        const bool hasWidth = imageFormat.hasProperty(QTextFormat::ImageWidth) && width > 0;
-        const int height = qRound(imageFormat.height());
-        const bool hasHeight = imageFormat.hasProperty(QTextFormat::ImageHeight) && height > 0;
-
-        QSizeF size(width, height);
-        if (!hasWidth || !hasHeight) {
-            QVariant res = resource(QTextDocument::ImageResource, QUrl(imageFormat.name()));
-            QImage image = res.value<QImage>();
-            if (image.isNull()) {
-                if (!hasWidth)
-                    size.setWidth(16);
-                if (!hasHeight)
-                    size.setHeight(16);
-                return size;
-            }
-            QSize imgSize = image.size();
-
-            if (!hasWidth) {
-                if (!hasHeight)
-                    size.setWidth(imgSize.width());
-                else
-                    size.setWidth(qRound(height * (imgSize.width() / (qreal) imgSize.height())));
-            }
-            if (!hasHeight) {
-                if (!hasWidth)
-                    size.setHeight(imgSize.height());
-                else
-                    size.setHeight(qRound(width * (imgSize.height() / (qreal) imgSize.width())));
-            }
-        }
-        return size;
-    }
-    return QSizeF();
-}
-
-void QQuickTextDocumentWithImageResources::drawObject(
-        QPainter *, const QRectF &, QTextDocument *, int, const QTextFormat &)
-{
-}
-
-QImage QQuickTextDocumentWithImageResources::image(const QTextImageFormat &format)
-{
-    QVariant res = resource(QTextDocument::ImageResource, QUrl(format.name()));
-    return res.value<QImage>();
-}
-
-void QQuickTextDocumentWithImageResources::reset()
-{
-    clearResources();
-    markContentsDirty(0, characterCount());
-}
-
-QQuickPixmap *QQuickTextDocumentWithImageResources::loadPixmap(
-        QQmlContext *context, const QUrl &url)
-{
-
-    QHash<QUrl, QQuickPixmap *>::Iterator iter = m_resources.find(url);
-
-    if (iter == m_resources.end()) {
-        QQuickPixmap *p = new QQuickPixmap(context->engine(), url);
-        iter = m_resources.insert(url, p);
-
-        if (p->isLoading()) {
-            p->connectFinished(this, SLOT(requestFinished()));
-            outstanding++;
-        }
-    }
-
-    QQuickPixmap *p = *iter;
-    if (p->isError()) {
-        if (!errors.contains(url)) {
-            errors.insert(url);
-            qmlInfo(parent()) << p->error();
-        }
-    }
-    return p;
-}
-
-void QQuickTextDocumentWithImageResources::clearResources()
-{
-    foreach (QQuickPixmap *pixmap, m_resources)
-        pixmap->clear(this);
-    qDeleteAll(m_resources);
-    m_resources.clear();
-    outstanding = 0;
-}
-
-void QQuickTextDocumentWithImageResources::setText(const QString &text)
-{
-    clearResources();
-
-#ifndef QT_NO_TEXTHTMLPARSER
-    setHtml(text);
-#else
-    setPlainText(text);
-#endif
-}
-
-QSet<QUrl> QQuickTextDocumentWithImageResources::errors;
 
 QQuickTextPrivate::~QQuickTextPrivate()
 {
@@ -282,6 +149,74 @@ qreal QQuickTextPrivate::getImplicitHeight() const
     return implicitHeight;
 }
 
+qreal QQuickTextPrivate::availableWidth() const
+{
+    Q_Q(const QQuickText);
+    return q->width() - q->leftPadding() - q->rightPadding();
+}
+
+qreal QQuickTextPrivate::availableHeight() const
+{
+    Q_Q(const QQuickText);
+    return q->height() - q->topPadding() - q->bottomPadding();
+}
+
+void QQuickTextPrivate::setTopPadding(qreal value, bool reset)
+{
+    Q_Q(QQuickText);
+    qreal oldPadding = q->topPadding();
+    if (!reset || extra.isAllocated()) {
+        extra.value().topPadding = value;
+        extra.value().explicitTopPadding = !reset;
+    }
+    if ((!reset && !qFuzzyCompare(oldPadding, value)) || (reset && !qFuzzyCompare(oldPadding, padding()))) {
+        updateSize();
+        emit q->topPaddingChanged();
+    }
+}
+
+void QQuickTextPrivate::setLeftPadding(qreal value, bool reset)
+{
+    Q_Q(QQuickText);
+    qreal oldPadding = q->leftPadding();
+    if (!reset || extra.isAllocated()) {
+        extra.value().leftPadding = value;
+        extra.value().explicitLeftPadding = !reset;
+    }
+    if ((!reset && !qFuzzyCompare(oldPadding, value)) || (reset && !qFuzzyCompare(oldPadding, padding()))) {
+        updateSize();
+        emit q->leftPaddingChanged();
+    }
+}
+
+void QQuickTextPrivate::setRightPadding(qreal value, bool reset)
+{
+    Q_Q(QQuickText);
+    qreal oldPadding = q->rightPadding();
+    if (!reset || extra.isAllocated()) {
+        extra.value().rightPadding = value;
+        extra.value().explicitRightPadding = !reset;
+    }
+    if ((!reset && !qFuzzyCompare(oldPadding, value)) || (reset && !qFuzzyCompare(oldPadding, padding()))) {
+        updateSize();
+        emit q->rightPaddingChanged();
+    }
+}
+
+void QQuickTextPrivate::setBottomPadding(qreal value, bool reset)
+{
+    Q_Q(QQuickText);
+    qreal oldPadding = q->bottomPadding();
+    if (!reset || extra.isAllocated()) {
+        extra.value().bottomPadding = value;
+        extra.value().explicitBottomPadding = !reset;
+    }
+    if ((!reset && !qFuzzyCompare(oldPadding, value)) || (reset && !qFuzzyCompare(oldPadding, padding()))) {
+        updateSize();
+        emit q->bottomPaddingChanged();
+    }
+}
+
 /*!
     \qmlproperty bool QtQuick::Text::antialiasing
 
@@ -291,7 +226,7 @@ qreal QQuickTextPrivate::getImplicitHeight() const
     The default is true.
 */
 
-void QQuickText::q_imagesLoaded()
+void QQuickText::q_updateLayout()
 {
     Q_D(QQuickText);
     d->updateLayout();
@@ -325,9 +260,9 @@ void QQuickTextPrivate::updateLayout()
                 formatModifiesFontSize = fontSizeModified;
                 multilengthEos = -1;
             } else {
-                layout.clearAdditionalFormats();
+                layout.clearFormats();
                 if (elideLayout)
-                    elideLayout->clearAdditionalFormats();
+                    elideLayout->clearFormats();
                 QString tmp = text;
                 multilengthEos = tmp.indexOf(QLatin1Char('\x9c'));
                 if (multilengthEos != -1) {
@@ -408,7 +343,7 @@ void QQuickTextPrivate::updateBaseline(qreal baseline, qreal dy)
             yoff = dy/2;
     }
 
-    q->setBaselineOffset(baseline + yoff);
+    q->setBaselineOffset(baseline + yoff + q->topPadding());
 }
 
 void QQuickTextPrivate::updateSize()
@@ -428,6 +363,9 @@ void QQuickTextPrivate::updateSize()
             return;
     }
 
+    qreal hPadding = q->leftPadding() + q->rightPadding();
+    qreal vPadding = q->topPadding() + q->bottomPadding();
+
     if (text.isEmpty() && !isLineLaidOutConnected() && fontSizeMode() == QQuickText::FixedSize) {
         // How much more expensive is it to just do a full layout on an empty string here?
         // There may be subtle differences in the height and baseline calculations between
@@ -440,8 +378,8 @@ void QQuickTextPrivate::updateSize()
                     ? lineHeight()
                     : fontHeight * lineHeight();
         }
-        updateBaseline(fm.ascent(), q->height() - fontHeight);
-        q->setImplicitSize(0, fontHeight);
+        updateBaseline(fm.ascent(), q->height() - fontHeight - vPadding);
+        q->setImplicitSize(hPadding, fontHeight + vPadding);
         layedOutTextRect = QRectF(0, 0, 0, fontHeight);
         emit q->contentSizeChanged();
         updateType = UpdatePaintNode;
@@ -462,7 +400,7 @@ void QQuickTextPrivate::updateSize()
 
         layedOutTextRect = textRect;
         size = textRect.size();
-        updateBaseline(baseline, q->height() - size.height());
+        updateBaseline(baseline, q->height() - size.height() - vPadding);
     } else {
         widthExceeded = true; // always relayout rich text on width changes..
         heightExceeded = false; // rich text layout isn't affected by height changes.
@@ -486,15 +424,15 @@ void QQuickTextPrivate::updateSize()
             naturalWidth = extra->doc->idealWidth();
             const bool wasInLayout = internalWidthUpdate;
             internalWidthUpdate = true;
-            q->setImplicitWidth(naturalWidth);
+            q->setImplicitWidth(naturalWidth + hPadding);
             internalWidthUpdate = wasInLayout;
         }
         if (internalWidthUpdate)
             return;
 
         extra->doc->setPageSize(QSizeF());
-        if (q->widthValid() && (wrapMode != QQuickText::NoWrap || extra->doc->idealWidth() < q->width()))
-            extra->doc->setTextWidth(q->width());
+        if (q->widthValid() && (wrapMode != QQuickText::NoWrap || extra->doc->idealWidth() < availableWidth()))
+            extra->doc->setTextWidth(availableWidth());
         else
             extra->doc->setTextWidth(extra->doc->idealWidth()); // ### Text does not align if width is not set (QTextDoc bug)
 
@@ -503,7 +441,7 @@ void QQuickTextPrivate::updateSize()
         size = QSizeF(extra->doc->idealWidth(),dsize.height());
 
         QFontMetricsF fm(font);
-        updateBaseline(fm.ascent(), q->height() - size.height());
+        updateBaseline(fm.ascent(), q->height() - size.height() - vPadding);
 
         //### need to confirm cost of always setting these for richText
         internalWidthUpdate = true;
@@ -511,11 +449,11 @@ void QQuickTextPrivate::updateSize()
         if (!q->widthValid())
             iWidth = size.width();
         if (iWidth > -1)
-            q->setImplicitSize(iWidth, size.height());
+            q->setImplicitSize(iWidth + hPadding, size.height() + vPadding);
         internalWidthUpdate = false;
 
         if (iWidth == -1)
-            q->setImplicitHeight(size.height());
+            q->setImplicitHeight(size.height() + vPadding);
     }
 
     if (layedOutTextRect.size() != previousSize)
@@ -525,7 +463,7 @@ void QQuickTextPrivate::updateSize()
 }
 
 QQuickTextLine::QQuickTextLine()
-    : QObject(), m_line(0), m_height(0)
+    : QObject(), m_line(0), m_height(0), m_lineOffset(0)
 {
 }
 
@@ -621,7 +559,7 @@ void QQuickTextPrivate::setupCustomLineGeometry(QTextLine &line, qreal &height, 
     // use the text item's width by default if it has one and wrap is on or text must be aligned
     if (q->widthValid() && (q->wrapMode() != QQuickText::NoWrap ||
                             q->effectiveHAlign() != QQuickText::AlignLeft))
-        textLine->setWidth(q->width());
+        textLine->setWidth(availableWidth());
     else
         textLine->setWidth(INT_MAX);
     if (lineHeight() != 1.0)
@@ -633,10 +571,10 @@ void QQuickTextPrivate::setupCustomLineGeometry(QTextLine &line, qreal &height, 
 }
 
 void QQuickTextPrivate::elideFormats(
-        const int start, const int length, int offset, QList<QTextLayout::FormatRange> *elidedFormats)
+        const int start, const int length, int offset, QVector<QTextLayout::FormatRange> *elidedFormats)
 {
     const int end = start + length;
-    QList<QTextLayout::FormatRange> formats = layout.additionalFormats();
+    const QVector<QTextLayout::FormatRange> formats = layout.formats();
     for (int i = 0; i < formats.count(); ++i) {
         QTextLayout::FormatRange format = formats.at(i);
         const int formatLength = qMin(format.start + format.length, end) - qMax(format.start, start);
@@ -689,10 +627,11 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
             && (q->heightValid() || maximumLineCountValid);
 
     if ((!requireImplicitSize || (implicitWidthValid && implicitHeightValid))
-            && ((singlelineElide && q->width() <= 0.) || (multilineElide && q->heightValid() && q->height() <= 0.))) {
+            && ((singlelineElide && availableWidth() <= 0.)
+                || (multilineElide && q->heightValid() && availableHeight() <= 0.))) {
         // we are elided and we have a zero width or height
-        widthExceeded = q->widthValid() && q->width() <= 0.;
-        heightExceeded = q->heightValid() && q->height() <= 0.;
+        widthExceeded = q->widthValid() && availableWidth() <= 0.;
+        heightExceeded = q->heightValid() && availableHeight() <= 0.;
 
         if (!truncated) {
             truncated = true;
@@ -728,7 +667,7 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
     lineWidth = (q->widthValid() || implicitWidthValid) && q->width() > 0
             ? q->width()
             : FLT_MAX;
-    qreal maxHeight = q->heightValid() ? q->height() : FLT_MAX;
+    qreal maxHeight = q->heightValid() ? availableHeight() : FLT_MAX;
 
     const bool customLayout = isLineLaidOutConnected();
     const bool wasTruncated = truncated;
@@ -749,8 +688,8 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
     int scaledFontSize = largeFont;
 
     bool widthChanged = false;
-    widthExceeded = q->width() <= 0 && (singlelineElide || canWrap || horizontalFit);
-    heightExceeded = q->height() <= 0 && (multilineElide || verticalFit);
+    widthExceeded = availableWidth() <= 0 && (singlelineElide || canWrap || horizontalFit);
+    heightExceeded = availableHeight() <= 0 && (multilineElide || verticalFit);
 
     QRectF br;
 
@@ -920,7 +859,7 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
 
             bool wasInLayout = internalWidthUpdate;
             internalWidthUpdate = true;
-            q->setImplicitSize(naturalWidth, naturalHeight);
+            q->setImplicitSize(naturalWidth + q->leftPadding() + q->rightPadding(), naturalHeight + q->topPadding() + q->bottomPadding());
             internalWidthUpdate = wasInLayout;
 
             // Update any variables that are dependent on the validity of the width or height.
@@ -937,8 +876,11 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
             const qreal oldWidth = lineWidth;
             const qreal oldHeight = maxHeight;
 
-            lineWidth = q->widthValid() && q->width() > 0 ? q->width() : naturalWidth;
-            maxHeight = q->heightValid() ? q->height() : FLT_MAX;
+            const qreal availWidth = availableWidth();
+            const qreal availHeight = availableHeight();
+
+            lineWidth = q->widthValid() && availWidth > 0 ? availWidth : naturalWidth;
+            maxHeight = q->heightValid() ? availHeight : FLT_MAX;
 
             // If the width of the item has changed and it's possible the result of wrapping,
             // eliding, scaling has changed, or the text is not left aligned do another layout.
@@ -991,7 +933,7 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
                     && (q->heightValid() || (maximumLineCountValid && canWrap));
 
             const qreal oldHeight = maxHeight;
-            maxHeight = q->heightValid() ? q->height() : FLT_MAX;
+            maxHeight = q->heightValid() ? availableHeight() : FLT_MAX;
             // If the height of the item has changed and it's possible the result of eliding,
             // line count truncation or scaling has changed, do another layout.
             if ((maxHeight < qMin(oldHeight, naturalHeight) || (heightExceeded && maxHeight > oldHeight))
@@ -1071,7 +1013,7 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
             elideLayout->setCacheEnabled(true);
         }
         if (styledText) {
-            QList<QTextLayout::FormatRange> formats;
+            QVector<QTextLayout::FormatRange> formats;
             switch (elideMode) {
             case QQuickText::ElideRight:
                 elideFormats(elideStart, elideText.length() - 1, 0, &formats);
@@ -1094,7 +1036,7 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
             default:
                 break;
             }
-            elideLayout->setAdditionalFormats(formats);
+            elideLayout->setFormats(formats);
         }
 
         elideLayout->setFont(layout.font());
@@ -1230,7 +1172,7 @@ void QQuickTextPrivate::ensureDoc()
         extra->doc->setDocumentMargin(0);
         extra->doc->setBaseUrl(q->baseUrl());
         qmlobject_connect(extra->doc, QQuickTextDocumentWithImageResources, SIGNAL(imagesLoaded()),
-                          q, QQuickText, SLOT(q_imagesLoaded()));
+                          q, QQuickText, SLOT(q_updateLayout()));
     }
 }
 
@@ -1280,6 +1222,13 @@ void QQuickTextPrivate::ensureDoc()
 */
 QQuickText::QQuickText(QQuickItem *parent)
 : QQuickImplicitSizeItem(*(new QQuickTextPrivate), parent)
+{
+    Q_D(QQuickText);
+    d->init();
+}
+
+QQuickText::QQuickText(QQuickTextPrivate &dd, QQuickItem *parent)
+: QQuickImplicitSizeItem(dd, parent)
 {
     Q_D(QQuickText);
     d->init();
@@ -1356,6 +1305,16 @@ QQuickText::~QQuickText()
     The family name is case insensitive and may optionally include a foundry name, e.g. "Helvetica [Cronyx]".
     If the family is available from more than one foundry and the foundry isn't specified, an arbitrary foundry is chosen.
     If the family isn't available a family will be set using the font matching algorithm.
+*/
+
+/*!
+    \qmlproperty string QtQuick::Text::font.styleName
+    \since 5.6
+
+    Sets the style name of the font.
+
+    The style name is case insensitive. If set, the font will be matched against style name instead
+    of the font properties \l font.weight, \l font.bold and \l font.italic.
 */
 
 /*!
@@ -1498,7 +1457,8 @@ void QQuickText::itemChange(ItemChange change, const ItemChangeData &value)
 {
     Q_D(QQuickText);
     Q_UNUSED(value);
-    if (change == ItemAntialiasingHasChanged) {
+    switch (change) {
+    case ItemAntialiasingHasChanged:
         if (!antialiasing())
             d->font.setStyleStrategy(QFont::NoAntialias);
         else
@@ -1506,6 +1466,22 @@ void QQuickText::itemChange(ItemChange change, const ItemChangeData &value)
         d->implicitWidthValid = false;
         d->implicitHeightValid = false;
         d->updateLayout();
+        break;
+
+    case ItemDevicePixelRatioHasChanged:
+        if (d->renderType == NativeRendering) {
+            // Native rendering optimizes for a given pixel grid, so its results must not be scaled.
+            // Text layout code respects the current device pixel ratio automatically, we only need
+            // to rerun layout after the ratio changed.
+            // Changes of implicit size should be minimal; they are hard to avoid.
+            d->implicitWidthValid = false;
+            d->implicitHeightValid = false;
+            d->updateLayout();
+        }
+        break;
+
+    default:
+        break;
     }
     QQuickItem::itemChange(change, value);
 }
@@ -2196,18 +2172,19 @@ void QQuickText::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeo
     bool widthMaximum = newGeometry.width() >= oldGeometry.width() && !d->widthExceeded;
     bool heightMaximum = newGeometry.height() >= oldGeometry.height() && !d->heightExceeded;
 
+    bool verticalPositionChanged = heightChanged && d->vAlign != AlignTop;
+
     if ((!widthChanged && !heightChanged) || d->internalWidthUpdate)
         goto geomChangeDone;
 
-    if ((effectiveHAlign() != QQuickText::AlignLeft && widthChanged)
-            || (vAlign() != QQuickText::AlignTop && heightChanged)) {
+    if ((effectiveHAlign() != QQuickText::AlignLeft && widthChanged) || verticalPositionChanged) {
         // If the width has changed and we're not left aligned do an update so the text is
         // repositioned even if a full layout isn't required. And the same for vertical.
         d->updateType = QQuickTextPrivate::UpdatePaintNode;
         update();
     }
 
-    if (!wrapped && !elide && !scaleFont)
+    if (!wrapped && !elide && !scaleFont && !verticalPositionChanged)
         goto geomChangeDone; // left aligned unwrapped text without eliding never needs relayout
 
     if (elide // eliding and dimensions were and remain invalid;
@@ -2216,7 +2193,7 @@ void QQuickText::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeo
         goto geomChangeDone;
     }
 
-    if (widthMaximum && heightMaximum && !d->isLineLaidOutConnected())  // Size is sufficient and growing.
+    if (widthMaximum && heightMaximum && !d->isLineLaidOutConnected() && !verticalPositionChanged)  // Size is sufficient and growing.
         goto geomChangeDone;
 
     if (!(widthChanged || widthMaximum) && !d->isLineLaidOutConnected()) { // only height has changed
@@ -2277,7 +2254,7 @@ QSGNode *QQuickText::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data
 
     d->updateType = QQuickTextPrivate::UpdateNone;
 
-    const qreal dy = QQuickTextUtil::alignedY(d->layedOutTextRect.height() + d->lineHeightOffset(), height(), d->vAlign);
+    const qreal dy = QQuickTextUtil::alignedY(d->layedOutTextRect.height() + d->lineHeightOffset(), d->availableHeight(), d->vAlign) + topPadding();
 
     QQuickTextNode *node = 0;
     if (!oldNode)
@@ -2294,11 +2271,11 @@ QSGNode *QQuickText::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data
     const QColor linkColor = QColor::fromRgba(d->linkColor);
 
     if (d->richText) {
-        const qreal dx = QQuickTextUtil::alignedX(d->layedOutTextRect.width(), width(), effectiveHAlign());
+        const qreal dx = QQuickTextUtil::alignedX(d->layedOutTextRect.width(), d->availableWidth(), effectiveHAlign()) + leftPadding();
         d->ensureDoc();
         node->addTextDocument(QPointF(dx, dy), d->extra->doc, color, d->style, styleColor, linkColor);
     } else if (d->layedOutTextRect.width() > 0) {
-        const qreal dx = QQuickTextUtil::alignedX(d->lineWidth, width(), effectiveHAlign());
+        const qreal dx = QQuickTextUtil::alignedX(d->lineWidth, d->availableWidth(), effectiveHAlign()) + leftPadding();
         int unelidedLineCount = d->lineCount;
         if (d->elideLayout)
             unelidedLineCount -= 1;
@@ -2568,7 +2545,7 @@ QString QQuickTextPrivate::anchorAt(const QTextLayout *layout, const QPointF &mo
         QTextLine line = layout->lineAt(i);
         if (line.naturalTextRect().contains(mousePos)) {
             int charPos = line.xToCursor(mousePos.x(), QTextLine::CursorOnCharacter);
-            foreach (const QTextLayout::FormatRange &formatRange, layout->additionalFormats()) {
+            foreach (const QTextLayout::FormatRange &formatRange, layout->formats()) {
                 if (formatRange.format.isAnchor()
                         && charPos >= formatRange.start
                         && charPos < formatRange.start + formatRange.length) {
@@ -2585,14 +2562,15 @@ QString QQuickTextPrivate::anchorAt(const QPointF &mousePos) const
 {
     Q_Q(const QQuickText);
     QPointF translatedMousePos = mousePos;
-    translatedMousePos.ry() -= QQuickTextUtil::alignedY(layedOutTextRect.height() + lineHeightOffset(), q->height(), vAlign);
+    translatedMousePos.rx() -= q->leftPadding();
+    translatedMousePos.ry() -= q->topPadding() + QQuickTextUtil::alignedY(layedOutTextRect.height() + lineHeightOffset(), availableHeight(), vAlign);
     if (styledText) {
         QString link = anchorAt(&layout, translatedMousePos);
         if (link.isEmpty() && elideLayout)
             link = anchorAt(elideLayout, translatedMousePos);
         return link;
     } else if (richText && extra.isAllocated() && extra->doc) {
-        translatedMousePos.rx() -= QQuickTextUtil::alignedX(layedOutTextRect.width(), q->width(), q->effectiveHAlign());
+        translatedMousePos.rx() -= QQuickTextUtil::alignedX(layedOutTextRect.width(), availableWidth(), q->effectiveHAlign());
         return extra->doc->documentLayout()->anchorAt(translatedMousePos);
     }
     return QString();
@@ -2808,6 +2786,127 @@ void QQuickText::invalidateFontCaches()
         if (d->layout.engine() != 0)
             d->layout.engine()->resetFontEngineCache();
     }
+}
+
+/*!
+    \since 5.6
+    \qmlproperty real QtQuick::Text::padding
+    \qmlproperty real QtQuick::Text::topPadding
+    \qmlproperty real QtQuick::Text::leftPadding
+    \qmlproperty real QtQuick::Text::bottomPadding
+    \qmlproperty real QtQuick::Text::rightPadding
+
+    These properties hold the padding around the content. This space is reserved
+    in addition to the contentWidth and contentHeight.
+*/
+qreal QQuickText::padding() const
+{
+    Q_D(const QQuickText);
+    return d->padding();
+}
+
+void QQuickText::setPadding(qreal padding)
+{
+    Q_D(QQuickText);
+    if (qFuzzyCompare(d->padding(), padding))
+        return;
+
+    d->extra.value().padding = padding;
+    d->updateSize();
+    emit paddingChanged();
+    if (!d->extra.isAllocated() || !d->extra->explicitTopPadding)
+        emit topPaddingChanged();
+    if (!d->extra.isAllocated() || !d->extra->explicitLeftPadding)
+        emit leftPaddingChanged();
+    if (!d->extra.isAllocated() || !d->extra->explicitRightPadding)
+        emit rightPaddingChanged();
+    if (!d->extra.isAllocated() || !d->extra->explicitBottomPadding)
+        emit bottomPaddingChanged();
+}
+
+void QQuickText::resetPadding()
+{
+    setPadding(0);
+}
+
+qreal QQuickText::topPadding() const
+{
+    Q_D(const QQuickText);
+    if (d->extra.isAllocated() && d->extra->explicitTopPadding)
+        return d->extra->topPadding;
+    return d->padding();
+}
+
+void QQuickText::setTopPadding(qreal padding)
+{
+    Q_D(QQuickText);
+    d->setTopPadding(padding);
+}
+
+void QQuickText::resetTopPadding()
+{
+    Q_D(QQuickText);
+    d->setTopPadding(0, true);
+}
+
+qreal QQuickText::leftPadding() const
+{
+    Q_D(const QQuickText);
+    if (d->extra.isAllocated() && d->extra->explicitLeftPadding)
+        return d->extra->leftPadding;
+    return d->padding();
+}
+
+void QQuickText::setLeftPadding(qreal padding)
+{
+    Q_D(QQuickText);
+    d->setLeftPadding(padding);
+}
+
+void QQuickText::resetLeftPadding()
+{
+    Q_D(QQuickText);
+    d->setLeftPadding(0, true);
+}
+
+qreal QQuickText::rightPadding() const
+{
+    Q_D(const QQuickText);
+    if (d->extra.isAllocated() && d->extra->explicitRightPadding)
+        return d->extra->rightPadding;
+    return d->padding();
+}
+
+void QQuickText::setRightPadding(qreal padding)
+{
+    Q_D(QQuickText);
+    d->setRightPadding(padding);
+}
+
+void QQuickText::resetRightPadding()
+{
+    Q_D(QQuickText);
+    d->setRightPadding(0, true);
+}
+
+qreal QQuickText::bottomPadding() const
+{
+    Q_D(const QQuickText);
+    if (d->extra.isAllocated() && d->extra->explicitBottomPadding)
+        return d->extra->bottomPadding;
+    return d->padding();
+}
+
+void QQuickText::setBottomPadding(qreal padding)
+{
+    Q_D(QQuickText);
+    d->setBottomPadding(padding);
+}
+
+void QQuickText::resetBottomPadding()
+{
+    Q_D(QQuickText);
+    d->setBottomPadding(0, true);
 }
 
 void QQuickText::setDefaultRenderType(RenderType type)

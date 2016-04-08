@@ -105,11 +105,12 @@ public:
     This enum describes flags that you can enable to improve rendering
     performance in QQuickPaintedItem. By default, none of these flags are set.
 
-    \value FastFBOResizing If your item gets resized often and you are using the
-    QQuickPaintedItem::FramebufferObject render target, set this flag to true to reduce the
-    item resizing time at the cost of using more graphics memory. Resizing a Framebuffer object
-    is a costly operation, by enabling this property the Framebuffer Object will use a texture
-    larger than the actual size of the item to avoid as much as possible resizing it.
+    \value FastFBOResizing Resizing an FBO can be a costly operation on a few
+    OpenGL driver implementations. To work around this, one can set this flag
+    to let the QQuickPaintedItem allocate one large framebuffer object and
+    instead draw into a subregion of it. This saves the resize at the cost of
+    using more memory. Please note that this is not a common problem.
+
 */
 
 /*!
@@ -482,7 +483,7 @@ void QQuickPaintedItem::setFillColor(const QColor &c)
     \brief The item's render target.
 
     This property defines which render target the QPainter renders into, it can be either
-    QSGPaintedItem::Image, QSGPaintedItem::FramebufferObject or QSGPaintedItem::InvertedYFramebufferObject.
+    QQuickPaintedItem::Image, QQuickPaintedItem::FramebufferObject or QQuickPaintedItem::InvertedYFramebufferObject.
 
     Each has certain benefits, typically performance versus quality. Using a framebuffer
     object avoids a costly upload of the image contents to the texture in graphics memory,
@@ -637,6 +638,13 @@ bool QQuickPaintedItem::isTextureProvider() const
 */
 QSGTextureProvider *QQuickPaintedItem::textureProvider() const
 {
+    // When Item::layer::enabled == true, QQuickItem will be a texture
+    // provider. In this case we should prefer to return the layer rather
+    // than the image itself. The layer will include any children and any
+    // the image's wrap and fill mode.
+    if (QQuickItem::isTextureProvider())
+        return QQuickItem::textureProvider();
+
     Q_D(const QQuickPaintedItem);
     QQuickWindow *w = window();
     if (!w || !w->openglContext() || QThread::currentThread() != w->openglContext()->thread()) {
