@@ -41,19 +41,24 @@ QT_BEGIN_NAMESPACE
 class QtQuick2Plugin : public QQmlExtensionPlugin
 {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID "org.qt-project.Qt.QQmlExtensionInterface/1.0")
+    Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 public:
+    QtQuick2Plugin() : moduleDefined(false) {}
     virtual void registerTypes(const char *uri)
     {
         Q_ASSERT(QLatin1String(uri) == QLatin1String("QtQuick"));
         Q_UNUSED(uri);
+        moduleDefined = true;
         QQmlQtQuick2Module::defineModule();
     }
 
     ~QtQuick2Plugin()
     {
-        QQmlQtQuick2Module::undefineModule();
+        if (moduleDefined)
+            QQmlQtQuick2Module::undefineModule();
     }
+
+    bool moduleDefined;
 };
 //![class decl]
 

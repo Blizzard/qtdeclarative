@@ -36,8 +36,6 @@
 #include <QQmlComponent>
 #include <private/qqmlmetatype_p.h>
 #include <QDebug>
-#include <QGraphicsScene>
-#include <QGraphicsItem>
 #include <QQuickItem>
 #include <QQmlContext>
 #include <private/qobject_p.h>
@@ -52,7 +50,6 @@ private slots:
     void qobject_cpp();
     void qobject_qml();
     void qobject_qmltype();
-    void qobject_alloc();
 
     void qobject_10flat_qml();
     void qobject_10flat_cpp();
@@ -67,11 +64,10 @@ private slots:
     void itemtree_qml();
     void itemtree_scene_cpp();
 
-    void elements_data();
-    void elements();
-
     void itemtests_qml_data();
     void itemtests_qml();
+
+    void anchors_heightChange();
 
 private:
     QQmlEngine engine;
@@ -98,6 +94,12 @@ public:
 tst_creation::tst_creation()
 {
     qmlRegisterType<TestType>("Qt.test", 1, 0, "TestType");
+
+    // Ensure QtQuick is loaded and imported. Some benchmark like elements() rely on QQmlMetaType::qmlTypeNames() to
+    // be populated.
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick 2.0\nItem{}", QUrl());
+    QScopedPointer<QObject> obj(component.create());
 }
 
 inline QUrl TEST_FILE(const QString &filename)
@@ -200,35 +202,6 @@ void tst_creation::qobject_qmltype()
     }
 }
 
-struct QObjectFakeData {
-    char data[sizeof(QObjectPrivate)];
-};
-
-struct QObjectFake {
-    QObjectFake();
-    virtual ~QObjectFake();
-private:
-    QObjectFakeData *d;
-};
-
-QObjectFake::QObjectFake()
-{
-    d = new QObjectFakeData;
-}
-
-QObjectFake::~QObjectFake()
-{
-    delete d;
-}
-
-void tst_creation::qobject_alloc()
-{
-    QBENCHMARK {
-        QObjectFake *obj = new QObjectFake;
-        delete obj;
-    }
-}
-
 struct QQmlGraphics_Derived : public QObject
 {
     void setParent_noEvent(QObject *parent) {
@@ -323,28 +296,6 @@ void tst_creation::itemtree_scene_cpp()
     delete root;
 }
 
-void tst_creation::elements_data()
-{
-    QTest::addColumn<QString>("type");
-
-    QList<QString> types = QQmlMetaType::qmlTypeNames();
-    foreach (QString type, types)
-        QTest::newRow(type.toLatin1()) << type;
-}
-
-void tst_creation::elements()
-{
-    QFETCH(QString, type);
-    QQmlType *t = QQmlMetaType::qmlType(type, 2, 0);
-    if (!t || !t->isCreatable())
-        QSKIP("Non-creatable type");
-
-    QBENCHMARK {
-        QObject *obj = t->create();
-        delete obj;
-    }
-}
-
 void tst_creation::itemtests_qml_data()
 {
     QTest::addColumn<QString>("filepath");
@@ -376,6 +327,24 @@ void tst_creation::itemtests_qml()
 
     delete component.create();
     QBENCHMARK { delete component.create(); }
+}
+
+void tst_creation::anchors_heightChange()
+{
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick 2.0\nItem { Item { anchors.bottom: parent.bottom } }", QUrl());
+
+    QObject *obj = component.create();
+    auto item = qobject_cast<QQuickItem *>(obj);
+    Q_ASSERT(item);
+    int height = 1;
+
+    QBENCHMARK {
+        item->setHeight(height);
+        height += 1;
+    }
+
+    delete obj;
 }
 
 QTEST_MAIN(tst_creation)

@@ -78,7 +78,7 @@ DEFINE_BOOL_CONFIG_OPTION(qmlDisableDistanceField, QML_DISABLE_DISTANCEFIELD)
     and setting \l echoMode to an appropriate value enables TextInput to be used for
     a password input field.
 
-    On OS X, the Up/Down key bindings for Home/End are explicitly disabled.
+    On \macos, the Up/Down key bindings for Home/End are explicitly disabled.
     If you want such bindings (on any platform), you will need to construct them in QML.
 
     \sa TextEdit, Text
@@ -1886,11 +1886,15 @@ bool QQuickTextInput::isRightToLeft(int start, int end)
     \qmlmethod QtQuick::TextInput::cut()
 
     Moves the currently selected text to the system clipboard.
+
+    \note If the echo mode is set to a mode other than Normal then cut
+    will not work.  This is to prevent using cut as a method of bypassing
+    password features of the line control.
 */
 void QQuickTextInput::cut()
 {
     Q_D(QQuickTextInput);
-    if (!d->m_readOnly) {
+    if (!d->m_readOnly && d->m_echoMode == QQuickTextInput::Normal) {
         d->copy();
         d->del();
     }
@@ -1900,6 +1904,10 @@ void QQuickTextInput::cut()
     \qmlmethod QtQuick::TextInput::copy()
 
     Copies the currently selected text to the system clipboard.
+
+    \note If the echo mode is set to a mode other than Normal then copy
+    will not work.  This is to prevent using copy as a method of bypassing
+    password features of the line control.
 */
 void QQuickTextInput::copy()
 {
@@ -4251,10 +4259,7 @@ void QQuickTextInputPrivate::processKeyEvent(QKeyEvent* event)
         }
     }
     else if (event == QKeySequence::Cut) {
-        if (!m_readOnly) {
-            copy();
-            del();
-        }
+        q->cut();
     }
     else if (event == QKeySequence::DeleteEndOfLine) {
         if (!m_readOnly)

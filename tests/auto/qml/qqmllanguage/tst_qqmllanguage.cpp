@@ -203,6 +203,10 @@ private slots:
     void crash2();
 
     void globalEnums();
+    void lowercaseEnumRuntime_data();
+    void lowercaseEnumRuntime();
+    void lowercaseEnumCompileTime_data();
+    void lowercaseEnumCompileTime();
     void literals_data();
     void literals();
 
@@ -678,7 +682,9 @@ void tst_qqmllanguage::assignBasicTypes()
     QCOMPARE(object->boolProperty(), true);
     QCOMPARE(object->variantProperty(), QVariant("Hello World!"));
     QCOMPARE(object->vectorProperty(), QVector3D(10, 1, 2.2f));
+    QCOMPARE(object->vector2Property(), QVector2D(2, 3));
     QCOMPARE(object->vector4Property(), QVector4D(10, 1, 2.2f, 2.3f));
+    QCOMPARE(object->quaternionProperty(), QQuaternion(4, 5, 6, 7));
     QUrl encoded;
     encoded.setEncodedUrl("main.qml?with%3cencoded%3edata", QUrl::TolerantMode);
     QCOMPARE(object->urlProperty(), component.url().resolved(encoded));
@@ -3500,6 +3506,45 @@ void tst_qqmllanguage::globalEnums()
     QVERIFY(enum2Class->property("e2Value") == 76);
 
     delete o;
+}
+
+void tst_qqmllanguage::lowercaseEnumRuntime_data()
+{
+    QTest::addColumn<QString>("file");
+    QTest::addColumn<QString>("errorMessage");
+
+    QTest::newRow("enum from normal type") << "lowercaseEnumRuntime.1.qml" << ":8: TypeError: Cannot access enum value 'lowercaseEnumVal' of 'MyTypeObject', enum values need to start with an uppercase letter.";
+    QTest::newRow("enum from singleton type") << "lowercaseEnumRuntime.2.qml" << ":8: TypeError: Cannot access enum value 'lowercaseEnumVal' of 'MyTypeObjectSingleton', enum values need to start with an uppercase letter.";
+}
+
+void tst_qqmllanguage::lowercaseEnumRuntime()
+{
+    QFETCH(QString, file);
+    QFETCH(QString, errorMessage);
+
+    QQmlComponent component(&engine, testFileUrl(file));
+    VERIFY_ERRORS(0);
+    QString warning = component.url().toString() + errorMessage;
+    QTest::ignoreMessage(QtWarningMsg, qPrintable(warning));
+    delete component.create();
+}
+
+void tst_qqmllanguage::lowercaseEnumCompileTime_data()
+{
+    QTest::addColumn<QString>("file");
+    QTest::addColumn<QString>("errorFile");
+
+    QTest::newRow("assignment to int property") << "lowercaseEnumCompileTime.1.qml" << "lowercaseEnumCompileTime.1.errors.txt";
+    QTest::newRow("assignment to enum property") << "lowercaseEnumCompileTime.2.qml" << "lowercaseEnumCompileTime.2.errors.txt";
+}
+
+void tst_qqmllanguage::lowercaseEnumCompileTime()
+{
+    QFETCH(QString, file);
+    QFETCH(QString, errorFile);
+
+    QQmlComponent component(&engine, testFileUrl(file));
+    VERIFY_ERRORS(qPrintable(errorFile));
 }
 
 void tst_qqmllanguage::literals_data()

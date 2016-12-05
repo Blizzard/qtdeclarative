@@ -398,11 +398,11 @@ The following functions are also on the Qt object.
         \li \c "blackberry" - BlackBerry OS
         \li \c "ios" - iOS
         \li \c "linux" - Linux
-        \li \c "osx" - OS X
+        \li \c "osx" - \macos
         \li \c "unix" - Other Unix-based OS
         \li \c "windows" - Windows
         \li \c "wince" - Windows CE
-        \li \c "winrt" - Windows RT
+        \li \c "winrt" - Windows Runtime
         \li \c "winphone" - Windows Phone
     \endlist
     \endtable
@@ -598,8 +598,8 @@ QQmlEnginePrivate::QQmlEnginePrivate(QQmlEngine *e)
   workerScriptEngine(0),
   activeObjectCreator(0),
   networkAccessManager(0), networkAccessManagerFactory(0), urlInterceptor(0),
-  scarceResourcesRefCount(0), typeLoader(e), importDatabase(e), uniqueId(1),
-  incubatorCount(0), incubationController(0)
+  scarceResourcesRefCount(0), importDatabase(e), typeLoader(e),
+  uniqueId(1), incubatorCount(0), incubationController(0)
 {
 }
 

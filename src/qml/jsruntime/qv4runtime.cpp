@@ -953,10 +953,9 @@ ReturnedValue Runtime::callQmlScopeObjectProperty(ExecutionEngine *engine, int p
     Scope scope(engine);
     ScopedFunctionObject o(scope, getQmlScopeObjectProperty(engine, callData->thisObject, propertyIndex));
     if (!o) {
-        QString error = QStringLiteral("Property '%1' of object %2 is not a function").arg(propertyIndex).arg(callData->thisObject.toQStringNoThrow());
+        QString error = QStringLiteral("Property '%1' of scope object is not a function").arg(propertyIndex);
         return engine->throwTypeError(error);
     }
-
     return o->call(callData);
 }
 
@@ -965,7 +964,7 @@ ReturnedValue Runtime::callQmlContextObjectProperty(ExecutionEngine *engine, int
     Scope scope(engine);
     ScopedFunctionObject o(scope, getQmlContextObjectProperty(engine, callData->thisObject, propertyIndex));
     if (!o) {
-        QString error = QStringLiteral("Property '%1' of object %2 is not a function").arg(propertyIndex).arg(callData->thisObject.toQStringNoThrow());
+        QString error = QStringLiteral("Property '%1' of context object is not a function").arg(propertyIndex);
         return engine->throwTypeError(error);
     }
 
@@ -1205,19 +1204,19 @@ ReturnedValue Runtime::unwindException(ExecutionEngine *engine)
 void Runtime::pushWithScope(const Value &o, ExecutionEngine *engine)
 {
     engine->pushContext(engine->currentContext->newWithContext(o.toObject(engine)));
-    Q_ASSERT(engine->jsStackTop = engine->currentContext + 2);
+    Q_ASSERT(engine->jsStackTop == engine->currentContext + 2);
 }
 
 void Runtime::pushCatchScope(NoThrowEngine *engine, int exceptionVarNameIndex)
 {
     ExecutionContext *c = engine->currentContext;
     engine->pushContext(c->newCatchContext(c->d()->compilationUnit->runtimeStrings[exceptionVarNameIndex], engine->catchException(0)));
-    Q_ASSERT(engine->jsStackTop = engine->currentContext + 2);
+    Q_ASSERT(engine->jsStackTop == engine->currentContext + 2);
 }
 
 void Runtime::popScope(ExecutionEngine *engine)
 {
-    Q_ASSERT(engine->jsStackTop = engine->currentContext + 2);
+    Q_ASSERT(engine->jsStackTop == engine->currentContext + 2);
     engine->popContext();
     engine->jsStackTop -= 2;
 }

@@ -952,6 +952,12 @@ void QQuickShaderEffect::updateGeometry()
     update();
 }
 
+void QQuickShaderEffect::updateGeometryIfAtlased()
+{
+    if (m_supportsAtlasTextures)
+        updateGeometry();
+}
+
 void QQuickShaderEffect::updateLogAndStatus(const QString &log, int status)
 {
     m_log = parseLog() + log;
@@ -1000,6 +1006,8 @@ QSGNode *QQuickShaderEffect::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDa
         m_dirtyUniforms = true;
         m_dirtyGeometry = true;
         connect(node, SIGNAL(logAndStatusChanged(QString,int)), this, SLOT(updateLogAndStatus(QString,int)));
+        connect(node, &QQuickShaderEffectNode::dirtyTexture,
+                this, &QQuickShaderEffect::updateGeometryIfAtlased);
     }
 
     QQuickShaderEffectMaterial *material = static_cast<QQuickShaderEffectMaterial *>(node->material());
@@ -1019,15 +1027,14 @@ QSGNode *QQuickShaderEffect::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDa
         Key s = m_common.source;
         QSGShaderSourceBuilder builder;
         if (s.sourceCode[Key::FragmentShader].isEmpty()) {
-            builder.appendSourceFile(QStringLiteral(":/items/shaders/shadereffect.frag"));
+            builder.appendSourceFile(QStringLiteral(":/qt-project.org/items/shaders/shadereffect.frag"));
             s.sourceCode[Key::FragmentShader] = builder.source();
             builder.clear();
         }
         if (s.sourceCode[Key::VertexShader].isEmpty()) {
-            builder.appendSourceFile(QStringLiteral(":/items/shaders/shadereffect.vert"));
+            builder.appendSourceFile(QStringLiteral(":/qt-project.org/items/shaders/shadereffect.vert"));
             s.sourceCode[Key::VertexShader] = builder.source();
         }
-        s.className = metaObject()->className();
 
         material->setProgramSource(s);
         material->attributes = m_common.attributes;
@@ -1047,7 +1054,7 @@ QSGNode *QQuickShaderEffect::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDa
     bool geometryUsesTextureSubRect = false;
     if (m_supportsAtlasTextures && material->textureProviders.size() == 1) {
         QSGTextureProvider *provider = material->textureProviders.at(0);
-        if (provider->texture()) {
+        if (provider && provider->texture()) {
             srcRect = provider->texture()->normalizedTextureSubRect();
             geometryUsesTextureSubRect = true;
         }

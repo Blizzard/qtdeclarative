@@ -49,6 +49,8 @@
 #include <private/qv4scopedvalue_p.h>
 #include <private/qv4alloca_p.h>
 #include <private/qv4runtime_p.h>
+#include <private/qv4object_p.h>
+#include <private/qqmlcomponentattached_p.h>
 
 #ifdef Q_CC_MSVC
 #define NO_INLINE __declspec(noinline)
@@ -287,6 +289,7 @@ private slots:
     void replaceBinding();
     void deleteRootObjectInCreation();
     void onDestruction();
+    void onDestructionViaGC();
     void bindingSuppression();
     void signalEmitted();
     void threadSignal();
@@ -327,6 +330,9 @@ private slots:
     void writeUnregisteredQObjectProperty();
     void switchExpression();
     void qtbug_46022();
+    void qtbug_52340();
+    void qtbug_54589();
+    void qtbug_54687();
 
 private:
 //    static void propertyVarWeakRefCallback(v8::Persistent<v8::Value> object, void* parameter);
@@ -2942,6 +2948,18 @@ void tst_qqmlecmascript::callQtInvokables()
     QCOMPARE(o->error(), false);
     QCOMPARE(o->invoked(), -1);
     QCOMPARE(o->actuals().count(), 0);
+
+    o->reset();
+    QV4::ScopedValue ret(scope, EVALUATE("object.method_intQJSValue(123, function() { return \"Hello world!\";})"));
+    QCOMPARE(o->error(), false);
+    QCOMPARE(o->invoked(), 29);
+    QVERIFY(ret->isString());
+    QCOMPARE(ret->toQStringNoThrow(), QString("Hello world!"));
+    QCOMPARE(o->actuals().count(), 2);
+    QCOMPARE(o->actuals().at(0), QVariant(123));
+    QJSValue callback = qvariant_cast<QJSValue>(o->actuals().at(1));
+    QVERIFY(!callback.isNull());
+    QVERIFY(callback.isCallable());
 }
 
 // QTBUG-13047 (check that you can pass registered object types as args)
@@ -7142,6 +7160,105 @@ void tst_qqmlecmascript::onDestruction()
     }
 }
 
+class WeakReferenceMutator : public QObject
+{
+    Q_OBJECT
+public:
+    WeakReferenceMutator()
+        : resultPtr(Q_NULLPTR)
+        , weakRef(Q_NULLPTR)
+    {}
+
+    void init(QV4::ExecutionEngine *v4, QV4::WeakValue *weakRef, bool *resultPtr)
+    {
+        QV4::QObjectWrapper::wrap(v4, this);
+        QQmlEngine::setObjectOwnership(this, QQmlEngine::JavaScriptOwnership);
+
+        this->resultPtr = resultPtr;
+        this->weakRef = weakRef;
+
+        QObject::connect(QQmlComponent::qmlAttachedProperties(this), &QQmlComponentAttached::destruction, this, &WeakReferenceMutator::reviveFirstWeakReference);
+    }
+
+private slots:
+    void reviveFirstWeakReference() {
+        *resultPtr = weakRef->valueRef() && weakRef->isNullOrUndefined();
+        if (!*resultPtr)
+            return;
+        QV4::ExecutionEngine *v4 = QV8Engine::getV4(qmlEngine(this));
+        weakRef->set(v4, v4->newObject());
+        *resultPtr = weakRef->valueRef() && !weakRef->isNullOrUndefined();
+    }
+
+public:
+    bool *resultPtr;
+
+    QV4::WeakValue *weakRef;
+};
+
+QT_BEGIN_NAMESPACE
+
+namespace QV4 {
+
+namespace Heap {
+struct WeakReferenceSentinel : public Object {
+    WeakReferenceSentinel(WeakValue *weakRef, bool *resultPtr)
+        : weakRef(weakRef)
+        , resultPtr(resultPtr) {
+
+    }
+
+    ~WeakReferenceSentinel() {
+        *resultPtr = weakRef->isNullOrUndefined();
+    }
+
+    WeakValue *weakRef;
+    bool *resultPtr;
+};
+} // namespace Heap
+
+struct WeakReferenceSentinel : public Object {
+    V4_OBJECT2(WeakReferenceSentinel, Object)
+    V4_NEEDS_DESTROY
+};
+
+} // namespace QV4
+
+QT_END_NAMESPACE
+
+DEFINE_OBJECT_VTABLE(QV4::WeakReferenceSentinel);
+
+void tst_qqmlecmascript::onDestructionViaGC()
+{
+    qmlRegisterType<WeakReferenceMutator>("Test", 1, 0, "WeakReferenceMutator");
+
+    QQmlEngine engine;
+    QV4::ExecutionEngine *v4 = QV8Engine::getV4(&engine);
+
+    QQmlComponent component(&engine, testFileUrl("DestructionHelper.qml"));
+
+    QScopedPointer<QV4::WeakValue> weakRef;
+
+    bool mutatorResult = false;
+    bool sentinelResult = false;
+
+    {
+        weakRef.reset(new QV4::WeakValue);
+        weakRef->set(v4, v4->newObject());
+        QVERIFY(!weakRef->isNullOrUndefined());
+
+        QPointer<WeakReferenceMutator> weakReferenceMutator = qobject_cast<WeakReferenceMutator *>(component.create());
+        QVERIFY2(!weakReferenceMutator.isNull(), qPrintable(component.errorString()));
+        weakReferenceMutator->init(v4, weakRef.data(), &mutatorResult);
+
+        v4->memoryManager->allocObject<QV4::WeakReferenceSentinel>(weakRef.data(), &sentinelResult);
+    }
+    gc(engine);
+
+    QVERIFY2(mutatorResult, "We failed to re-assign the weak reference a new value during GC");
+    QVERIFY2(sentinelResult, "The weak reference was not cleared properly");
+}
+
 struct EventProcessor : public QObject
 {
     Q_OBJECT
@@ -7412,8 +7529,11 @@ void tst_qqmlecmascript::negativeYear()
 
     QVariant q;
     QMetaObject::invokeMethod(object, "check_negative_tostring", Q_RETURN_ARG(QVariant, q));
-    // Strip the timezone. It should be irrelevant as the date was created with the same one.
-    QCOMPARE(q.toString().left(32), QStringLiteral("result: Sat Jan 1 00:00:00 -2001"));
+
+    // Only check for the year. We hope that every language writes the year in arabic numerals and
+    // in relation to a specific dude's date of birth. We also hope that no language adds a "-2001"
+    // junk string somewhere in the middle.
+    QVERIFY(q.toString().indexOf(QStringLiteral("-2001")) != -1);
 
     QMetaObject::invokeMethod(object, "check_negative_toisostring", Q_RETURN_ARG(QVariant, q));
     QCOMPARE(q.toString().left(16), QStringLiteral("result: -002000-"));
@@ -7896,6 +8016,33 @@ void tst_qqmlecmascript::qtbug_46022()
     QVERIFY(obj != 0);
     QCOMPARE(obj->property("test1").toBool(), true);
     QCOMPARE(obj->property("test2").toBool(), true);
+}
+
+void tst_qqmlecmascript::qtbug_52340()
+{
+    QQmlComponent component(&engine, testFileUrl("qtbug_52340.qml"));
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
+    QVariant returnValue;
+    QVERIFY(QMetaObject::invokeMethod(object.data(), "testCall", Q_RETURN_ARG(QVariant, returnValue)));
+    QVERIFY(returnValue.isValid());
+    QVERIFY(returnValue.toBool());
+}
+
+void tst_qqmlecmascript::qtbug_54589()
+{
+    QQmlComponent component(&engine, testFileUrl("qtbug_54589.qml"));
+
+    QScopedPointer<QObject> obj(component.create());
+    QVERIFY(obj != 0);
+    QCOMPARE(obj->property("result").toBool(), true);
+}
+
+void tst_qqmlecmascript::qtbug_54687()
+{
+    QJSEngine e;
+    // it's simple: this shouldn't crash.
+    engine.evaluate("12\n----12");
 }
 
 QTEST_MAIN(tst_qqmlecmascript)

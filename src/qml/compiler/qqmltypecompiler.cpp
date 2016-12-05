@@ -1157,6 +1157,17 @@ struct StaticQtMetaObject : public QObject
         { return &staticQtMetaObject; }
 };
 
+bool QQmlEnumTypeResolver::assignEnumToBinding(QmlIR::Binding *binding, const QString &enumName, int enumValue, bool isQtObject)
+{
+    if (enumName.length() > 0 && enumName[0].isLower() && !isQtObject) {
+        COMPILE_EXCEPTION(binding, tr("Invalid property assignment: Enum value \"%1\" cannot start with a lowercase letter").arg(enumName));
+    }
+    binding->type = QV4::CompiledData::Binding::Type_Number;
+    binding->value.d = (double)enumValue;
+    binding->flags |= QV4::CompiledData::Binding::IsResolvedEnum;
+    return true;
+}
+
 bool QQmlEnumTypeResolver::tryQualifiedEnumAssignment(const QmlIR::Object *obj, const QQmlPropertyCache *propertyCache, const QQmlPropertyData *prop, QmlIR::Binding *binding)
 {
     bool isIntProp = (prop->propType == QMetaType::Int) && !prop->isEnum();
@@ -1179,6 +1190,7 @@ bool QQmlEnumTypeResolver::tryQualifiedEnumAssignment(const QmlIR::Object *obj, 
         return true;
 
     QHashedStringRef typeName(string.constData(), dot);
+    const bool isQtObject = (typeName == QLatin1String("Qt"));
     QString enumValue = string.mid(dot+1);
 
     if (isIntProp) {
@@ -1186,16 +1198,15 @@ bool QQmlEnumTypeResolver::tryQualifiedEnumAssignment(const QmlIR::Object *obj, 
         bool ok;
         int enumval = evaluateEnum(typeName.toString(), enumValue.toUtf8(), &ok);
         if (ok) {
-            binding->type = QV4::CompiledData::Binding::Type_Number;
-            binding->value.d = (double)enumval;
-            binding->flags |= QV4::CompiledData::Binding::IsResolvedEnum;
+            if (!assignEnumToBinding(binding, enumValue, enumval, isQtObject))
+                return false;
         }
         return true;
     }
     QQmlType *type = 0;
     imports->resolveType(typeName, &type, 0, 0, 0);
 
-    if (!type && typeName != QLatin1String("Qt"))
+    if (!type && !isQtObject)
         return true;
 
     int value = 0;
@@ -1228,10 +1239,7 @@ bool QQmlEnumTypeResolver::tryQualifiedEnumAssignment(const QmlIR::Object *obj, 
     if (!ok)
         return true;
 
-    binding->type = QV4::CompiledData::Binding::Type_Number;
-    binding->value.d = (double)value;
-    binding->flags |= QV4::CompiledData::Binding::IsResolvedEnum;
-    return true;
+    return assignEnumToBinding(binding, enumValue, value, isQtObject);
 }
 
 int QQmlEnumTypeResolver::evaluateEnum(const QString &scope, const QByteArray &enumValue, bool *ok) const
@@ -1406,7 +1414,7 @@ void QQmlComponentAndAliasResolver::findAndRegisterImplicitComponents(const QmlI
             continue;
 
         QQmlPropertyCache *pc = enginePrivate->rawPropertyCacheForType(pd->propType);
-        const QMetaObject *mo = pc->firstCppMetaObject();
+        const QMetaObject *mo = pc ? pc->firstCppMetaObject() : 0;
         while (mo) {
             if (mo == &QQmlComponent::staticMetaObject)
                 break;
@@ -2236,6 +2244,17 @@ bool QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache *propertyCa
         }
     }
     break;
+    case QVariant::Vector2D: {
+        struct {
+            float xp;
+            float yp;
+        } vec;
+        if (!QQmlStringConverters::createFromString(QMetaType::QVector2D, binding->valueAsString(qmlUnit), &vec, sizeof(vec))) {
+            recordError(binding->valueLocation, tr("Invalid property assignment: 2D vector expected"));
+            return false;
+        }
+    }
+    break;
     case QVariant::Vector3D: {
         struct {
             float xp;
@@ -2257,6 +2276,19 @@ bool QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache *propertyCa
         } vec;
         if (!QQmlStringConverters::createFromString(QMetaType::QVector4D, binding->valueAsString(qmlUnit), &vec, sizeof(vec))) {
             recordError(binding->valueLocation, tr("Invalid property assignment: 4D vector expected"));
+            return false;
+        }
+    }
+    break;
+    case QVariant::Quaternion: {
+        struct {
+            float wp;
+            float xp;
+            float yp;
+            float zp;
+        } vec;
+        if (!QQmlStringConverters::createFromString(QMetaType::QQuaternion, binding->valueAsString(qmlUnit), &vec, sizeof(vec))) {
+            recordError(binding->valueLocation, tr("Invalid property assignment: quaternion expected"));
             return false;
         }
     }

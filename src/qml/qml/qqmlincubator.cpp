@@ -434,7 +434,7 @@ example shows a simple use of QQmlIncubator.
 QQmlIncubator incubator;
 component->create(incubator);
 
-while (incubator.isReady()) {
+while (!incubator.isReady()) {
     QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
 }
 
@@ -681,7 +681,7 @@ void QQmlIncubator::statusChanged(Status status)
 Called after the \a object is first created, but before property bindings are
 evaluated and, if applicable, QQmlParserStatus::componentComplete() is
 called.  This is equivalent to the point between QQmlComponent::beginCreate()
-and QQmlComponent::endCreate(), and can be used to assign initial values
+and QQmlComponent::completeCreate(), and can be used to assign initial values
 to the object's properties.
 
 The default implementation does nothing.

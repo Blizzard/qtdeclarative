@@ -300,13 +300,14 @@ void QQuickDragAttached::setActive(bool active)
         else if (active) {
             if (d->dragType == QQuickDrag::Internal) {
                 d->start(d->supportedActions);
-            }
-            else if (d->dragType == QQuickDrag::Automatic) {
-                // There are different semantics than start() since startDrag()
-                // may be called after an internal drag is already started.
-                active = true;
+            } else {
+                d->active = true;
                 emit activeChanged();
-                d->startDrag(d->supportedActions);
+                if (d->dragType == QQuickDrag::Automatic) {
+                    // There are different semantics than start() since startDrag()
+                    // may be called after an internal drag is already started.
+                    d->startDrag(d->supportedActions);
+                }
             }
         }
         else
@@ -712,7 +713,7 @@ Qt::DropAction QQuickDragAttachedPrivate::startDrag(Qt::DropActions supportedAct
 {
     Q_Q(QQuickDragAttached);
 
-    QDrag *drag = new QDrag(q);
+    QDrag *drag = new QDrag(source ? source : q);
     QMimeData *mimeData = new QMimeData();
 
     Q_FOREACH (const QString &key, externalMimeData.keys()) {

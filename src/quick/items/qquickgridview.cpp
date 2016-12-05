@@ -176,6 +176,8 @@ public:
     bool addVisibleItems(qreal fillFrom, qreal fillTo, qreal bufferFrom, qreal bufferTo, bool doBuffer) Q_DECL_OVERRIDE;
     bool removeNonVisibleItems(qreal bufferFrom, qreal bufferTo) Q_DECL_OVERRIDE;
 
+    void removeItem(FxViewItem *item);
+
     FxViewItem *newViewItem(int index, QQuickItem *item) Q_DECL_OVERRIDE;
     void initializeViewItem(FxViewItem *item) Q_DECL_OVERRIDE;
     void repositionItemAt(FxViewItem *item, int index, qreal sizeBuffer) Q_DECL_OVERRIDE;
@@ -561,6 +563,17 @@ bool QQuickGridViewPrivate::addVisibleItems(qreal fillFrom, qreal fillTo, qreal 
     return changed;
 }
 
+void QQuickGridViewPrivate::removeItem(FxViewItem *item)
+{
+    if (item->transitionScheduledOrRunning()) {
+        qCDebug(lcItemViewDelegateLifecycle) << "\tnot releasing animating item:" << item->index << item->item->objectName();
+        item->releaseAfterTransition = true;
+        releasePendingTransition.append(item);
+    } else {
+        releaseItem(item);
+    }
+}
+
 bool QQuickGridViewPrivate::removeNonVisibleItems(qreal bufferFrom, qreal bufferTo)
 {
     FxGridItemSG *item = 0;
@@ -575,13 +588,7 @@ bool QQuickGridViewPrivate::removeNonVisibleItems(qreal bufferFrom, qreal buffer
         if (item->index != -1)
             visibleIndex++;
         visibleItems.removeFirst();
-        if (item->transitionScheduledOrRunning()) {
-            qCDebug(lcItemViewDelegateLifecycle) << "\tnot releasing animating item:" << item->index << item->item->objectName();
-            item->releaseAfterTransition = true;
-            releasePendingTransition.append(item);
-        } else {
-            releaseItem(item);
-        }
+        removeItem(item);
         changed = true;
     }
     while (visibleItems.count() > 1
@@ -591,13 +598,7 @@ bool QQuickGridViewPrivate::removeNonVisibleItems(qreal bufferFrom, qreal buffer
             break;
         qCDebug(lcItemViewDelegateLifecycle) << "refill: remove last" << visibleIndex+visibleItems.count()-1;
         visibleItems.removeLast();
-        if (item->transitionScheduledOrRunning()) {
-            qCDebug(lcItemViewDelegateLifecycle) << "\tnot releasing animating item:" << item->index << item->item->objectName();
-            item->releaseAfterTransition = true;
-            releasePendingTransition.append(item);
-        } else {
-            releaseItem(item);
-        }
+        removeItem(item);
         changed = true;
     }
 
@@ -1523,10 +1524,12 @@ void QQuickGridView::setHighlightFollowsCurrentItem(bool autoHighlight)
     Note that cacheBuffer is not a pixel buffer - it only maintains additional
     instantiated delegates.
 
-    Setting this value can make scrolling the list smoother at the expense
-    of additional memory usage.  It is not a substitute for creating efficient
-    delegates; the fewer objects and bindings in a delegate, the faster a view may be
-    scrolled.
+    \note Setting this property is not a replacement for creating efficient delegates.
+    It can improve the smoothness of scrolling behavior at the expense of additional
+    memory usage. The fewer objects and bindings in a delegate, the faster a
+    view can be scrolled. It is important to realize that setting a cacheBuffer
+    will only postpone issues caused by slow-loading delegates, it is not a
+    solution for this scenario.
 
     The cacheBuffer operates outside of any display margins specified by
     displayMarginBeginning or displayMarginEnd.
@@ -2380,11 +2383,12 @@ bool QQuickGridViewPrivate::applyInsertionChange(const QQmlChangeSet::Change &ch
         int i = count - 1;
         int from = tempPos - buffer - displayMarginBeginning;
 
-        while (i >= 0) {
-            if (rowPos > from && insertionIdx < visibleIndex) {
-                // item won't be visible, just note the size for repositioning
-                insertResult->countChangeBeforeVisible++;
-            } else {
+        if (rowPos > from && insertionIdx < visibleIndex) {
+                // items won't be visible, just note the size for repositioning
+                insertResult->countChangeBeforeVisible += count;
+                insertResult->sizeChangesBeforeVisiblePos += ((count + columns - 1) / columns) * rowSize();
+        } else {
+            while (i >= 0) {
                 // item is before first visible e.g. in cache buffer
                 FxViewItem *item = 0;
                 if (change.isMove() && (item = currentChanges.removedItems.take(change.moveKey(modelIndex + i))))
@@ -2400,19 +2404,40 @@ bool QQuickGridViewPrivate::applyInsertionChange(const QQmlChangeSet::Change &ch
                     insertResult->changedFirstItem = true;
                 if (!change.isMove()) {
                     addedItems->append(item);
-                    item->transitionNextReposition(transitioner, QQuickItemViewTransitioner::AddTransition, true);
+                    if (transitioner)
+                        item->transitionNextReposition(transitioner, QQuickItemViewTransitioner::AddTransition, true);
+                    else
+                        item->moveTo(QPointF(colPos, rowPos), true);
                 }
                 insertResult->sizeChangesBeforeVisiblePos += rowSize();
-            }
 
-            if (--colNum < 0 ) {
-                colNum = columns - 1;
-                rowPos -= rowSize();
+                if (--colNum < 0 ) {
+                    colNum = columns - 1;
+                    rowPos -= rowSize();
+                }
+                colPos = colNum * colSize();
+                index++;
+                i--;
             }
-            colPos = colNum * colSize();
-            index++;
-            i--;
         }
+
+        // There may be gaps in the index sequence of visibleItems because
+        // of the index shift/update done before the insertion just above.
+        // Find if there is any...
+        int firstOkIdx = -1;
+        for (int i = 0; i <= insertionIdx && i < visibleItems.count() - 1; i++) {
+            if (visibleItems.at(i)->index + 1 != visibleItems.at(i + 1)->index) {
+                firstOkIdx = i + 1;
+                break;
+            }
+        }
+        // ... and remove all the items before that one
+        for (int i = 0; i < firstOkIdx; i++) {
+            FxViewItem *nvItem = visibleItems.takeFirst();
+            addedItems->removeOne(nvItem);
+            removeItem(nvItem);
+        }
+
     } else {
         int i = 0;
         int to = buffer+displayMarginEnd+tempPos+size()-1;
@@ -2437,7 +2462,10 @@ bool QQuickGridViewPrivate::applyInsertionChange(const QQmlChangeSet::Change &ch
                     movingIntoView->append(MovedItem(item, change.moveKey(item->index)));
             } else {
                 addedItems->append(item);
-                item->transitionNextReposition(transitioner, QQuickItemViewTransitioner::AddTransition, true);
+                if (transitioner)
+                    item->transitionNextReposition(transitioner, QQuickItemViewTransitioner::AddTransition, true);
+                else
+                    item->moveTo(QPointF(colPos, rowPos), true);
             }
             insertResult->sizeChangesAfterVisiblePos += rowSize();
 
@@ -2558,7 +2586,7 @@ bool QQuickGridViewPrivate::needsRefillForAddedOrRemovedIndex(int modelIndex) co
 */
 
 /*!
-    \qmlmethod int QtQuick::GridView::indexAt(int x, int y)
+    \qmlmethod int QtQuick::GridView::indexAt(real x, real y)
 
     Returns the index of the visible item containing the point \a x, \a y in content
     coordinates.  If there is no item at the point specified, or the item is
@@ -2571,7 +2599,7 @@ bool QQuickGridViewPrivate::needsRefillForAddedOrRemovedIndex(int modelIndex) co
 */
 
 /*!
-    \qmlmethod Item QtQuick::GridView::itemAt(int x, int y)
+    \qmlmethod Item QtQuick::GridView::itemAt(real x, real y)
 
     Returns the visible item containing the point \a x, \a y in content
     coordinates.  If there is no item at the point specified, or the item is

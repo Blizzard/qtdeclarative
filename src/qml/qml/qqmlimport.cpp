@@ -851,7 +851,7 @@ bool QQmlImportsPrivate::populatePluginPairVector(QVector<StaticPluginPair> &res
         // the list the first time called to only contain QML plugins:
         foreach (const QStaticPlugin &plugin, QPluginLoader::staticPlugins()) {
             if (qobject_cast<QQmlExtensionPlugin *>(plugin.instance()))
-               plugins.append(plugin);
+                plugins.append(plugin);
         }
     }
 
@@ -1658,7 +1658,7 @@ QString QQmlImportDatabase::resolvePlugin(QQmlTypeLoader *typeLoader,
   \header \li Platform \li Valid suffixes
   \row \li Windows     \li \c .dll
   \row \li Unix/Linux  \li \c .so
-  \row \li OS X    \li \c .dylib, \c .bundle, \c .so
+  \row \li \macos    \li \c .dylib, \c .bundle, \c .so
   \endtable
 
   Version number on unix are ignored.

@@ -35,10 +35,12 @@
 #include <QtQuick/qquickview.h>
 #include <private/qabstractanimation_p.h>
 #include <private/qquickanimatedsprite_p.h>
+#include <private/qquickitem_p.h>
 #include <QtGui/qpainter.h>
 #include <QtGui/qopenglcontext.h>
 #include <QtGui/qopenglfunctions.h>
 #include <QtGui/qoffscreensurface.h>
+#include <QtQml/qqmlproperty.h>
 
 class tst_qquickanimatedsprite : public QQmlDataTest
 {
@@ -53,6 +55,8 @@ private slots:
     void test_frameChangedSignal();
     void test_largeAnimation_data();
     void test_largeAnimation();
+    void test_reparenting();
+    void test_changeSourceToSmallerImgKeepingBigFrameSize();
 };
 
 void tst_qquickanimatedsprite::initTestCase()
@@ -268,6 +272,63 @@ void tst_qquickanimatedsprite::test_largeAnimation()
     delete window;
 }
 
+void tst_qquickanimatedsprite::test_reparenting()
+{
+    QQuickView window;
+    window.setSource(testFileUrl("basic.qml"));
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    QVERIFY(window.rootObject());
+    QQuickAnimatedSprite* sprite = window.rootObject()->findChild<QQuickAnimatedSprite*>("sprite");
+    QVERIFY(sprite);
+
+    QTRY_VERIFY(sprite->running());
+    sprite->setParentItem(0);
+
+    sprite->setParentItem(window.rootObject());
+    // don't crash (QTBUG-51162)
+    sprite->polish();
+    QTRY_COMPARE(QQuickItemPrivate::get(sprite)->polishScheduled, true);
+    QTRY_COMPARE(QQuickItemPrivate::get(sprite)->polishScheduled, false);
+}
+
+class KillerThread : public QThread
+{
+    Q_OBJECT
+protected:
+    void run() Q_DECL_OVERRIDE {
+        sleep(3);
+        qFatal("Either the GUI or the render thread is stuck in an infinite loop.");
+    }
+};
+
+// Regression test for QTBUG-53937
+void tst_qquickanimatedsprite::test_changeSourceToSmallerImgKeepingBigFrameSize()
+{
+    QQuickView window;
+    window.setSource(testFileUrl("sourceSwitch.qml"));
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    QVERIFY(window.rootObject());
+    QQuickAnimatedSprite* sprite = qobject_cast<QQuickAnimatedSprite*>(window.rootObject());
+    QVERIFY(sprite);
+
+    QQmlProperty big(sprite, "big");
+    big.write(QVariant::fromValue(false));
+
+    KillerThread *killer = new KillerThread;
+    killer->start(); // will kill us in case the GUI or render thread enters an infinite loop
+
+    QTest::qWait(50); // let it draw with the new source.
+
+    // If we reach this point it's because we didn't hit QTBUG-53937
+
+    killer->terminate();
+    killer->wait();
+    delete killer;
+}
 
 QTEST_MAIN(tst_qquickanimatedsprite)
 

@@ -121,6 +121,7 @@ Atlas::Atlas(const QSize &size)
     : m_allocator(size)
     , m_texture_id(0)
     , m_size(size)
+    , m_atlas_transient_image_threshold(0)
     , m_allocated(false)
 {
 
@@ -150,13 +151,13 @@ Atlas::Atlas(const QSize &size)
         wrongfullyReportsBgra8888Support = false;
 
     const char *ext = (const char *) QOpenGLContext::currentContext()->functions()->glGetString(GL_EXTENSIONS);
-    if (!wrongfullyReportsBgra8888Support
+    if (ext && !wrongfullyReportsBgra8888Support
             && (strstr(ext, "GL_EXT_bgra")
                 || strstr(ext, "GL_EXT_texture_format_BGRA8888")
                 || strstr(ext, "GL_IMG_texture_format_BGRA8888"))) {
         m_internalFormat = m_externalFormat = GL_BGRA;
 #ifdef Q_OS_IOS
-    } else if (strstr(ext, "GL_APPLE_texture_format_BGRA8888")) {
+    } else if (ext && strstr(ext, "GL_APPLE_texture_format_BGRA8888")) {
         m_internalFormat = GL_RGBA;
         m_externalFormat = GL_BGRA;
 #endif // IOS
@@ -170,6 +171,11 @@ Atlas::Atlas(const QSize &size)
 
     m_use_bgra_fallback = qEnvironmentVariableIsSet("QSG_ATLAS_USE_BGRA_FALLBACK");
     m_debug_overlay = qEnvironmentVariableIsSet("QSG_ATLAS_OVERLAY");
+
+    // images smaller than this will retain their QImage.
+    // by default no images are retained (favoring memory)
+    // set to a very large value to retain all images (allowing quick removal from the atlas)
+    m_atlas_transient_image_threshold = qt_sg_envInt("QSG_ATLAS_TRANSIENT_IMAGE_THRESHOLD", 0);
 }
 
 Atlas::~Atlas()
@@ -392,7 +398,10 @@ void Atlas::bind(QSGTexture::Filtering filtering)
         } else {
             upload(t);
         }
-        t->releaseImage();
+        const QSize textureSize = t->textureSize();
+        if (textureSize.width() > m_atlas_transient_image_threshold ||
+                textureSize.height() > m_atlas_transient_image_threshold)
+            t->releaseImage();
 
         qCDebug(QSG_LOG_TIME_TEXTURE).nospace() << "atlastexture uploaded in: " << qsg_renderer_timer.elapsed()
                                            << "ms (" << t->textureSize().width() << "x"
