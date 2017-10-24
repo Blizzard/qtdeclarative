@@ -7,8 +7,11 @@ PUBLICTESTS += \
     parserstress \
     qjsvalueiterator \
     qjsonbinding \
+    qqmlfile \
+
+!boot2qt {
+PUBLICTESTS += \
     qmlmin \
-    qmlplugindump \
     qqmlcomponent \
     qqmlconsole \
     qqmlengine \
@@ -26,15 +29,22 @@ PUBLICTESTS += \
     qquickfolderlistmodel \
     qqmlapplicationengine \
     qqmlsettings \
-    qqmlstatemachine
+    qqmlstatemachine \
+    qmldiskcache
+}
 
 PRIVATETESTS += \
-    animation \
     qqmlcpputils \
+    qqmldirparser \
+    v4misc \
+    qmlcachegen
+
+!boot2qt {
+PRIVATETESTS += \
+    animation \
     qqmlecmascript \
     qqmlcontext \
     qqmlexpression \
-    qqmldirparser \
     qqmlglobal \
     qqmllanguage \
     qqmlopenmetaobject \
@@ -57,12 +67,13 @@ PRIVATETESTS += \
     qrcqml \
     qqmltimer \
     qqmlinstantiator \
-    qv4debugger \
     qqmlenginecleanup \
-    v4misc \
     qqmltranslation \
     qqmlimport \
-    qqmlobjectmodel
+    qqmlobjectmodel \
+    qv4mm \
+    ecmascripttests
+}
 
 qtHaveModule(widgets) {
     PUBLICTESTS += \
@@ -70,17 +81,19 @@ qtHaveModule(widgets) {
         qjsvalue
 }
 
-SUBDIRS += $$PUBLICTESTS \
-    qqmlextensionplugin
+SUBDIRS += $$PUBLICTESTS
 SUBDIRS += $$METATYPETESTS
-!winrt { # no QProcess on winrt
+qtConfig(process):!boot2qt {
     !contains(QT_CONFIG, no-qml-debug): SUBDIRS += debugger
-    SUBDIRS += qmllint
+    SUBDIRS += qmllint qmlplugindump
 }
 
-contains(QT_CONFIG, private_tests) {
-    SUBDIRS += $$PRIVATETESTS
+qtConfig(library) {
+    SUBDIRS += qqmlextensionplugin
 }
+
+qtConfig(private_tests): \
+    SUBDIRS += $$PRIVATETESTS
 
 qtNomakeTools( \
     qmlplugindump \

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -45,8 +51,13 @@
 // We mean it.
 //
 
+#include <private/qtquickglobal_p.h>
+
+QT_REQUIRE_CONFIG(quick_pathview);
+
 #include "qquickitem.h"
 
+#include <private/qtquickglobal_p.h>
 #include <private/qquickpath_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -55,7 +66,7 @@ class QQmlChangeSet;
 
 class QQuickPathViewPrivate;
 class QQuickPathViewAttached;
-class Q_AUTOTEST_EXPORT QQuickPathView : public QQuickItem
+class Q_QUICK_PRIVATE_EXPORT QQuickPathView : public QQuickItem
 {
     Q_OBJECT
 
@@ -86,11 +97,12 @@ class Q_AUTOTEST_EXPORT QQuickPathView : public QQuickItem
     Q_PROPERTY(QQmlComponent *delegate READ delegate WRITE setDelegate NOTIFY delegateChanged)
     Q_PROPERTY(int pathItemCount READ pathItemCount WRITE setPathItemCount RESET resetPathItemCount NOTIFY pathItemCountChanged)
     Q_PROPERTY(SnapMode snapMode READ snapMode WRITE setSnapMode NOTIFY snapModeChanged)
+    Q_PROPERTY(MovementDirection movementDirection READ movementDirection WRITE setMovementDirection NOTIFY movementDirectionChanged REVISION 7)
 
     Q_PROPERTY(int cacheItemCount READ cacheItemCount WRITE setCacheItemCount NOTIFY cacheItemCountChanged)
 
 public:
-    QQuickPathView(QQuickItem *parent=0);
+    QQuickPathView(QQuickItem *parent = nullptr);
     virtual ~QQuickPathView();
 
     QVariant model() const;
@@ -109,7 +121,7 @@ public:
 
     QQmlComponent *highlight() const;
     void setHighlight(QQmlComponent *highlight);
-    QQuickItem *highlightItem();
+    QQuickItem *highlightItem() const;
 
     enum HighlightRangeMode { NoHighlightRange, ApplyRange, StrictlyEnforceRange };
     Q_ENUM(HighlightRangeMode)
@@ -158,6 +170,11 @@ public:
     SnapMode snapMode() const;
     void setSnapMode(SnapMode mode);
 
+    enum MovementDirection { Shortest, Negative, Positive };
+    Q_ENUM(MovementDirection)
+    MovementDirection movementDirection() const;
+    void setMovementDirection(MovementDirection dir);
+
     enum PositionMode { Beginning, Center, End, Contain=4, SnapPosition }; // 3 == Visible in other views
     Q_ENUM(PositionMode)
     Q_INVOKABLE void positionViewAtIndex(int index, int mode);
@@ -195,6 +212,7 @@ Q_SIGNALS:
     void highlightMoveDurationChanged();
     void movementStarted();
     void movementEnded();
+    Q_REVISION(7) void movementDirectionChanged();
     void flickStarted();
     void flickEnded();
     void dragStarted();
@@ -203,14 +221,14 @@ Q_SIGNALS:
     void cacheItemCountChanged();
 
 protected:
-    void updatePolish() Q_DECL_OVERRIDE;
-    void mousePressEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
-    void mouseMoveEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
-    void mouseReleaseEvent(QMouseEvent *) Q_DECL_OVERRIDE;
+    void updatePolish() override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *) override;
     bool sendMouseEvent(QMouseEvent *event);
-    bool childMouseEventFilter(QQuickItem *, QEvent *) Q_DECL_OVERRIDE;
-    void mouseUngrabEvent() Q_DECL_OVERRIDE;
-    void componentComplete() Q_DECL_OVERRIDE;
+    bool childMouseEventFilter(QQuickItem *, QEvent *) override;
+    void mouseUngrabEvent() override;
+    void componentComplete() override;
 
 private Q_SLOTS:
     void refill();
@@ -241,7 +259,7 @@ public:
     QQuickPathViewAttached(QObject *parent);
     ~QQuickPathViewAttached();
 
-    QQuickPathView *view() { return m_view; }
+    QQuickPathView *view() const { return m_view; }
 
     bool isCurrentItem() const { return m_isCurrent; }
     void setIsCurrentItem(bool c) {

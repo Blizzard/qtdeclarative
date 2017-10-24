@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -33,25 +39,30 @@
 
 #include "qsgtexturematerial_p.h"
 #include "qsgtexture_p.h"
-
-#include <QtGui/qopenglshaderprogram.h>
-#include <QtGui/qopenglfunctions.h>
+#if QT_CONFIG(opengl)
+# include <QtGui/qopenglshaderprogram.h>
+# include <QtGui/qopenglfunctions.h>
+#endif
 
 QT_BEGIN_NAMESPACE
 
+#if QT_CONFIG(opengl)
 inline static bool isPowerOfTwo(int x)
 {
     // Assumption: x >= 1
     return x == (x & -x);
 }
+#endif
 
 QSGMaterialType QSGOpaqueTextureMaterialShader::type;
 
 QSGOpaqueTextureMaterialShader::QSGOpaqueTextureMaterialShader()
     : QSGMaterialShader()
 {
+#if QT_CONFIG(opengl)
     setShaderSourceFile(QOpenGLShader::Vertex, QStringLiteral(":/qt-project.org/scenegraph/shaders/opaquetexture.vert"));
     setShaderSourceFile(QOpenGLShader::Fragment, QStringLiteral(":/qt-project.org/scenegraph/shaders/opaquetexture.frag"));
+#endif
 }
 
 char const *const *QSGOpaqueTextureMaterialShader::attributeNames() const
@@ -62,7 +73,9 @@ char const *const *QSGOpaqueTextureMaterialShader::attributeNames() const
 
 void QSGOpaqueTextureMaterialShader::initialize()
 {
+#if QT_CONFIG(opengl)
     m_matrix_id = program()->uniformLocation("qt_Matrix");
+#endif
 }
 
 void QSGOpaqueTextureMaterialShader::updateState(const RenderState &state, QSGMaterial *newEffect, QSGMaterial *oldEffect)
@@ -82,6 +95,7 @@ void QSGOpaqueTextureMaterialShader::updateState(const RenderState &state, QSGMa
 
     t->setHorizontalWrapMode(tx->horizontalWrapMode());
     t->setVerticalWrapMode(tx->verticalWrapMode());
+#if QT_CONFIG(opengl)
     bool npotSupported = const_cast<QOpenGLContext *>(state.context())
         ->functions()->hasOpenGLFeature(QOpenGLFunctions::NPOTTextureRepeat);
     if (!npotSupported) {
@@ -92,16 +106,20 @@ void QSGOpaqueTextureMaterialShader::updateState(const RenderState &state, QSGMa
             t->setVerticalWrapMode(QSGTexture::ClampToEdge);
         }
     }
-
+#else
+    Q_UNUSED(state)
+#endif
     t->setMipmapFiltering(tx->mipmapFiltering());
+    t->setAnisotropyLevel(tx->anisotropyLevel());
 
     if (oldTx == 0 || oldTx->texture()->textureId() != t->textureId())
         t->bind();
     else
         t->updateBindOptions();
-
+#if QT_CONFIG(opengl)
     if (state.isMatrixDirty())
         program()->setUniformValue(m_matrix_id, state.combinedMatrix());
+#endif
 }
 
 
@@ -111,6 +129,9 @@ void QSGOpaqueTextureMaterialShader::updateState(const RenderState &state, QSGMa
     rendering textured geometry in the scene graph.
     \inmodule QtQuick
     \ingroup qtquick-scenegraph-materials
+
+    \warning This utility class is only functional when running with the OpenGL
+    backend of the Qt Quick scenegraph.
 
     The opaque textured material will fill every pixel in a geometry with
     the supplied texture. The material does not respect the opacity of the
@@ -153,6 +174,7 @@ QSGOpaqueTextureMaterial::QSGOpaqueTextureMaterial()
     , m_mipmap_filtering(QSGTexture::None)
     , m_horizontal_wrap(QSGTexture::ClampToEdge)
     , m_vertical_wrap(QSGTexture::ClampToEdge)
+    , m_anisotropy_level(QSGTexture::AnisotropyNone)
 {
 }
 
@@ -306,6 +328,9 @@ int QSGOpaqueTextureMaterial::compare(const QSGMaterial *o) const
     \inmodule QtQuick
     \ingroup qtquick-scenegraph-materials
 
+    \warning This utility class is only functional when running with the OpenGL
+    backend of the Qt Quick scenegraph.
+
     The textured material will fill every pixel in a geometry with
     the supplied texture.
 
@@ -356,22 +381,27 @@ QSGMaterialShader *QSGTextureMaterial::createShader() const
 QSGTextureMaterialShader::QSGTextureMaterialShader()
     : QSGOpaqueTextureMaterialShader()
 {
+#if QT_CONFIG(opengl)
     setShaderSourceFile(QOpenGLShader::Fragment, QStringLiteral(":/qt-project.org/scenegraph/shaders/texture.frag"));
+#endif
 }
 
 void QSGTextureMaterialShader::updateState(const RenderState &state, QSGMaterial *newEffect, QSGMaterial *oldEffect)
 {
     Q_ASSERT(oldEffect == 0 || newEffect->type() == oldEffect->type());
+#if QT_CONFIG(opengl)
     if (state.isOpacityDirty())
         program()->setUniformValue(m_opacity_id, state.opacity());
-
+#endif
     QSGOpaqueTextureMaterialShader::updateState(state, newEffect, oldEffect);
 }
 
 void QSGTextureMaterialShader::initialize()
 {
     QSGOpaqueTextureMaterialShader::initialize();
+#if QT_CONFIG(opengl)
     m_opacity_id = program()->uniformLocation("opacity");
+#endif
 }
 
 QT_END_NAMESPACE

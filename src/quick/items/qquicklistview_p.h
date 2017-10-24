@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -45,13 +51,19 @@
 // We mean it.
 //
 
+#include <private/qtquickglobal_p.h>
+
+QT_REQUIRE_CONFIG(quick_listview);
+
 #include "qquickitemview_p.h"
+
+#include <private/qtquickglobal_p.h>
 
 QT_BEGIN_NAMESPACE
 
 class QQuickListView;
 class QQuickListViewPrivate;
-class Q_AUTOTEST_EXPORT QQuickViewSection : public QObject
+class Q_QUICK_PRIVATE_EXPORT QQuickViewSection : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString property READ property WRITE setProperty NOTIFY propertyChanged)
@@ -76,7 +88,7 @@ public:
 
     enum LabelPositioning { InlineLabels = 0x01, CurrentLabelAtStart = 0x02, NextLabelAtEnd = 0x04 };
     Q_ENUM(LabelPositioning)
-    int labelPositioning() { return m_labelPositioning; }
+    int labelPositioning() const { return m_labelPositioning; }
     void setLabelPositioning(int pos);
 
 Q_SIGNALS:
@@ -97,7 +109,7 @@ private:
 
 class QQmlInstanceModel;
 class QQuickListViewAttached;
-class Q_AUTOTEST_EXPORT QQuickListView : public QQuickItemView
+class Q_QUICK_PRIVATE_EXPORT QQuickListView : public QQuickItemView
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQuickListView)
@@ -134,7 +146,7 @@ public:
     QQuickViewSection *sectionCriteria();
     QString currentSection() const;
 
-    void setHighlightFollowsCurrentItem(bool) Q_DECL_OVERRIDE;
+    void setHighlightFollowsCurrentItem(bool) override;
 
     qreal highlightMoveVelocity() const;
     void setHighlightMoveVelocity(qreal);
@@ -145,7 +157,7 @@ public:
     int highlightResizeDuration() const;
     void setHighlightResizeDuration(int);
 
-    void setHighlightMoveDuration(int) Q_DECL_OVERRIDE;
+    void setHighlightMoveDuration(int) override;
 
     enum SnapMode { NoSnap, SnapToItem, SnapOneItem };
     Q_ENUM(SnapMode)
@@ -180,10 +192,12 @@ Q_SIGNALS:
     Q_REVISION(2) void footerPositioningChanged();
 
 protected:
-    void viewportMoved(Qt::Orientations orient) Q_DECL_OVERRIDE;
-    void keyPressEvent(QKeyEvent *) Q_DECL_OVERRIDE;
-    void geometryChanged(const QRectF &newGeometry,const QRectF &oldGeometry) Q_DECL_OVERRIDE;
-    void initItem(int index, QObject *item) Q_DECL_OVERRIDE;
+    void viewportMoved(Qt::Orientations orient) override;
+    void keyPressEvent(QKeyEvent *) override;
+    void geometryChanged(const QRectF &newGeometry,const QRectF &oldGeometry) override;
+    void initItem(int index, QObject *item) override;
+    qreal maxYExtent() const override;
+    qreal maxXExtent() const override;
 };
 
 class QQuickListViewAttached : public QQuickItemViewAttached

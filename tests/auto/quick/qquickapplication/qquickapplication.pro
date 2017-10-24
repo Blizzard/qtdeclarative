@@ -1,9 +1,13 @@
 CONFIG += testcase
-CONFIG += parallel_test
 TARGET = tst_qquickapplication
 macx:CONFIG -= app_bundle
 
 SOURCES += tst_qquickapplication.cpp
+OTHER_FILES += data/tst_displayname.qml
+
+include (../../shared/util.pri)
+
+TESTDATA = data/*
+
 QT += core-private gui-private qml quick qml-private quick-private testlib
 
-DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -39,13 +45,17 @@
 #include <QStringList>
 #include <QUrl>
 #include <QDebug>
-#include <QNetworkRequest>
-#include <QNetworkReply>
+
 #include <QFontDatabase>
 
 #include <private/qobject_p.h>
 #include <qqmlinfo.h>
 #include <qqmlfile.h>
+
+#if QT_CONFIG(qml_network)
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#endif
 
 #include <QtCore/QCoreApplication>
 
@@ -60,28 +70,37 @@ Q_OBJECT
 public:
     explicit QQuickFontObject(int _id = -1);
 
+#if QT_CONFIG(qml_network)
     void download(const QUrl &url, QNetworkAccessManager *manager);
 
 Q_SIGNALS:
     void fontDownloaded(const QString&, QQuickFontLoader::Status);
 
+private:
+    int redirectCount;
+    QNetworkReply *reply;
+
 private Q_SLOTS:
     void replyFinished();
+#endif // qml_network
 
 public:
     int id;
-
-private:
-    QNetworkReply *reply;
-    int redirectCount;
 
     Q_DISABLE_COPY(QQuickFontObject)
 };
 
 QQuickFontObject::QQuickFontObject(int _id)
-    : QObject(0), id(_id), reply(0), redirectCount(0) {}
+    : QObject(0)
+#if QT_CONFIG(qml_network)
+    ,redirectCount(0), reply(0)
+#endif
+    ,id(_id)
+{
 
+}
 
+#if QT_CONFIG(qml_network)
 void QQuickFontObject::download(const QUrl &url, QNetworkAccessManager *manager)
 {
     QNetworkRequest req(url);
@@ -122,7 +141,7 @@ void QQuickFontObject::replyFinished()
         reply = 0;
     }
 }
-
+#endif // qml_network
 
 class QQuickFontLoaderPrivate : public QObjectPrivate
 {
@@ -217,7 +236,7 @@ QQuickFontLoader::~QQuickFontLoader()
 
 /*!
     \qmlproperty url QtQuick::FontLoader::source
-    The url of the font to load.
+    The URL of the font to load.
 */
 QUrl QQuickFontLoader::source() const
 {
@@ -245,10 +264,11 @@ void QQuickFontLoader::setSource(const QUrl &url)
                 updateFontInfo(QString(), Error);
             }
         } else {
-            updateFontInfo(QFontDatabase::applicationFontFamilies(fontLoaderFonts()->map[d->url]->id).at(0), Ready);
+            updateFontInfo(QFontDatabase::applicationFontFamilies(fontLoaderFonts()->map.value(d->url)->id).at(0), Ready);
         }
     } else {
         if (!fontLoaderFonts()->map.contains(d->url)) {
+#if QT_CONFIG(qml_network)
             QQuickFontObject *fo = new QQuickFontObject;
             fontLoaderFonts()->map[d->url] = fo;
             fo->download(d->url, qmlEngine(this)->networkAccessManager());
@@ -256,13 +276,20 @@ void QQuickFontLoader::setSource(const QUrl &url)
             emit statusChanged();
             QObject::connect(fo, SIGNAL(fontDownloaded(QString,QQuickFontLoader::Status)),
                 this, SLOT(updateFontInfo(QString,QQuickFontLoader::Status)));
+#else
+// Silently fail if compiled with no_network
+#endif
         } else {
-            QQuickFontObject *fo = fontLoaderFonts()->map[d->url];
+            QQuickFontObject *fo = fontLoaderFonts()->map.value(d->url);
             if (fo->id == -1) {
+#if QT_CONFIG(qml_network)
                 d->status = Loading;
                 emit statusChanged();
                 QObject::connect(fo, SIGNAL(fontDownloaded(QString,QQuickFontLoader::Status)),
                     this, SLOT(updateFontInfo(QString,QQuickFontLoader::Status)));
+#else
+// Silently fail if compiled with no_network
+#endif
             }
             else
                 updateFontInfo(QFontDatabase::applicationFontFamilies(fo->id).at(0), Ready);
@@ -280,7 +307,7 @@ void QQuickFontLoader::updateFontInfo(const QString& name, QQuickFontLoader::Sta
     }
     if (status != d->status) {
         if (status == Error)
-            qmlInfo(this) << "Cannot load font: \"" << d->url.toString() << '"';
+            qmlWarning(this) << "Cannot load font: \"" << d->url.toString() << '"';
         d->status = status;
         emit statusChanged();
     }
@@ -290,7 +317,7 @@ void QQuickFontLoader::updateFontInfo(const QString& name, QQuickFontLoader::Sta
     \qmlproperty string QtQuick::FontLoader::name
 
     This property holds the name of the font family.
-    It is set automatically when a font is loaded using the \c url property.
+    It is set automatically when a font is loaded using the \l source property.
 
     Use this to set the \c font.family property of a \c Text item.
 
@@ -370,3 +397,5 @@ QQuickFontLoader::Status QQuickFontLoader::status() const
 QT_END_NAMESPACE
 
 #include <qquickfontloader.moc>
+
+#include "moc_qquickfontloader_p.cpp"

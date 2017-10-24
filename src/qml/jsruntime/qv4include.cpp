@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -35,8 +41,10 @@
 #include "qv4scopedvalue_p.h"
 
 #include <QtQml/qjsengine.h>
+#if QT_CONFIG(qml_network)
 #include <QtNetwork/qnetworkrequest.h>
 #include <QtNetwork/qnetworkreply.h>
+#endif
 #include <QtCore/qfile.h>
 #include <QtQml/qqmlfile.h>
 
@@ -45,13 +53,15 @@
 #include <private/qv4functionobject_p.h>
 #include <private/qv4script_p.h>
 #include <private/qv4context_p.h>
-#include <private/qqmlcontextwrapper_p.h>
 
 QT_BEGIN_NAMESPACE
 
 QV4Include::QV4Include(const QUrl &url, QV4::ExecutionEngine *engine,
                        QV4::QmlContext *qmlContext, const QV4::Value &callback)
-    : v4(engine), m_network(0), m_reply(0), m_url(url), m_redirectCount(0)
+    : v4(engine), m_url(url)
+#if QT_CONFIG(qml_network)
+    , m_redirectCount(0), m_network(0) , m_reply(0)
+#endif
 {
     if (qmlContext)
         m_qmlContext.set(engine, *qmlContext);
@@ -60,6 +70,7 @@ QV4Include::QV4Include(const QUrl &url, QV4::ExecutionEngine *engine,
 
     m_resultObject.set(v4, resultValue(v4));
 
+#if QT_CONFIG(qml_network)
     m_network = engine->v8Engine->networkAccessManager();
 
     QNetworkRequest request;
@@ -67,11 +78,17 @@ QV4Include::QV4Include(const QUrl &url, QV4::ExecutionEngine *engine,
 
     m_reply = m_network->get(request);
     QObject::connect(m_reply, SIGNAL(finished()), this, SLOT(finished()));
+#else
+    finished();
+#endif
 }
 
 QV4Include::~QV4Include()
 {
-    delete m_reply; m_reply = 0;
+#if QT_CONFIG(qml_network)
+    delete m_reply;
+    m_reply = 0;
+#endif
 }
 
 QV4::ReturnedValue QV4Include::resultValue(QV4::ExecutionEngine *v4, Status status)
@@ -104,7 +121,7 @@ void QV4Include::callback(const QV4::Value &callback, const QV4::Value &status)
     QV4::ScopedCallData callData(scope, 1);
     callData->thisObject = v4->globalObject->asReturnedValue();
     callData->args[0] = status;
-    f->call(callData);
+    f->call(scope, callData);
     if (scope.hasException())
         scope.engine->catchException();
 }
@@ -117,6 +134,7 @@ QV4::ReturnedValue QV4Include::result()
 #define INCLUDE_MAXIMUM_REDIRECT_RECURSION 15
 void QV4Include::finished()
 {
+#if QT_CONFIG(qml_network)
     m_redirectCount++;
 
     if (m_redirectCount < INCLUDE_MAXIMUM_REDIRECT_RECURSION) {
@@ -160,6 +178,12 @@ void QV4Include::finished()
     } else {
         resultObj->put(status, QV4::ScopedValue(scope, QV4::Primitive::fromInt32(NetworkError)));
     }
+#else
+    QV4::Scope scope(v4);
+    QV4::ScopedObject resultObj(scope, m_resultObject.value());
+    QV4::ScopedString status(scope, v4->newString(QStringLiteral("status")));
+    resultObj->put(status, QV4::ScopedValue(scope, QV4::Primitive::fromInt32(NetworkError)));
+#endif // qml_network
 
     QV4::ScopedValue cb(scope, m_callbackFunction.value());
     callback(cb, resultObj);
@@ -171,24 +195,24 @@ void QV4Include::finished()
 /*
     Documented in qv8engine.cpp
 */
-QV4::ReturnedValue QV4Include::method_include(QV4::CallContext *ctx)
+void QV4Include::method_include(const QV4::BuiltinFunction *, QV4::Scope &scope, QV4::CallData *callData)
 {
-    if (!ctx->argc())
-        return QV4::Encode::undefined();
+    if (!callData->argc)
+        RETURN_UNDEFINED();
 
-    QV4::Scope scope(ctx->engine());
     QQmlContextData *context = scope.engine->callingQmlContext();
 
     if (!context || !context->isJSContext)
-        V4THROW_ERROR("Qt.include(): Can only be called from JavaScript files");
-
-    QUrl url(scope.engine->resolvedUrl(ctx->args()[0].toQStringNoThrow()));
-    if (scope.engine->qmlEngine() && scope.engine->qmlEngine()->urlInterceptor())
-        url = scope.engine->qmlEngine()->urlInterceptor()->intercept(url, QQmlAbstractUrlInterceptor::JavaScriptFile);
+        RETURN_RESULT(scope.engine->throwError(QString::fromUtf8("Qt.include(): Can only be called from JavaScript files")));
 
     QV4::ScopedValue callbackFunction(scope, QV4::Primitive::undefinedValue());
-    if (ctx->argc() >= 2 && ctx->args()[1].as<QV4::FunctionObject>())
-        callbackFunction = ctx->args()[1];
+    if (callData->argc >= 2 && callData->args[1].as<QV4::FunctionObject>())
+        callbackFunction = callData->args[1];
+
+#if QT_CONFIG(qml_network)
+    QUrl url(scope.engine->resolvedUrl(callData->args[0].toQStringNoThrow()));
+    if (scope.engine->qmlEngine() && scope.engine->qmlEngine()->urlInterceptor())
+        url = scope.engine->qmlEngine()->urlInterceptor()->intercept(url, QQmlAbstractUrlInterceptor::JavaScriptFile);
 
     QString localFile = QQmlFile::urlToLocalFileOrQrc(url);
 
@@ -236,7 +260,15 @@ QV4::ReturnedValue QV4Include::method_include(QV4::CallContext *ctx)
         callback(callbackFunction, result);
     }
 
-    return result->asReturnedValue();
+    scope.result = result;
+#else
+    QV4::ScopedValue result(scope);
+    result = resultValue(scope.engine, NetworkError);
+    callback(callbackFunction, result);
+    scope.result = result;
+#endif
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qv4include_p.cpp"

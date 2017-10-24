@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -62,6 +68,48 @@ class QQmlImportNamespace;
 class QQmlImportsPrivate;
 class QQmlImportDatabase;
 class QQmlTypeLoader;
+class QQmlTypeLoaderQmldirContent;
+
+struct QQmlImportInstance
+{
+    QString uri; // e.g. QtQuick
+    QString url; // the base path of the import
+    int majversion; // the major version imported
+    int minversion; // the minor version imported
+    bool isLibrary; // true means that this is not a file import
+    QQmlDirComponents qmlDirComponents; // a copy of the components listed in the qmldir
+    QQmlDirScripts qmlDirScripts; // a copy of the scripts in the qmldir
+
+    bool setQmldirContent(const QString &resolvedUrl, const QQmlTypeLoaderQmldirContent *qmldir,
+                          QQmlImportNamespace *nameSpace, QList<QQmlError> *errors);
+
+    static QQmlDirScripts getVersionedScripts(const QQmlDirScripts &qmldirscripts, int vmaj, int vmin);
+
+    bool resolveType(QQmlTypeLoader *typeLoader, const QHashedStringRef &type,
+                     int *vmajor, int *vminor, QQmlType* type_return,
+                     QString *base = 0, bool *typeRecursionDetected = 0) const;
+};
+
+class QQmlImportNamespace
+{
+public:
+    QQmlImportNamespace() : nextNamespace(0) {}
+    ~QQmlImportNamespace() { qDeleteAll(imports); }
+
+    QList<QQmlImportInstance *> imports;
+
+    QQmlImportInstance *findImport(const QString &uri) const;
+
+    bool resolveType(QQmlTypeLoader *typeLoader, const QHashedStringRef& type,
+                     int *vmajor, int *vminor, QQmlType* type_return,
+                     QString *base = 0, QList<QQmlError> *errors = 0);
+
+    // Prefix when used as a qualified import.  Otherwise empty.
+    QHashedString prefix;
+
+    // Used by QQmlImportsPrivate::qualifiedSets
+    QQmlImportNamespace *nextNamespace;
+};
 
 class Q_QML_PRIVATE_EXPORT QQmlImports
 {
@@ -77,13 +125,13 @@ public:
     QUrl baseUrl() const;
 
     bool resolveType(const QHashedStringRef &type,
-                     QQmlType** type_return,
+                     QQmlType *type_return,
                      int *version_major, int *version_minor,
-                     QQmlImportNamespace** ns_return,
+                     QQmlImportNamespace **ns_return,
                      QList<QQmlError> *errors = 0) const;
-    bool resolveType(QQmlImportNamespace*,
+    bool resolveType(QQmlImportNamespace *,
                      const QHashedStringRef& type,
-                     QQmlType** type_return, int *version_major, int *version_minor) const;
+                     QQmlType *type_return, int *version_major, int *version_minor) const;
 
     bool addImplicitImport(QQmlImportDatabase *importDb, QList<QQmlError> *errors);
 
@@ -124,8 +172,7 @@ public:
 
     QList<CompositeSingletonReference> resolvedCompositeSingletons() const;
 
-    static QString completeQmldirPath(const QString &uri, const QString &base, int vmaj, int vmin,
-                                      QQmlImports::ImportVersion version);
+    static QStringList completeQmldirPaths(const QString &uri, const QStringList &basePaths, int vmaj, int vmin);
     static QString versionString(int vmaj, int vmin, ImportVersion version);
 
     static bool isLocal(const QString &url);

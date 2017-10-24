@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -41,8 +36,9 @@
 #include <qpa/qwindowsysteminterface.h>
 #include <qpa/qplatformintegration.h>
 #include <private/qguiapplication_p.h>
+#include "../../shared/util.h"
 
-class tst_qquickapplication : public QObject
+class tst_qquickapplication : public QQmlDataTest
 {
     Q_OBJECT
 public:
@@ -52,9 +48,11 @@ private slots:
     void active();
     void state();
     void layoutDirection();
+    void font();
     void inputMethod();
     void styleHints();
     void cleanup();
+    void displayName();
 
 private:
     QQmlEngine engine;
@@ -201,6 +199,21 @@ void tst_qquickapplication::layoutDirection()
     QCOMPARE(Qt::LayoutDirection(item->property("layoutDirection").toInt()), Qt::LeftToRight);
 }
 
+void tst_qquickapplication::font()
+{
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick 2.0; Item { property font defaultFont: Qt.application.font }", QUrl::fromLocalFile(""));
+    QQuickItem *item = qobject_cast<QQuickItem *>(component.create());
+    QVERIFY(item);
+    QQuickView view;
+    item->setParentItem(view.rootObject());
+
+    QVariant defaultFontProperty = item->property("defaultFont");
+    QVERIFY(defaultFontProperty.isValid());
+    QCOMPARE(defaultFontProperty.type(), QVariant::Font);
+    QCOMPARE(defaultFontProperty.value<QFont>(), qApp->font());
+}
+
 void tst_qquickapplication::inputMethod()
 {
     // technically not in QQuickApplication, but testing anyway here
@@ -226,6 +239,29 @@ void tst_qquickapplication::styleHints()
     item->setParentItem(view.rootObject());
 
     QCOMPARE(qvariant_cast<QObject*>(item->property("styleHints")), qApp->styleHints());
+}
+
+void tst_qquickapplication::displayName()
+{
+    QString name[3] = { QStringLiteral("APP NAME 0"),
+                        QStringLiteral("APP NAME 1"),
+                        QStringLiteral("APP NAME 2")
+                      };
+
+    QQmlComponent component(&engine, testFileUrl("tst_displayname.qml"));
+    QQuickItem *item = qobject_cast<QQuickItem *>(component.create());
+    QVERIFY(item);
+    QQuickView view;
+    item->setParentItem(view.rootObject());
+
+    QCoreApplication::setApplicationName(name[0]);
+    QCOMPARE(qvariant_cast<QString>(item->property("displayName")), name[0]);
+
+    QGuiApplication::setApplicationName(name[1]);
+    QCOMPARE(qvariant_cast<QString>(item->property("displayName")), name[1]);
+
+    QMetaObject::invokeMethod(item, "updateDisplayName", Q_ARG(QVariant, QVariant(name[2])));
+    QCOMPARE(QGuiApplication::applicationDisplayName(), name[2]);
 }
 
 QTEST_MAIN(tst_qquickapplication)

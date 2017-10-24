@@ -12,7 +12,6 @@ SOURCES += \
     $$PWD/qqmlpropertyvalueinterceptor.cpp \
     $$PWD/qqmlproxymetaobject.cpp \
     $$PWD/qqmlvme.cpp \
-    $$PWD/qqmlcompileddata.cpp \
     $$PWD/qqmlboundsignal.cpp \
     $$PWD/qqmlmetatype.cpp \
     $$PWD/qqmlstringconverters.cpp \
@@ -21,7 +20,6 @@ SOURCES += \
     $$PWD/qqmlinfo.cpp \
     $$PWD/qqmlerror.cpp \
     $$PWD/qqmlvaluetype.cpp \
-    $$PWD/qqmlaccessors.cpp \
     $$PWD/qqmlxmlhttprequest.cpp \
     $$PWD/qqmlcleanup.cpp \
     $$PWD/qqmlpropertycache.cpp \
@@ -39,18 +37,18 @@ SOURCES += \
     $$PWD/qqmlvaluetypeproxybinding.cpp \
     $$PWD/qqmlglobal.cpp \
     $$PWD/qqmlfile.cpp \
-    $$PWD/qqmlmemoryprofiler.cpp \
     $$PWD/qqmlplatform.cpp \
     $$PWD/qqmlbinding.cpp \
     $$PWD/qqmlabstracturlinterceptor.cpp \
     $$PWD/qqmlapplicationengine.cpp \
     $$PWD/qqmllistwrapper.cpp \
-    $$PWD/qqmlcontextwrapper.cpp \
     $$PWD/qqmlvaluetypewrapper.cpp \
     $$PWD/qqmltypewrapper.cpp \
     $$PWD/qqmlfileselector.cpp \
     $$PWD/qqmlobjectcreator.cpp \
-    $$PWD/qqmldirparser.cpp
+    $$PWD/qqmldirparser.cpp \
+    $$PWD/qqmldelayedcallqueue.cpp \
+    $$PWD/qqmlloggingcategory.cpp
 
 HEADERS += \
     $$PWD/qqmlglobal_p.h \
@@ -70,7 +68,6 @@ HEADERS += \
     $$PWD/qqmlparserstatus.h \
     $$PWD/qqmlproxymetaobject_p.h \
     $$PWD/qqmlvme_p.h \
-    $$PWD/qqmlcompiler_p.h \
     $$PWD/qqmlengine_p.h \
     $$PWD/qqmlexpression_p.h \
     $$PWD/qqmlprivate.h \
@@ -88,10 +85,10 @@ HEADERS += \
     $$PWD/qqmldata_p.h \
     $$PWD/qqmlerror.h \
     $$PWD/qqmlvaluetype_p.h \
-    $$PWD/qqmlaccessors_p.h \
     $$PWD/qqmlxmlhttprequest_p.h \
     $$PWD/qqmlcleanup_p.h \
     $$PWD/qqmlpropertycache_p.h \
+    $$PWD/qqmlpropertyindex_p.h \
     $$PWD/qqmlnotifier_p.h \
     $$PWD/qqmltypenotavailable_p.h \
     $$PWD/qqmltypenamecache_p.h \
@@ -108,7 +105,6 @@ HEADERS += \
     $$PWD/qqmlabstractbinding_p.h \
     $$PWD/qqmlvaluetypeproxybinding_p.h \
     $$PWD/qqmlfile.h \
-    $$PWD/qqmlmemoryprofiler_p.h \
     $$PWD/qqmlplatform_p.h \
     $$PWD/qqmlbinding_p.h \
     $$PWD/qqmlextensionplugin_p.h \
@@ -116,13 +112,13 @@ HEADERS += \
     $$PWD/qqmlapplicationengine_p.h \
     $$PWD/qqmlapplicationengine.h \
     $$PWD/qqmllistwrapper_p.h \
-    $$PWD/qqmlcontextwrapper_p.h \
-    $$PWD/qqmlvaluetypewrapper_p.h \
     $$PWD/qqmltypewrapper_p.h \
     $$PWD/qqmlfileselector_p.h \
     $$PWD/qqmlfileselector.h \
     $$PWD/qqmlobjectcreator_p.h \
-    $$PWD/qqmldirparser_p.h
+    $$PWD/qqmldirparser_p.h \
+    $$PWD/qqmldelayedcallqueue_p.h \
+    $$PWD/qqmlloggingcategory_p.h
 
 include(ftw/ftw.pri)
 include(v8/v8.pri)

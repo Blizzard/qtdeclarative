@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -44,18 +50,27 @@
 //
 // We mean it.
 //
-
-#include <QtCore/qglobal.h>
+#include <private/qv4global_p.h>
 #include <private/qv4value_p.h>
-#include <private/qv4function_p.h>
 #include <private/qv4runtime_p.h>
+
+#if !defined(V4_BOOTSTRAP)
+QT_REQUIRE_CONFIG(qml_interpreter);
+#endif
 
 QT_BEGIN_NAMESPACE
 
+#ifdef QT_NO_QML_DEBUGGER
+#define MOTH_DEBUG_INSTR(F)
+#else
+#define MOTH_DEBUG_INSTR(F) \
+    F(Line, line) \
+    F(Debug, debug)
+#endif
+
 #define FOR_EACH_MOTH_INSTR(F) \
     F(Ret, ret) \
-    F(Line, line) \
-    F(Debug, debug) \
+    MOTH_DEBUG_INSTR(F) \
     F(LoadRuntimeString, loadRuntimeString) \
     F(LoadRegExp, loadRegExp) \
     F(LoadClosure, loadClosure) \
@@ -155,11 +170,7 @@ QT_BEGIN_NAMESPACE
 
 #define MOTH_INSTR_ALIGN_MASK (Q_ALIGNOF(QV4::Moth::Instr) - 1)
 
-#ifdef MOTH_THREADED_INTERPRETER
-#  define MOTH_INSTR_HEADER void *code;
-#else
-#  define MOTH_INSTR_HEADER quint32 instructionType;
-#endif
+#define MOTH_INSTR_HEADER quint32 instructionType;
 
 #define MOTH_INSTR_ENUM(I, FMT)  I,
 #define MOTH_INSTR_SIZE(I, FMT) ((sizeof(QV4::Moth::Instr::instr_##FMT) + MOTH_INSTR_ALIGN_MASK) & ~MOTH_INSTR_ALIGN_MASK)
@@ -167,6 +178,8 @@ QT_BEGIN_NAMESPACE
 
 namespace QV4 {
 namespace Moth {
+
+    // When making changes to the instructions, make sure to bump QV4_DATA_STRUCTURE_VERSION in qv4compileddata_p.h
 
 struct Param {
     // Params are looked up as follows:
@@ -177,8 +190,8 @@ struct Param {
     // Arg(outer): 4
     // Local(outer): 5
     // ...
-    unsigned scope;
-    unsigned index;
+    unsigned scope : 12;
+    unsigned index : 20;
 
     bool isConstant() const { return !scope; }
     bool isArgument() const { return scope >= 2 && !(scope &1); }
@@ -237,6 +250,7 @@ union Instr
 {
     enum Type {
         FOR_EACH_MOTH_INSTR(MOTH_INSTR_ENUM)
+        LastInstruction
     };
 
     struct instr_common {
@@ -246,6 +260,8 @@ union Instr
         MOTH_INSTR_HEADER
         Param result;
     };
+
+#ifndef QT_NO_QML_DEBUGGING
     struct instr_line {
         MOTH_INSTR_HEADER
         qint32 lineNumber;
@@ -254,6 +270,8 @@ union Instr
         MOTH_INSTR_HEADER
         qint32 lineNumber;
     };
+#endif // QT_NO_QML_DEBUGGING
+
     struct instr_loadRuntimeString {
         MOTH_INSTR_HEADER
         int stringId;
@@ -316,12 +334,14 @@ union Instr
         int propertyIndex;
         Param base;
         Param result;
+        bool captureRequired;
     };
     struct instr_loadContextObjectProperty {
         MOTH_INSTR_HEADER
         int propertyIndex;
         Param base;
         Param result;
+        bool captureRequired;
     };
     struct instr_loadIdObject {
         MOTH_INSTR_HEADER
@@ -666,7 +686,7 @@ union Instr
     };
     struct instr_binop {
         MOTH_INSTR_HEADER
-        QV4::Runtime::BinaryOperation alu;
+        int alu; // QV4::Runtime::RuntimeMethods enum value
         Param lhs;
         Param rhs;
         Param result;
@@ -751,7 +771,7 @@ union Instr
     };
     struct instr_binopContext {
         MOTH_INSTR_HEADER
-        QV4::Runtime::BinaryOperationContext alu;
+        uint alu; // offset inside the runtime methods
         Param lhs;
         Param rhs;
         Param result;
@@ -877,6 +897,8 @@ template<int N>
 struct InstrMeta {
 };
 
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_GCC("-Wuninitialized")
 #define MOTH_INSTR_META_TEMPLATE(I, FMT) \
     template<> struct InstrMeta<(int)Instr::I> { \
         enum { Size = MOTH_INSTR_SIZE(I, FMT) }; \
@@ -890,6 +912,7 @@ struct InstrMeta {
     };
 FOR_EACH_MOTH_INSTR(MOTH_INSTR_META_TEMPLATE);
 #undef MOTH_INSTR_META_TEMPLATE
+QT_WARNING_POP
 
 template<int InstrType>
 class InstrData : public InstrMeta<InstrType>::DataType

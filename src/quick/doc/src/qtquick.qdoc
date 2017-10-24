@@ -86,6 +86,14 @@ To find out more about using the QML language, see the \l{Qt QML} module documen
         \endlist
 \endlist
 
+\section1 Licenses and Attributions
+
+Qt Quick is available under commercial licenses from \l{The Qt Company}.
+In addition, it is available under the
+\l{GNU Lesser General Public License, version 3}, or
+the \l{GNU General Public License, version 2}.
+See \l{Qt Licensing} for further details.
+
 \section1 Reference Documentation
 
 Additional Qt Quick information:
@@ -101,6 +109,7 @@ Additional Qt Quick information:
     containing a JavaScript interface for an SQLite database
     \li \l{Qt Quick Particles QML Types}{Particles} - provides a particle
     system for Qt Quick
+    \li \l{Qt Quick Layouts}{Layouts} - provides layouts for arranging Qt Quick items
     \li \l{Qt Quick Window QML Types}{Window} - contains types for creating
     top-level windows and accessing screen information
     \li \l{Qt Quick Dialogs}{Dialogs} - contains types for creating and

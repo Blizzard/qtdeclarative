@@ -189,6 +189,21 @@ void OSAllocator::releaseDecommitted(void* address, size_t bytes)
         CRASH();
 }
 
+bool OSAllocator::canAllocateExecutableMemory()
+{
+    int flags = MAP_PRIVATE | MAP_ANON;
+#if PLATFORM(IOS)
+    if (executable)
+        flags |= MAP_JIT;
+#endif
+    const auto size = pageSize();
+    void *testPage = mmap(nullptr, size, PROT_READ | PROT_WRITE | PROT_EXEC, flags, /*fd*/-1, /*offset*/0);
+    if (testPage == MAP_FAILED)
+        return false;
+    munmap(testPage, size);
+    return true;
+}
+
 } // namespace WTF
 
 #endif // OS(UNIX)

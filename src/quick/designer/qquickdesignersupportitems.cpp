@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -41,6 +47,7 @@
 #include <private/qquicktextinput_p.h>
 #include <private/qquicktextedit_p.h>
 #include <private/qquicktransition_p.h>
+#include <private/qquickloader_p.h>
 
 #include <private/qquickanimation_p.h>
 #include <private/qqmlmetatype_p.h>
@@ -71,6 +78,12 @@ static void stopAnimation(QObject *object)
     } else if (timer) {
         timer->blockSignals(true);
     }
+}
+
+static void makeLoaderSynchronous(QObject *object)
+{
+    if (QQuickLoader *loader = qobject_cast<QQuickLoader*>(object))
+        loader->setAsynchronous(false);
 }
 
 static void allSubObjects(QObject *object, QObjectList &objectList)
@@ -112,16 +125,16 @@ static void allSubObjects(QObject *object, QObjectList &objectList)
     }
 
     // search recursive in object children list
-    Q_FOREACH (QObject *childObject, object->children()) {
+    for (QObject *childObject : object->children()) {
         allSubObjects(childObject, objectList);
     }
 
     // search recursive in quick item childItems list
     QQuickItem *quickItem = qobject_cast<QQuickItem*>(object);
     if (quickItem) {
-        Q_FOREACH (QQuickItem *childItem, quickItem->childItems()) {
+        const auto childItems = quickItem->childItems();
+        for (QQuickItem *childItem : childItems)
             allSubObjects(childItem, objectList);
-        }
     }
 }
 
@@ -129,8 +142,9 @@ void QQuickDesignerSupportItems::tweakObjects(QObject *object)
 {
     QObjectList objectList;
     allSubObjects(object, objectList);
-    Q_FOREACH (QObject* childObject, objectList) {
+    for (QObject* childObject : qAsConst(objectList)) {
         stopAnimation(childObject);
+        makeLoaderSynchronous(childObject);
         if (fixResourcePathsForObjectCallBack)
             fixResourcePathsForObjectCallBack(childObject);
     }
@@ -161,29 +175,24 @@ static bool isWindow(QObject *object) {
     return false;
 }
 
-static QQmlType *getQmlType(const QString &typeName, int majorNumber, int minorNumber)
+static bool isCrashingType(const QQmlType &type)
 {
-     return QQmlMetaType::qmlType(typeName, majorNumber, minorNumber);
-}
+    QString name = type.qmlTypeName();
 
-static bool isCrashingType(QQmlType *type)
-{
-    if (type) {
-        if (type->qmlTypeName() == QStringLiteral("QtMultimedia/MediaPlayer"))
-            return true;
+    if (type.qmlTypeName() == QLatin1String("QtMultimedia/MediaPlayer"))
+        return true;
 
-        if (type->qmlTypeName() == QStringLiteral("QtMultimedia/Audio"))
-            return true;
+    if (type.qmlTypeName() == QLatin1String("QtMultimedia/Audio"))
+        return true;
 
-        if (type->qmlTypeName() == QStringLiteral("QtQuick.Controls/MenuItem"))
-            return true;
+    if (type.qmlTypeName() == QLatin1String("QtQuick.Controls/MenuItem"))
+        return true;
 
-        if (type->qmlTypeName() == QStringLiteral("QtQuick.Controls/Menu"))
-            return true;
+    if (type.qmlTypeName() == QLatin1String("QtQuick.Controls/Menu"))
+        return true;
 
-        if (type->qmlTypeName() == QStringLiteral("QtQuick/Timer"))
-            return true;
-    }
+    if (type.qmlTypeName() == QLatin1String("QtQuick/Timer"))
+        return true;
 
     return false;
 }
@@ -195,19 +204,19 @@ QObject *QQuickDesignerSupportItems::createPrimitive(const QString &typeName, in
     Q_UNUSED(disableComponentComplete)
 
     QObject *object = 0;
-    QQmlType *type = getQmlType(typeName, majorNumber, minorNumber);
+    QQmlType type = QQmlMetaType::qmlType(typeName, majorNumber, minorNumber);
 
     if (isCrashingType(type)) {
         object = new QObject;
-    } else if (type) {
-        if ( type->isComposite()) {
-             object = createComponent(type->sourceUrl(), context);
+    } else if (type.isValid()) {
+        if ( type.isComposite()) {
+             object = createComponent(type.sourceUrl(), context);
         } else
         {
-            if (type->typeName() == "QQmlComponent") {
+            if (type.typeName() == "QQmlComponent") {
                 object = new QQmlComponent(context->engine(), 0);
             } else  {
-                object = type->create();
+                object = type.create();
             }
         }
 
@@ -248,7 +257,8 @@ QObject *QQuickDesignerSupportItems::createComponent(const QUrl &componentUrl, Q
 
     if (component.isError()) {
         qWarning() << "Error in:" << Q_FUNC_INFO << componentUrl;
-        Q_FOREACH (const QQmlError &error, component.errors())
+        const auto errors = component.errors();
+        for (const QQmlError &error : errors)
             qWarning() << error;
     }
     return object;
@@ -276,7 +286,8 @@ void QQuickDesignerSupportItems::disableNativeTextRendering(QQuickItem *item)
 
 void QQuickDesignerSupportItems::disableTextCursor(QQuickItem *item)
 {
-    Q_FOREACH (QQuickItem *childItem, item->childItems())
+    const auto childItems = item->childItems();
+    for (QQuickItem *childItem : childItems)
         disableTextCursor(childItem);
 
     QQuickTextInput *textInput = qobject_cast<QQuickTextInput*>(item);

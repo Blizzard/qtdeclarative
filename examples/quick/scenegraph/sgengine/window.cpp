@@ -173,7 +173,7 @@ void Window::addItems()
         QSGTexture *tex = textures[i%2];
         QPointF fromPos(-tex->textureSize().width(), qrand() / float(RAND_MAX) * (height() - tex->textureSize().height()));
         QPointF toPos(width(), qrand() / float(RAND_MAX) * height() * 1.5 - height() * 0.25);
-        m_items.append(QSharedPointer<Item>(new Item(m_sgRootNode.data(), tex, fromPos, toPos)));
+        m_items.append(QSharedPointer<Item>::create(m_sgRootNode.data(), tex, fromPos, toPos));
     }
     update();
 }
@@ -187,7 +187,7 @@ void Window::update()
 void Window::sync()
 {
     QList<QSharedPointer<Item> > validItems;
-    foreach (QSharedPointer<Item> item, m_items) {
+    for (QSharedPointer<Item> item : qAsConst(m_items)) {
         if (!item->isDone()) {
             validItems.append(item);
             item->sync();

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -45,7 +51,10 @@
 // We mean it.
 //
 
-#include <QtQuick/qtquickglobal.h>
+#include <private/qtquickglobal_p.h>
+
+QT_REQUIRE_CONFIG(quick_canvas);
+
 #include <QtQml/qqml.h>
 #include <QtQml/qqmlcomponent.h>
 #include <private/qquickcanvascontext_p.h>
@@ -60,6 +69,7 @@
 #include <QtCore/QWaitCondition>
 
 #include <private/qv4value_p.h>
+#include <private/qv4persistent_p.h>
 
 //#define QQUICKCONTEXT2D_DEBUG //enable this for just DEBUG purpose!
 
@@ -119,8 +129,8 @@ public:
 
     struct State {
         State()
-            : strokeStyle(QColor("#000000"))
-            , fillStyle(QColor("#000000"))
+            : strokeStyle(QColor(Qt::black))
+            , fillStyle(QColor(Qt::black))
             , fillPatternRepeatX(false)
             , fillPatternRepeatY(false)
             , strokePatternRepeatX(false)
@@ -174,17 +184,17 @@ public:
     QQuickContext2D(QObject *parent = 0);
     ~QQuickContext2D();
 
-    QStringList contextNames() const;
-    void init(QQuickCanvasItem *canvasItem, const QVariantMap &args);
-    void prepare(const QSize& canvasSize, const QSize& tileSize, const QRect& canvasWindow, const QRect& dirtyRect, bool smooth, bool antialiasing);
-    void flush();
+    QStringList contextNames() const override;
+    void init(QQuickCanvasItem *canvasItem, const QVariantMap &args) override;
+    void prepare(const QSize& canvasSize, const QSize& tileSize, const QRect& canvasWindow, const QRect& dirtyRect, bool smooth, bool antialiasing) override;
+    void flush() override;
     void sync();
     QThread *thread() const { return m_thread; }
     QQuickContext2DTexture *texture() const;
-    QImage toImage(const QRectF& bounds);
+    QImage toImage(const QRectF& bounds) override;
 
-    QV4::ReturnedValue v4value() const;
-    void setV4Engine(QV4::ExecutionEngine *eng);
+    QV4::ReturnedValue v4value() const override;
+    void setV4Engine(QV4::ExecutionEngine *eng) override;
 
     QQuickCanvasItem* canvas() const { return m_canvas; }
     QQuickContext2DCommandBuffer* buffer() const { return m_buffer; }
@@ -233,8 +243,8 @@ public:
     QPainterPath createTextGlyphs(qreal x, qreal y, const QString& text);
     QQmlRefPointer<QQuickCanvasPixmap> createPixmap(const QUrl& url);
 
-    QOpenGLContext *glContext() { return m_glContext; }
-    QSurface *surface() { return m_surface.data(); }
+    QOpenGLContext *glContext() const { return m_glContext; }
+    QSurface *surface() const { return m_surface.data(); }
     void setGrabbedImage(const QImage& grab);
 
     State state;

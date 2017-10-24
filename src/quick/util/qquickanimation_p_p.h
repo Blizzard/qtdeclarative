@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -82,8 +88,8 @@ class QAnimationActionProxy : public QAbstractAnimationAction
 {
 public:
     QAnimationActionProxy(T *instance) : m_instance(instance) {}
-    virtual void doAction() { (m_instance->*method)(); }
-    virtual void debugAction(QDebug d, int indentLevel) const { (m_instance->*debugMethod)(d, indentLevel); }
+    void doAction() override { (m_instance->*method)(); }
+    void debugAction(QDebug d, int indentLevel) const override { (m_instance->*debugMethod)(d, indentLevel); }
 private:
     T *m_instance;
 };
@@ -98,13 +104,13 @@ public:
     QActionAnimation(QAbstractAnimationAction *action);
     ~QActionAnimation();
 
-    virtual int duration() const;
+    int duration() const override;
     void setAnimAction(QAbstractAnimationAction *action);
 
 protected:
-    virtual void updateCurrentTime(int);
-    virtual void updateState(State newState, State oldState);
-    void debugAnimation(QDebug d) const;
+    void updateCurrentTime(int) override;
+    void updateState(State newState, State oldState) override;
+    void debugAnimation(QDebug d) const override;
 
 private:
     QAbstractAnimationAction *animAction;
@@ -131,16 +137,16 @@ public:
 
     void setFromSourcedValue(bool *value) { fromSourced = value; }
 
-    int duration() const { return m_duration; }
+    int duration() const override { return m_duration; }
     void setDuration(int msecs) { m_duration = msecs; }
 
     QEasingCurve easingCurve() const { return easing; }
     void setEasingCurve(const QEasingCurve &curve) { easing = curve; }
 
 protected:
-    void updateCurrentTime(int currentTime);
-    void topLevelAnimationLoopChanged();
-    void debugAnimation(QDebug d) const;
+    void updateCurrentTime(int currentTime) override;
+    void topLevelAnimationLoopChanged() override;
+    void debugAnimation(QDebug d) const override;
 
 private:
     QQuickBulkValueUpdater *animValue;
@@ -156,9 +162,9 @@ class QTickAnimationProxy : public QAbstractAnimationJob
     Q_DISABLE_COPY(QTickAnimationProxy)
 public:
     QTickAnimationProxy(T *instance) : QAbstractAnimationJob(), m_instance(instance) {}
-    virtual int duration() const { return -1; }
+    int duration() const override { return -1; }
 protected:
-    virtual void updateCurrentTime(int msec) { (m_instance->*method)(msec); }
+    void updateCurrentTime(int msec) override { (m_instance->*method)(msec); }
 
 private:
     T *m_instance;
@@ -186,7 +192,7 @@ public:
     int loopCount;
 
     void commence();
-    virtual void animationFinished(QAbstractAnimationJob *);
+    void animationFinished(QAbstractAnimationJob *) override;
 
     QQmlProperty defaultProperty;
 
@@ -303,9 +309,9 @@ public:
     QQuickAnimationPropertyUpdater() : interpolatorType(0), interpolator(0), prevInterpolatorType(0), reverse(false), fromSourced(false), fromDefined(false), wasDeleted(0) {}
     ~QQuickAnimationPropertyUpdater();
 
-    void setValue(qreal v);
+    void setValue(qreal v) override;
 
-    void debugUpdater(QDebug d, int indentLevel) const;
+    void debugUpdater(QDebug d, int indentLevel) const override;
 
     QQuickStateActions actions;
     int interpolatorType;       //for Number/ColorAnimation

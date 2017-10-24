@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -113,6 +108,7 @@ private slots:
     void selectionOnFocusOut();
     void focusOnPress();
     void selection();
+    void overwriteMode();
     void isRightToLeft_data();
     void isRightToLeft();
     void keySelection();
@@ -144,9 +140,10 @@ private slots:
     void cursorVisible();
     void delegateLoading_data();
     void delegateLoading();
+    void cursorDelegateHeight();
     void navigation();
     void readOnly();
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     void copyAndPaste();
     void canPaste();
     void canPasteEmpty();
@@ -156,11 +153,12 @@ private slots:
     void inputMethodUpdate();
     void openInputPanel();
     void geometrySignals();
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     void pastingRichText_QTBUG_14003();
 #endif
     void implicitSize_data();
     void implicitSize();
+    void implicitSize_QTBUG_63153();
     void contentSize();
     void boundingRect();
     void clipRect();
@@ -194,6 +192,7 @@ private slots:
     void redo();
     void undo_keypressevents_data();
     void undo_keypressevents();
+    void clear();
 
     void baseUrl();
     void embeddedImages();
@@ -205,6 +204,7 @@ private slots:
     void doubleSelect_QTBUG_38704();
 
     void padding();
+    void QTBUG_51115_readOnlyResetsSelection();
 
 private:
     void simulateKeys(QWindow *window, const QList<Key> &keys);
@@ -930,7 +930,6 @@ void tst_qquicktextedit::hAlignVisual()
         const int left = numberOfNonWhitePixels(centeredSection1, centeredSection2, image);
         const int mid = numberOfNonWhitePixels(centeredSection2, centeredSection3, image);
         const int right = numberOfNonWhitePixels(centeredSection3, centeredSection3End, image);
-        image.save("test3.png");
         QVERIFY2(left < mid, msgNotLessThan(left, mid).constData());
         QVERIFY2(mid < right, msgNotLessThan(mid, right).constData());
     }
@@ -1470,6 +1469,74 @@ void tst_qquicktextedit::selection()
     QVERIFY(textEditObject->selectedText().isNull());
 }
 
+void tst_qquicktextedit::overwriteMode()
+{
+    QString componentStr = "import QtQuick 2.0\nTextEdit { focus: true; }";
+    QQmlComponent textEditComponent(&engine);
+    textEditComponent.setData(componentStr.toLatin1(), QUrl());
+    QQuickTextEdit *textEdit = qobject_cast<QQuickTextEdit*>(textEditComponent.create());
+    QVERIFY(textEdit != 0);
+
+    QSignalSpy spy(textEdit, SIGNAL(overwriteModeChanged(bool)));
+
+    QQuickWindow window;
+    textEdit->setParentItem(window.contentItem());
+    window.show();
+    window.requestActivate();
+    QTest::qWaitForWindowActive(&window);
+
+    QVERIFY(textEdit->hasActiveFocus());
+
+    textEdit->setOverwriteMode(true);
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(true, textEdit->overwriteMode());
+    textEdit->setOverwriteMode(false);
+    QCOMPARE(spy.count(), 2);
+    QCOMPARE(false, textEdit->overwriteMode());
+
+    QVERIFY(!textEdit->overwriteMode());
+    QString insertString = "Some first text";
+    for (int j = 0; j < insertString.length(); j++)
+        QTest::keyClick(&window, insertString.at(j).toLatin1());
+
+    QCOMPARE(textEdit->text(), QString("Some first text"));
+
+    textEdit->setOverwriteMode(true);
+    QCOMPARE(spy.count(), 3);
+    textEdit->setCursorPosition(5);
+
+    insertString = "shiny";
+    for (int j = 0; j < insertString.length(); j++)
+        QTest::keyClick(&window, insertString.at(j).toLatin1());
+    QCOMPARE(textEdit->text(), QString("Some shiny text"));
+
+    textEdit->setCursorPosition(textEdit->text().length());
+    QTest::keyClick(&window, Qt::Key_Enter);
+
+    textEdit->setOverwriteMode(false);
+    QCOMPARE(spy.count(), 4);
+
+    insertString = "Second paragraph";
+
+    for (int j = 0; j < insertString.length(); j++)
+        QTest::keyClick(&window, insertString.at(j).toLatin1());
+    QCOMPARE(textEdit->lineCount(), 2);
+
+    textEdit->setCursorPosition(15);
+
+    QCOMPARE(textEdit->cursorPosition(), 15);
+
+    textEdit->setOverwriteMode(true);
+    QCOMPARE(spy.count(), 5);
+
+    insertString = " blah";
+    for (int j = 0; j < insertString.length(); j++)
+        QTest::keyClick(&window, insertString.at(j).toLatin1());
+    QCOMPARE(textEdit->lineCount(), 2);
+
+    QCOMPARE(textEdit->text(), QString("Some shiny text blah\nSecond paragraph"));
+}
+
 void tst_qquicktextedit::isRightToLeft_data()
 {
     QTest::addColumn<QString>("text");
@@ -2006,11 +2073,17 @@ void tst_qquicktextedit::mouseSelection()
     else if (clicks == 3)
         QTest::mouseDClick(&window, Qt::LeftButton, Qt::NoModifier, p1);
     QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, p1);
+    if (clicks == 2) {
+        // QTBUG-50022: Since qtbase commit beef975, QTestLib avoids generating
+        // double click events by adding 500ms delta to release event timestamps.
+        // Send a double click event by hand to ensure the correct sequence:
+        // press, release, press, _dbl click_, move, release.
+        QMouseEvent dblClickEvent(QEvent::MouseButtonDblClick, p1, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QGuiApplication::sendEvent(textEditObject, &dblClickEvent);
+    }
     QTest::mouseMove(&window, p2);
     QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, p2);
     QTRY_COMPARE(textEditObject->selectedText(), selectedText);
-
-    QTest::qWait(QGuiApplication::styleHints()->mouseDoubleClickInterval() + 10);
 
     // Clicking and shift to clicking between the same points should select the same text.
     textEditObject->setCursorPosition(0);
@@ -2020,9 +2093,6 @@ void tst_qquicktextedit::mouseSelection()
         QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, p1);
     QTest::mouseClick(&window, Qt::LeftButton, Qt::ShiftModifier, p2);
     QTRY_COMPARE(textEditObject->selectedText(), selectedText);
-
-    // ### This is to prevent double click detection from carrying over to the next test.
-    QTest::qWait(QGuiApplication::styleHints()->mouseDoubleClickInterval() + 10);
 }
 
 void tst_qquicktextedit::dragMouseSelection()
@@ -2779,6 +2849,43 @@ void tst_qquicktextedit::delegateLoading()
     //QVERIFY(!delegate);
 }
 
+void tst_qquicktextedit::cursorDelegateHeight()
+{
+    QQuickView view(testFileUrl("cursorHeight.qml"));
+    view.show();
+    view.requestActivate();
+    QTest::qWaitForWindowActive(&view);
+    QQuickTextEdit *textEditObject = view.rootObject()->findChild<QQuickTextEdit*>("textEditObject");
+    QVERIFY(textEditObject);
+    // Delegate creation is deferred until focus in or cursor visibility is forced.
+    QVERIFY(!textEditObject->findChild<QQuickItem*>("cursorInstance"));
+    QVERIFY(!textEditObject->isCursorVisible());
+
+    // Test that the delegate gets created.
+    textEditObject->setFocus(true);
+    QVERIFY(textEditObject->isCursorVisible());
+    QQuickItem* delegateObject = textEditObject->findChild<QQuickItem*>("cursorInstance");
+    QVERIFY(delegateObject);
+
+    const int largerHeight = textEditObject->cursorRectangle().height();
+
+    textEditObject->setCursorPosition(0);
+    QCOMPARE(delegateObject->x(), textEditObject->cursorRectangle().x());
+    QCOMPARE(delegateObject->y(), textEditObject->cursorRectangle().y());
+    QCOMPARE(delegateObject->height(), textEditObject->cursorRectangle().height());
+
+    // Move the cursor to the next line, which has a smaller font.
+    textEditObject->setCursorPosition(5);
+    QCOMPARE(delegateObject->x(), textEditObject->cursorRectangle().x());
+    QCOMPARE(delegateObject->y(), textEditObject->cursorRectangle().y());
+    QVERIFY(textEditObject->cursorRectangle().height() < largerHeight);
+    QCOMPARE(delegateObject->height(), textEditObject->cursorRectangle().height());
+
+    // Test that the delegate gets deleted
+    textEditObject->setCursorDelegate(0);
+    QVERIFY(!textEditObject->findChild<QQuickItem*>("cursorInstance"));
+}
+
 /*
 TextEdit element should only handle left/right keys until the cursor reaches
 the extent of the text, then they should ignore the keys.
@@ -2817,7 +2924,7 @@ void tst_qquicktextedit::navigation()
     QCOMPARE(input->hasActiveFocus(), false);
 }
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void tst_qquicktextedit::copyAndPaste()
 {
     if (!PlatformQuirks::isClipboardAvailable())
@@ -2894,7 +3001,7 @@ void tst_qquicktextedit::copyAndPaste()
 }
 #endif
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void tst_qquicktextedit::canPaste()
 {
     QGuiApplication::clipboard()->setText("Some text");
@@ -2912,7 +3019,7 @@ void tst_qquicktextedit::canPaste()
 }
 #endif
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void tst_qquicktextedit::canPasteEmpty()
 {
     QGuiApplication::clipboard()->clear();
@@ -2930,7 +3037,7 @@ void tst_qquicktextedit::canPasteEmpty()
 }
 #endif
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void tst_qquicktextedit::middleClickPaste()
 {
     if (!PlatformQuirks::isClipboardAvailable())
@@ -2962,9 +3069,6 @@ void tst_qquicktextedit::middleClickPaste()
 
     // Middle click pastes the selected text, assuming the platform supports it.
     QTest::mouseClick(&window, Qt::MiddleButton, Qt::NoModifier, p3);
-
-    // ### This is to prevent double click detection from carrying over to the next test.
-    QTest::qWait(QGuiApplication::styleHints()->mouseDoubleClickInterval() + 10);
 
     if (QGuiApplication::clipboard()->supportsSelection())
         QCOMPARE(textEditObject->text().mid(1, selectedText.length()), selectedText);
@@ -3039,6 +3143,23 @@ void tst_qquicktextedit::textInput()
     edit->setReadOnly(true);
     QGuiApplication::sendEvent(edit, &queryEvent);
     QCOMPARE(queryEvent.value(Qt::ImEnabled).toBool(), false);
+
+    edit->setReadOnly(false);
+
+    QInputMethodEvent preeditEvent("PREEDIT", QList<QInputMethodEvent::Attribute>());
+    QGuiApplication::sendEvent(edit, &preeditEvent);
+    QCOMPARE(edit->text(), QString("Hello world!"));
+    QCOMPARE(edit->preeditText(), QString("PREEDIT"));
+
+    QInputMethodEvent preeditEvent2("PREEDIT2", QList<QInputMethodEvent::Attribute>());
+    QGuiApplication::sendEvent(edit, &preeditEvent2);
+    QCOMPARE(edit->text(), QString("Hello world!"));
+    QCOMPARE(edit->preeditText(), QString("PREEDIT2"));
+
+    QInputMethodEvent preeditEvent3("", QList<QInputMethodEvent::Attribute>());
+    QGuiApplication::sendEvent(edit, &preeditEvent3);
+    QCOMPARE(edit->text(), QString("Hello world!"));
+    QCOMPARE(edit->preeditText(), QString(""));
 }
 
 void tst_qquicktextedit::inputMethodUpdate()
@@ -3218,7 +3339,7 @@ void tst_qquicktextedit::geometrySignals()
     delete o;
 }
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void tst_qquicktextedit::pastingRichText_QTBUG_14003()
 {
     QString componentStr = "import QtQuick 2.0\nTextEdit { textFormat: TextEdit.PlainText }";
@@ -3266,6 +3387,18 @@ void tst_qquicktextedit::implicitSize()
     textObject->resetWidth();
     QCOMPARE(textObject->width(), textObject->implicitWidth());
     QCOMPARE(textObject->height(), textObject->implicitHeight());
+}
+
+void tst_qquicktextedit::implicitSize_QTBUG_63153()
+{
+    QString componentStr = "import QtQuick 2.0\nTextEdit { }";
+    QQmlComponent textComponent(&engine);
+    textComponent.setData(componentStr.toLatin1(), QUrl::fromLocalFile(""));
+    QQuickTextEdit *textObject = qobject_cast<QQuickTextEdit*>(textComponent.create());
+    textObject->setText("short");
+    qreal shortImplicitWidth = textObject->implicitWidth();
+    textObject->setText("in contrast to short this is long");
+    QVERIFY2(shortImplicitWidth < textObject->implicitWidth(), qPrintable(QString("%1 < %2").arg(textObject->implicitWidth()).arg(shortImplicitWidth)));
 }
 
 void tst_qquicktextedit::contentSize()
@@ -4876,7 +5009,6 @@ void tst_qquicktextedit::undo_data()
             insertString << " unique instance.";
 
             expectedString << "Ensuring a unique instance.";
-            expectedString << "Ensuring a ";    // ### Not present in TextEdit.
             expectedString << "Ensuring an instan";
             expectedString << "Ensuring instan";
             expectedString << "";
@@ -5164,8 +5296,6 @@ void tst_qquicktextedit::undo_keypressevents_data()
              << "ABC";
 
         expectedString << "ABC";
-        // ### One operation in TextEdit.
-        expectedString << "A";
         expectedString << "123";
 
         QTest::newRow("Inserts,moving,selection and overwriting") << keys << expectedString;
@@ -5197,7 +5327,6 @@ void tst_qquicktextedit::undo_keypressevents_data()
         QStringList expectedString = QStringList()
                 << "ABC123"
                 << "ABC"
-                << "A"
                 << "123";
         QTest::newRow("Copy,paste") << keys << expectedString;
     }
@@ -5228,6 +5357,66 @@ void tst_qquicktextedit::undo_keypressevents()
         textEdit->undo();
     }
     QVERIFY(textEdit->text().isEmpty());
+}
+
+void tst_qquicktextedit::clear()
+{
+    QString componentStr = "import QtQuick 2.0\nTextEdit { focus: true }";
+    QQmlComponent textEditComponent(&engine);
+    textEditComponent.setData(componentStr.toLatin1(), QUrl());
+    QQuickTextEdit *textEdit = qobject_cast<QQuickTextEdit*>(textEditComponent.create());
+    QVERIFY(textEdit != 0);
+
+    QQuickWindow window;
+    textEdit->setParentItem(window.contentItem());
+    window.show();
+    window.requestActivate();
+    QTest::qWaitForWindowActive(&window);
+    QVERIFY(textEdit->hasActiveFocus());
+
+    QSignalSpy spy(textEdit, SIGNAL(canUndoChanged()));
+
+    textEdit->setText("I am Legend");
+    QCOMPARE(textEdit->text(), QString("I am Legend"));
+    textEdit->clear();
+    QVERIFY(textEdit->text().isEmpty());
+
+    QCOMPARE(spy.count(), 1);
+
+    // checks that clears can be undone
+    textEdit->undo();
+    QVERIFY(!textEdit->canUndo());
+    QCOMPARE(spy.count(), 2);
+    QCOMPARE(textEdit->text(), QString("I am Legend"));
+
+    textEdit->setCursorPosition(4);
+    QInputMethodEvent preeditEvent("PREEDIT", QList<QInputMethodEvent::Attribute>());
+    QGuiApplication::sendEvent(textEdit, &preeditEvent);
+    QCOMPARE(textEdit->text(), QString("I am Legend"));
+    QCOMPARE(textEdit->preeditText(), QString("PREEDIT"));
+
+    textEdit->clear();
+    QVERIFY(textEdit->text().isEmpty());
+
+    QCOMPARE(spy.count(), 3);
+
+    // checks that clears can be undone
+    textEdit->undo();
+    QVERIFY(!textEdit->canUndo());
+    QCOMPARE(spy.count(), 4);
+    QCOMPARE(textEdit->text(), QString("I am Legend"));
+
+    textEdit->setText(QString("<i>I am Legend</i>"));
+    QCOMPARE(textEdit->text(), QString("<i>I am Legend</i>"));
+    textEdit->clear();
+    QVERIFY(textEdit->text().isEmpty());
+
+    QCOMPARE(spy.count(), 5);
+
+    // checks that clears can be undone
+    textEdit->undo();
+    QCOMPARE(spy.count(), 6);
+    QCOMPARE(textEdit->text(), QString("<i>I am Legend</i>"));
 }
 
 void tst_qquicktextedit::baseUrl()
@@ -5465,6 +5654,17 @@ void tst_qquicktextedit::padding()
     QCOMPARE(obj->bottomPadding(), 0.0);
 
     delete root;
+}
+
+void tst_qquicktextedit::QTBUG_51115_readOnlyResetsSelection()
+{
+    QQuickView view;
+    view.setSource(testFileUrl("qtbug51115.qml"));
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    QQuickTextEdit *obj = qobject_cast<QQuickTextEdit*>(view.rootObject());
+
+    QCOMPARE(obj->selectedText(), QString());
 }
 
 QTEST_MAIN(tst_qquicktextedit)

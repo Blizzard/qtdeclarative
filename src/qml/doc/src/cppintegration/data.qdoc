@@ -52,8 +52,8 @@ remain with C++ by invoking QQmlEngine::setObjectOwnership() with
 QQmlEngine::CppOwnership specified.
 
 Additionally, the QML engine respects the normal QObject parent ownership
-semantics of Qt C++ objects, and will not ever take ownership of a QObject
-instance which already has a parent.
+semantics of Qt C++ objects, and will never delete a QObject instance which
+has a parent.
 
 
 \section1 Basic Qt Data Types
@@ -112,7 +112,7 @@ when passed from C++ to QML and vice-versa:
         \li QVector2D, QVector3D, QVector4D
         \li \l vector2d, \l vector3d, \l vector4d
     \row
-        \li Enums declared with Q_ENUMS()
+        \li Enums declared with Q_ENUM() or Q_ENUMS()
         \li \l enumeration
 \endtable
 
@@ -167,9 +167,9 @@ additional features. See the \l {qtqml-javascript-hostenvironment.html}
 The QML engine provides automatic type conversion between QVariantList and
 JavaScript arrays, and between QVariantMap and JavaScript objects.
 
-For example, the function defined in QML below left expects two arguments, an
+For example, the function defined in QML below expects two arguments, an
 array and an object, and prints their contents using the standard JavaScript
-syntax for array and object item access. The C++ code below right calls this
+syntax for array and object item access. The C++ code below calls this
 function, passing a QVariantList and a QVariantMap, which are automatically
 converted to JavaScript array and object values, repectively:
 
@@ -204,9 +204,9 @@ when it is passed to C++.
 The QML engine provides automatic type conversion between QDateTime values and
 JavaScript \c Date objects.
 
-For example, the function defined in QML below left expects a JavaScript
+For example, the function defined in QML below expects a JavaScript
 \c Date object, and also returns a new \c Date object with the current date and
-time. The C++ code below right calls this function, passing a QDateTime value
+time. The C++ code below calls this function, passing a QDateTime value
 that is automatically converted by the engine into a \c Date object when it is
 passed to the \c readDate() function. In turn, the readDate() function returns
 a \c Date object that is automatically converted into a QDateTime value when it
@@ -215,7 +215,7 @@ is received in C++:
 \table
 \header
 \row
-
+\li QML
 \li
 \qml
 // MyItem.qml
@@ -227,6 +227,7 @@ Item {
 }
 \endqml
 \row
+\li C++
 \li
 \code
 // C++
@@ -249,6 +250,18 @@ parameter, the value can be created as a JavaScript \c Date object in QML, and
 is automatically converted to a QDateTime value when it is passed to C++.
 
 
+\section2 QTime to JavaScript Date
+
+The QML engine provides automatic type conversion from QTime values to
+JavaScript \c Date objects. The date component of the resulting Date
+object should not be relied upon, as it is operating system dependent.
+Specifically, the year (and month and day) are set to zero. Conversion
+from a JavaScript \c Date object to QTime is done by converting to a
+QDateTime, and then relying on QVariant to convert it to a QTime. The end
+effect is that the date part of the \c Date object is ignored, but the
+local timezone will be used ignoring any DST complications it may have.
+
+
 \section2 Sequence Type to JavaScript Array
 
 Certain C++ sequence types are supported transparently in QML as JavaScript
@@ -261,6 +274,9 @@ In particular, QML currently supports:
   \li \c {QList<bool>}
   \li \c {QList<QString>} and \c{QStringList}
   \li \c {QList<QUrl>}
+  \li \c {QVector<int>}
+  \li \c {QVector<qreal>}
+  \li \c {QVector<bool>}
 \endlist
 
 These sequence types are implemented directly in terms of the underlying C++
@@ -303,6 +319,9 @@ The default-constructed values for each sequence type are as follows:
 \row \li QList<bool> \li boolean value \c {false}
 \row \li QList<QString> and QStringList \li empty QString
 \row \li QList<QUrl> \li empty QUrl
+\row \li QVector<int> \li integer value 0
+\row \li QVector<qreal> \li real value 0.0
+\row \li QVector<bool> \li boolean value \c {false}
 \endtable
 
 If you wish to remove elements from a sequence rather than simply replace
@@ -310,7 +329,7 @@ them with default constructed values, do not use the indexed delete operator
 ("delete sequence[i]") but instead use the \c {splice} function
 ("sequence.splice(startIndex, deleteCount)").
 
-\section2 Value types
+\section2 Value Types
 
 Some value types in Qt such as QPoint are represented in JavaScript as objects
 that have the same properties and functions like in the C++ API. The same
@@ -333,7 +352,7 @@ properties:
 
  private:
      QString m_name;
- }
+ };
 
  Q_DECLARE_METATYPE(Actor)
 \endcode
@@ -341,7 +360,7 @@ properties:
 \section1 Enumeration Types
 
 To use a custom enumeration as a data type, its class must be registered and
-the enumeration must also be declared with Q_ENUMS() to register it with Qt's
+the enumeration must also be declared with Q_ENUM() to register it with Qt's
 meta object system. For example, the \c Message class below has a \c Status
 enum:
 
@@ -349,7 +368,6 @@ enum:
  class Message : public QObject
  {
      Q_OBJECT
-     Q_ENUMS(Status)
      Q_PROPERTY(Status status READ status NOTIFY statusChanged)
  public:
      enum Status {
@@ -357,6 +375,7 @@ enum:
          Loading,
          Error
      };
+     Q_ENUM(Status)
      Status status() const;
  signals:
      void statusChanged();

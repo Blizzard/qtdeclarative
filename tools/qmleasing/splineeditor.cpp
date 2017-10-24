@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -39,6 +34,7 @@
 #include <QContextMenuEvent>
 #include <QDebug>
 #include <QApplication>
+#include <QVector>
 
 const int canvasWidth = 640;
 const int canvasHeight = 320;
@@ -228,6 +224,7 @@ void SplineEditor::mouseReleaseEvent(QMouseEvent *e)
     }
 }
 
+#if QT_CONFIG(contextmenu)
 void SplineEditor::contextMenuEvent(QContextMenuEvent *e)
 {
     int index = findControlPoint(e->pos());
@@ -247,6 +244,7 @@ void SplineEditor::contextMenuEvent(QContextMenuEvent *e)
             addPoint(e->pos());
     }
 }
+#endif // contextmenu
 
 void SplineEditor::invalidate()
 {
@@ -290,7 +288,7 @@ QHash<QString, QEasingCurve> SplineEditor::presets() const
 QString SplineEditor::generateCode()
 {
     QString s = QLatin1String("[");
-    foreach (const QPointF &point, m_controlPoints) {
+    for (const QPointF &point : qAsConst(m_controlPoints)) {
         s += QString::number(point.x(), 'g', 2) + QLatin1Char(',')
              + QString::number(point.y(), 'g', 3) + QLatin1Char(',');
     }
@@ -622,7 +620,7 @@ void SplineEditor::mouseMoveEvent(QMouseEvent *e)
         if (indexIsRealPoint(m_activeControlPoint)) {
             //move also the tangents
             QPointF targetPoint = p;
-            QPointF distance = targetPoint - m_controlPoints[m_activeControlPoint];
+            QPointF distance = targetPoint - m_controlPoints.at(m_activeControlPoint);
             m_controlPoints[m_activeControlPoint] = targetPoint;
             m_controlPoints[m_activeControlPoint - 1] += distance;
             m_controlPoints[m_activeControlPoint + 1] += distance;
@@ -631,7 +629,7 @@ void SplineEditor::mouseMoveEvent(QMouseEvent *e)
                 m_controlPoints[m_activeControlPoint] = p;
             } else {
                 QPointF targetPoint = p;
-                QPointF distance = targetPoint - m_controlPoints[m_activeControlPoint];
+                QPointF distance = targetPoint - m_controlPoints.at(m_activeControlPoint);
                 m_controlPoints[m_activeControlPoint] = p;
 
                 if ((m_activeControlPoint > 1) && (m_activeControlPoint % 3) == 0) { //right control point
@@ -675,25 +673,23 @@ void SplineEditor::setEasingCurve(const QString &code)
     if (m_block)
         return;
     if (code.startsWith(QLatin1Char('[')) && code.endsWith(QLatin1Char(']'))) {
-        QString cleanCode = code;
-        cleanCode.remove(0, 1);
-        cleanCode.chop(1);
-        const QStringList stringList = cleanCode.split(QLatin1Char(','), QString::SkipEmptyParts);
+        const QStringRef cleanCode(&code, 1, code.size() - 2);
+        const auto stringList = cleanCode.split(QLatin1Char(','), QString::SkipEmptyParts);
         if (stringList.count() >= 6 && (stringList.count() % 6 == 0)) {
-            QList<qreal> realList;
+            QVector<qreal> realList;
             realList.reserve(stringList.count());
-            foreach (const QString &string, stringList) {
+            for (const QStringRef &string : stringList) {
                 bool ok;
                 realList.append(string.toDouble(&ok));
                 if (!ok)
                     return;
             }
-            QList<QPointF> points;
+            QVector<QPointF> points;
             const int count = realList.count() / 2;
             points.reserve(count);
             for (int i = 0; i < count; ++i)
                 points.append(QPointF(realList.at(i * 2), realList.at(i * 2 + 1)));
-            if (points.last() == QPointF(1.0, 1.0)) {
+            if (points.constLast() == QPointF(1.0, 1.0)) {
                 QEasingCurve easingCurve(QEasingCurve::BezierSpline);
 
                 for (int i = 0; i < points.count() / 3; ++i) {
@@ -708,3 +704,5 @@ void SplineEditor::setEasingCurve(const QString &code)
         }
     }
 }
+
+#include "moc_splineeditor.cpp"

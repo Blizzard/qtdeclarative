@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -44,6 +50,10 @@
 //
 // We mean it.
 //
+
+#include <QtQuick/private/qtquickglobal_p.h>
+
+QT_REQUIRE_CONFIG(quick_itemview);
 
 #include "qquickitemview_p.h"
 #include "qquickitemviewtransition_p.h"
@@ -191,16 +201,16 @@ public:
 
     void regenerate(bool orientationChanged=false);
     void layout();
-    virtual void animationFinished(QAbstractAnimationJob *) Q_DECL_OVERRIDE;
+    virtual void animationFinished(QAbstractAnimationJob *) override;
     void refill();
     void refill(qreal from, qreal to);
-    void mirrorChange() Q_DECL_OVERRIDE;
+    void mirrorChange() override;
 
     FxViewItem *createItem(int modelIndex, bool asynchronous = false);
     virtual bool releaseItem(FxViewItem *item);
 
-    QQuickItem *createHighlightItem();
-    QQuickItem *createComponentItem(QQmlComponent *component, qreal zValue, bool createDefault = false);
+    QQuickItem *createHighlightItem() const;
+    QQuickItem *createComponentItem(QQmlComponent *component, qreal zValue, bool createDefault = false) const;
 
     void updateCurrent(int modelIndex);
     void updateTrackedItem();
@@ -226,7 +236,7 @@ public:
     void prepareVisibleItemTransitions();
     void prepareRemoveTransitions(QHash<QQmlChangeSet::MoveKey, FxViewItem *> *removedItems);
     bool prepareNonVisibleItemTransition(FxViewItem *item, const QRectF &viewBounds);
-    void viewItemTransitionFinished(QQuickItemViewTransitionableItem *item) Q_DECL_OVERRIDE;
+    void viewItemTransitionFinished(QQuickItemViewTransitionableItem *item) override;
 
     int findMoveKeyIndex(QQmlChangeSet::MoveKey key, const QVector<QQmlChangeSet::Change> &changes) const;
 
@@ -257,6 +267,15 @@ public:
         Q_Q(QQuickItemView);
         forceLayout = true;
         q->polish();
+    }
+
+    void releaseVisibleItems() {
+        // make a copy and clear the visibleItems first to avoid destroyed
+        // items being accessed during the loop (QTBUG-61294)
+        const QList<FxViewItem *> oldVisible = visibleItems;
+        visibleItems.clear();
+        for (FxViewItem *item : oldVisible)
+            releaseItem(item);
     }
 
     QPointer<QQmlInstanceModel> model;
@@ -308,6 +327,8 @@ public:
 
     bool ownModel : 1;
     bool wrap : 1;
+    bool keyNavigationEnabled : 1;
+    bool explicitKeyNavigationEnabled : 1;
     bool inLayout : 1;
     bool inViewportMoved : 1;
     bool forceLayout : 1;
@@ -336,12 +357,13 @@ protected:
     virtual bool showFooterForIndex(int index) const = 0;
     virtual void updateHeader() = 0;
     virtual void updateFooter() = 0;
-    virtual bool hasStickyHeader() const { return false; };
-    virtual bool hasStickyFooter() const { return false; };
+    virtual bool hasStickyHeader() const { return false; }
+    virtual bool hasStickyFooter() const { return false; }
 
     virtual void createHighlight() = 0;
     virtual void updateHighlight() = 0;
     virtual void resetHighlightPosition() = 0;
+    virtual bool movingFromHighlight() { return false; }
 
     virtual void setPosition(qreal pos) = 0;
     virtual void fixupPosition() = 0;
@@ -370,7 +392,7 @@ protected:
     virtual void updateSectionCriteria() {}
     virtual void updateSections() {}
 
-    void itemGeometryChanged(QQuickItem *item, const QRectF &newGeometry, const QRectF &oldGeometry) Q_DECL_OVERRIDE;
+    void itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &) override;
 };
 
 

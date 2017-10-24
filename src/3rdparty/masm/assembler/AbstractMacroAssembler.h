@@ -47,7 +47,10 @@
 namespace JSC {
 
 class JumpReplacementWatchpoint;
-class LinkBuffer;
+template <typename, template <typename> class>
+class LinkBufferBase;
+template <typename>
+class BranchCompactingLinkBuffer;
 class RepatchBuffer;
 class Watchpoint;
 namespace DFG {
@@ -63,9 +66,12 @@ public:
     typedef MacroAssemblerCodePtr CodePtr;
     typedef MacroAssemblerCodeRef CodeRef;
 
+#if !CPU(ARM_THUMB2) && !CPU(ARM64) && !defined(V4_BOOTSTRAP)
     class Jump;
+#endif
 
     typedef typename AssemblerType::RegisterID RegisterID;
+    typedef typename AssemblerType::FPRegisterID FPRegisterID;
 
     // Section 1: MacroAssembler operand types
     //
@@ -275,7 +281,7 @@ public:
         {
         }
 
-#if CPU(X86_64)
+#if CPU(X86_64) || CPU(ARM64)
         explicit TrustedImm64(TrustedImmPtr ptr)
             : m_value(ptr.asIntptr())
         {
@@ -296,7 +302,7 @@ public:
             : TrustedImm64(value)
         {
         }
-#if CPU(X86_64)
+#if CPU(X86_64) || CPU(ARM64)
         explicit Imm64(TrustedImmPtr ptr)
             : TrustedImm64(ptr)
         {
@@ -324,7 +330,7 @@ public:
         friend class Jump;
         friend class JumpReplacementWatchpoint;
         friend class MacroAssemblerCodeRef;
-        friend class LinkBuffer;
+        template <typename, template <typename> class> friend class LinkBufferBase;
         friend class Watchpoint;
 
     public:
@@ -338,6 +344,8 @@ public:
         }
         
         bool isSet() const { return m_label.isSet(); }
+
+        const AssemblerLabel &label() const { return m_label; }
     private:
         AssemblerLabel m_label;
     };
@@ -355,7 +363,7 @@ public:
     class ConvertibleLoadLabel {
         template<class TemplateAssemblerType>
         friend class AbstractMacroAssembler;
-        friend class LinkBuffer;
+        template <typename, template <typename> class> friend class LinkBufferBase;
         
     public:
         ConvertibleLoadLabel()
@@ -379,7 +387,7 @@ public:
     class DataLabelPtr {
         template<class TemplateAssemblerType>
         friend class AbstractMacroAssembler;
-        friend class LinkBuffer;
+        template <typename, template <typename> class> friend class LinkBufferBase;
     public:
         DataLabelPtr()
         {
@@ -403,7 +411,7 @@ public:
     class DataLabel32 {
         template<class TemplateAssemblerType>
         friend class AbstractMacroAssembler;
-        friend class LinkBuffer;
+        template <typename, template <typename> class> friend class LinkBufferBase;
     public:
         DataLabel32()
         {
@@ -427,7 +435,7 @@ public:
     class DataLabelCompact {
         template<class TemplateAssemblerType>
         friend class AbstractMacroAssembler;
-        friend class LinkBuffer;
+        template <typename, template <typename> class> friend class LinkBufferBase;
     public:
         DataLabelCompact()
         {
@@ -446,6 +454,11 @@ public:
     private:
         AssemblerLabel m_label;
     };
+
+#if CPU(ARM_THUMB2) || CPU(ARM64) || defined(V4_BOOTSTRAP)
+    using Jump = typename AssemblerType::template Jump<Label>;
+    friend Jump;
+#endif
 
     // Call:
     //
@@ -497,24 +510,52 @@ public:
     // into the code buffer - it is typically used to link the jump, setting the
     // relative offset such that when executed it will jump to the desired
     // destination.
+#if !CPU(ARM_THUMB2) && !CPU(ARM64) && !defined(V4_BOOTSTRAP)
     class Jump {
         template<class TemplateAssemblerType>
         friend class AbstractMacroAssembler;
         friend class Call;
         friend struct DFG::OSRExit;
-        friend class LinkBuffer;
+        template <typename, template <typename> class> friend class LinkBufferBase;
     public:
         Jump()
         {
         }
         
-#if CPU(ARM_THUMB2)
+#if CPU(ARM_THUMB2) || defined(V4_BOOTSTRAP)
         // Fixme: this information should be stored in the instruction stream, not in the Jump object.
         Jump(AssemblerLabel jmp, ARMv7Assembler::JumpType type = ARMv7Assembler::JumpNoCondition, ARMv7Assembler::Condition condition = ARMv7Assembler::ConditionInvalid)
             : m_label(jmp)
             , m_type(type)
             , m_condition(condition)
         {
+        }
+#elif CPU(ARM64)
+        Jump(AssemblerLabel jmp, ARM64Assembler::JumpType type = ARM64Assembler::JumpNoCondition, ARM64Assembler::Condition condition = ARM64Assembler::ConditionInvalid)
+            : m_label(jmp)
+            , m_type(type)
+            , m_condition(condition)
+        {
+        }
+
+        Jump(AssemblerLabel jmp, ARM64Assembler::JumpType type, ARM64Assembler::Condition condition, bool is64Bit, ARM64Assembler::RegisterID compareRegister)
+            : m_label(jmp)
+            , m_type(type)
+            , m_condition(condition)
+            , m_is64Bit(is64Bit)
+            , m_compareRegister(compareRegister)
+        {
+            ASSERT((type == ARM64Assembler::JumpCompareAndBranch) || (type == ARM64Assembler::JumpCompareAndBranchFixedSize));
+        }
+
+        Jump(AssemblerLabel jmp, ARM64Assembler::JumpType type, ARM64Assembler::Condition condition, unsigned bitNumber, ARM64Assembler::RegisterID compareRegister)
+            : m_label(jmp)
+            , m_type(type)
+            , m_condition(condition)
+            , m_bitNumber(bitNumber)
+            , m_compareRegister(compareRegister)
+        {
+            ASSERT((type == ARM64Assembler::JumpTestBit) || (type == ARM64Assembler::JumpTestBitFixedSize));
         }
 #elif CPU(SH4)
         Jump(AssemblerLabel jmp, SH4Assembler::JumpType type = SH4Assembler::JumpFar)
@@ -544,6 +585,13 @@ public:
 
 #if CPU(ARM_THUMB2)
             masm->m_assembler.linkJump(m_label, masm->m_assembler.label(), m_type, m_condition);
+#elif CPU(ARM64)
+            if ((m_type == ARM64Assembler::JumpCompareAndBranch) || (m_type == ARM64Assembler::JumpCompareAndBranchFixedSize))
+                masm->m_assembler.linkJump(m_label, masm->m_assembler.label(), m_type, m_condition, m_is64Bit, m_compareRegister);
+            else if ((m_type == ARM64Assembler::JumpTestBit) || (m_type == ARM64Assembler::JumpTestBitFixedSize))
+                masm->m_assembler.linkJump(m_label, masm->m_assembler.label(), m_type, m_condition, m_bitNumber, m_compareRegister);
+            else
+                masm->m_assembler.linkJump(m_label, masm->m_assembler.label(), m_type, m_condition);
 #elif CPU(SH4)
             masm->m_assembler.linkJump(m_label, masm->m_assembler.label(), m_type);
 #else
@@ -559,6 +607,13 @@ public:
 
 #if CPU(ARM_THUMB2)
             masm->m_assembler.linkJump(m_label, label.m_label, m_type, m_condition);
+#elif CPU(ARM64)
+            if ((m_type == ARM64Assembler::JumpCompareAndBranch) || (m_type == ARM64Assembler::JumpCompareAndBranchFixedSize))
+                masm->m_assembler.linkJump(m_label, label.m_label, m_type, m_condition, m_is64Bit, m_compareRegister);
+            else if ((m_type == ARM64Assembler::JumpTestBit) || (m_type == ARM64Assembler::JumpTestBitFixedSize))
+                masm->m_assembler.linkJump(m_label, label.m_label, m_type, m_condition, m_bitNumber, m_compareRegister);
+            else
+                masm->m_assembler.linkJump(m_label, label.m_label, m_type, m_condition);
 #else
             masm->m_assembler.linkJump(m_label, label.m_label);
 #endif
@@ -568,14 +623,22 @@ public:
 
     private:
         AssemblerLabel m_label;
-#if CPU(ARM_THUMB2)
+#if CPU(ARM_THUMB2) || defined(V4_BOOTSTRAP)
         ARMv7Assembler::JumpType m_type;
         ARMv7Assembler::Condition m_condition;
+#endif
+#if CPU(ARM64)
+        ARM64Assembler::JumpType m_type;
+        ARM64Assembler::Condition m_condition;
+        bool m_is64Bit;
+        unsigned m_bitNumber;
+        ARM64Assembler::RegisterID m_compareRegister;
 #endif
 #if CPU(SH4)
         SH4Assembler::JumpType m_type;
 #endif
     };
+#endif
 
     struct PatchableJump {
         PatchableJump()
@@ -597,7 +660,7 @@ public:
     // A JumpList is a set of Jump objects.
     // All jumps in the set will be linked to the same destination.
     class JumpList {
-        friend class LinkBuffer;
+        template <typename, template <typename> class> friend class LinkBufferBase;
 
     public:
         typedef Vector<Jump, 2> JumpVector;
@@ -771,7 +834,8 @@ protected:
     static bool shouldBlindForSpecificArch(uint64_t) { return true; }
 #endif
 
-    friend class LinkBuffer;
+    template <typename, template <typename> class> friend class LinkBufferBase;
+    template <typename> friend class BranchCompactingLinkBuffer;
     friend class RepatchBuffer;
 
     static void linkJump(void* code, Jump jump, CodeLocationLabel target)
@@ -819,10 +883,12 @@ protected:
         AssemblerType::repatchPointer(dataLabelPtr.dataLocation(), value);
     }
     
+#if !defined(V4_BOOTSTRAP)
     static void* readPointer(CodeLocationDataLabelPtr dataLabelPtr)
     {
         return AssemblerType::readPointer(dataLabelPtr.dataLocation());
     }
+#endif
     
     static void replaceWithLoad(CodeLocationConvertibleLoad label)
     {

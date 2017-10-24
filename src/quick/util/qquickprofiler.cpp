@@ -1,39 +1,48 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
 
 #include "qquickprofiler_p.h"
-#include <QCoreApplication>
-#include <private/qqmldebugserviceinterfaces_p.h>
+
+#include <QtQml/private/qqmlabstractprofileradapter_p.h>
+
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qthread.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -41,93 +50,10 @@ QT_BEGIN_NAMESPACE
 QQuickProfiler *QQuickProfiler::s_instance = 0;
 quint64 QQuickProfiler::featuresEnabled = 0;
 
-// convert to QByteArrays that can be sent to the debug client
-// use of QDataStream can skew results
-//     (see tst_qqmldebugtrace::trace() benchmark)
-void QQuickProfilerData::toByteArrays(QList<QByteArray> &messages) const
-{
-    QByteArray data;
-    Q_ASSERT_X(((messageType | detailType) & (1 << 31)) == 0, Q_FUNC_INFO, "You can use at most 31 message types and 31 detail types.");
-    for (uint decodedMessageType = 0; (messageType >> decodedMessageType) != 0; ++decodedMessageType) {
-        if ((messageType & (1 << decodedMessageType)) == 0)
-            continue;
-
-        for (uint decodedDetailType = 0; (detailType >> decodedDetailType) != 0; ++decodedDetailType) {
-            if ((detailType & (1 << decodedDetailType)) == 0)
-                continue;
-
-            //### using QDataStream is relatively expensive
-            QQmlDebugStream ds(&data, QIODevice::WriteOnly);
-            ds << time << decodedMessageType << decodedDetailType;
-
-            switch (decodedMessageType) {
-            case QQuickProfiler::Event:
-                if (decodedDetailType == (int)QQuickProfiler::AnimationFrame)
-                    ds << framerate << count << threadId;
-                break;
-            case QQuickProfiler::PixmapCacheEvent:
-                ds << detailUrl.toString();
-                switch (decodedDetailType) {
-                    case QQuickProfiler::PixmapSizeKnown: ds << x << y; break;
-                    case QQuickProfiler::PixmapReferenceCountChanged: ds << count; break;
-                    case QQuickProfiler::PixmapCacheCountChanged: ds << count; break;
-                    default: break;
-                }
-                break;
-            case QQuickProfiler::SceneGraphFrame:
-                switch (decodedDetailType) {
-                    // RendererFrame: preprocessTime, updateTime, bindingTime, renderTime
-                    case QQuickProfiler::SceneGraphRendererFrame: ds << subtime_1 << subtime_2 << subtime_3 << subtime_4; break;
-                    // AdaptationLayerFrame: glyphCount (which is an integer), glyphRenderTime, glyphStoreTime
-                    case QQuickProfiler::SceneGraphAdaptationLayerFrame: ds << subtime_3 << subtime_1 << subtime_2; break;
-                    // ContextFrame: compiling material time
-                    case QQuickProfiler::SceneGraphContextFrame: ds << subtime_1; break;
-                    // RenderLoop: syncTime, renderTime, swapTime
-                    case QQuickProfiler::SceneGraphRenderLoopFrame: ds << subtime_1 << subtime_2 << subtime_3; break;
-                    // TexturePrepare: bind, convert, swizzle, upload, mipmap
-                    case QQuickProfiler::SceneGraphTexturePrepare: ds << subtime_1 << subtime_2 << subtime_3 << subtime_4 << subtime_5; break;
-                    // TextureDeletion: deletionTime
-                    case QQuickProfiler::SceneGraphTextureDeletion: ds << subtime_1; break;
-                    // PolishAndSync: polishTime, waitTime, syncTime, animationsTime,
-                    case QQuickProfiler::SceneGraphPolishAndSync: ds << subtime_1 << subtime_2 << subtime_3 << subtime_4; break;
-                    // WindowsRenderLoop: GL time, make current time, SceneGraph time
-                    case QQuickProfiler::SceneGraphWindowsRenderShow: ds << subtime_1 << subtime_2 << subtime_3; break;
-                    // WindowsAnimations: update time
-                    case QQuickProfiler::SceneGraphWindowsAnimations: ds << subtime_1; break;
-                    // non-threaded rendering: polish time
-                    case QQuickProfiler::SceneGraphPolishFrame: ds << subtime_1; break;
-                    default:break;
-                }
-                break;
-            default:
-                Q_ASSERT_X(false, Q_FUNC_INFO, "Invalid message type.");
-                break;
-            }
-            messages << data;
-            data.clear();
-        }
-    }
-}
-
-qint64 QQuickProfiler::sendMessages(qint64 until, QList<QByteArray> &messages)
-{
-    QMutexLocker lock(&m_dataMutex);
-    while (next < m_data.size()) {
-        if (m_data[next].time <= until)
-            m_data[next++].toByteArrays(messages);
-        else
-            return m_data[next].time;
-    }
-    m_data.clear();
-    next = 0;
-    return -1;
-}
-
-void QQuickProfiler::initialize(QQmlProfilerService *service)
+void QQuickProfiler::initialize(QObject *parent)
 {
     Q_ASSERT(s_instance == 0);
-    s_instance = new QQuickProfiler(service);
-    service->addGlobalProfiler(s_instance);
+    s_instance = new QQuickProfiler(parent);
 }
 
 void animationTimerCallback(qint64 delta)
@@ -144,7 +70,7 @@ void QQuickProfiler::registerAnimationCallback()
 
 class CallbackRegistrationHelper : public QObject {
     Q_OBJECT
-public slots:
+public:
     void registerAnimationTimerCallback()
     {
         QQuickProfiler::registerAnimationCallback();
@@ -153,30 +79,20 @@ public slots:
 };
 
 #include "qquickprofiler.moc"
+#include "moc_qquickprofiler_p.cpp"
 
-QQuickProfiler::QQuickProfiler(QQmlProfilerService *service) :
-    QQmlAbstractProfilerAdapter(service), next(0)
+QQuickProfiler::QQuickProfiler(QObject *parent) : QObject(parent)
 {
     // This is safe because at this point the m_instance isn't initialized, yet.
     m_timer.start();
-
-    // We can always do DirectConnection here as all methods are protected by mutexes
-    connect(this, SIGNAL(profilingEnabled(quint64)), this, SLOT(startProfilingImpl(quint64)),
-            Qt::DirectConnection);
-    connect(this, SIGNAL(profilingEnabledWhileWaiting(quint64)),
-            this, SLOT(startProfilingImpl(quint64)), Qt::DirectConnection);
-    connect(this, SIGNAL(referenceTimeKnown(QElapsedTimer)), this, SLOT(setTimer(QElapsedTimer)),
-            Qt::DirectConnection);
-    connect(this, SIGNAL(profilingDisabled()), this, SLOT(stopProfilingImpl()),
-            Qt::DirectConnection);
-    connect(this, SIGNAL(profilingDisabledWhileWaiting()), this, SLOT(stopProfilingImpl()),
-            Qt::DirectConnection);
-    connect(this, SIGNAL(dataRequested()), this, SLOT(reportDataImpl()),
-            Qt::DirectConnection);
-
     CallbackRegistrationHelper *helper = new CallbackRegistrationHelper; // will delete itself
     helper->moveToThread(QCoreApplication::instance()->thread());
-    QMetaObject::invokeMethod(helper, "registerAnimationTimerCallback", Qt::QueuedConnection);
+
+    // Queue the signal to have the animation timer registration run in the right thread;
+    QObject signalSource;
+    connect(&signalSource, &QObject::destroyed,
+            helper, &CallbackRegistrationHelper::registerAnimationTimerCallback,
+            Qt::QueuedConnection);
 }
 
 QQuickProfiler::~QQuickProfiler()
@@ -189,23 +105,23 @@ QQuickProfiler::~QQuickProfiler()
 void QQuickProfiler::startProfilingImpl(quint64 features)
 {
     QMutexLocker lock(&m_dataMutex);
-    next = 0;
-    m_data.clear();
     featuresEnabled = features;
 }
 
 void QQuickProfiler::stopProfilingImpl()
 {
-    {
-        QMutexLocker lock(&m_dataMutex);
-        featuresEnabled = 0;
-    }
-    service->dataReady(this);
+    QMutexLocker lock(&m_dataMutex);
+    featuresEnabled = 0;
+    emit dataReady(m_data);
+    m_data.clear();
 }
 
-void QQuickProfiler::reportDataImpl()
+void QQuickProfiler::reportDataImpl(bool trackLocations)
 {
-    service->dataReady(this);
+    Q_UNUSED(trackLocations);
+    QMutexLocker lock(&m_dataMutex);
+    emit dataReady(m_data);
+    m_data.clear();
 }
 
 void QQuickProfiler::setTimer(const QElapsedTimer &t)

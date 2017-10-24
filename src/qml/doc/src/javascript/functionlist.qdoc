@@ -143,6 +143,8 @@
     \li toLocaleString()
     \li concat([item1 [, item2 [, ...]]])
     \li join(separator)
+    \li find(callbackfn [, thisArg]) // ECMAScript 6: Added in Qt 5.9
+    \li findIndex(callbackfn [, thisArg]) // ECMAScript 6: Added in Qt 5.9
     \li pop()
     \li push([item1 [, item2 [, ...]]])
     \li reverse()
@@ -174,6 +176,8 @@
     \li charAt(pos)
     \li charCodeAt(pos)
     \li concat([string1 [, string2 [, ...]]])
+    \li endsWith(searchString [, endPosition ]) // ECMAScript 6: Added in Qt 5.8
+    \li includes(searchString [, position ]) // ECMAScript 6: Added in 5.8
     \li indexOf(searchString ,position)
     \li lastIndexOf(searchString, position)
     \li localeCompare(that)
@@ -182,6 +186,7 @@
     \li search(regexp)
     \li slice(start, end)
     \li split(separator, limit)
+    \li startsWith(searchString [, position ]) // ECMAScript 6: Added in Qt 5.8
     \li substring(start, end)
     \li toLowerCase()
     \li toLocaleLowerCase()
@@ -228,6 +233,26 @@
     \li \l {Number::toLocaleString}{toLocaleString(locale, format, precision)}
     \endlist
 
+    \section2 The Number Object
+
+    \section3 Value Properties
+
+    \list
+    \li NaN
+    \li NEGATIVE_INFINITY
+    \li POSITIVE_INFINITY
+    \li MAX_VALUE
+    \li MIN_VALUE
+    \li EPSILON // ECMAScript 6: Added in Qt 5.8
+    \endlist
+
+    \section3 Function Properties
+
+    \list
+    \li isFinite(x) // ECMAScript 6: Added in Qt 5.8
+    \li isNaN(x) // ECMAScript 6: Added in Qt 5.8
+    \endlist
+
     \section1 The Math Object
 
     \section2 Value Properties
@@ -261,6 +286,7 @@
     \li pow(x, y)
     \li random()
     \li round(x)
+    \li sign(x) // ECMAScript 6: Added in Qt 5.8
     \li sin(x)
     \li sqrt(x)
     \li tan(x)

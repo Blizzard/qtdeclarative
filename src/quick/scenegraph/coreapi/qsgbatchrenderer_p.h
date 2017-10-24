@@ -1,31 +1,39 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2016 Jolla Ltd, author: <gunnar.sletta@jollamobile.com>
+** Copyright (C) 2016 Robin Burchell <robin.burchell@viroteck.net>
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -46,12 +54,14 @@
 //
 
 #include <private/qsgrenderer_p.h>
+#include <private/qsgdefaultrendercontext_p.h>
 #include <private/qsgnodeupdater_p.h>
+#include <private/qsgrendernode_p.h>
 #include <private/qdatabuffer_p.h>
 
-#include <private/qsgrendernode_p.h>
-
 #include <QtCore/QBitArray>
+
+#include <QtGui/QOpenGLFunctions>
 
 QT_BEGIN_NAMESPACE
 
@@ -93,7 +103,11 @@ public:
         : available(PageSize)
         , allocated(PageSize)
     {
-        for (int i=0; i<PageSize; ++i) blocks[i] = i;
+        for (int i=0; i<PageSize; ++i)
+            blocks[i] = i;
+
+        // Zero out all new pages.
+        memset(data, 0, sizeof(data));
     }
 
     const Type *at(uint index) const
@@ -145,7 +159,7 @@ public:
         void *mem = p->at(pos);
         p->available--;
         p->allocated.setBit(pos);
-        Type *t = new (mem) Type();
+        Type *t = (Type*)mem;
         return t;
     }
 
@@ -155,8 +169,9 @@ public:
         if (!page->allocated.testBit(index))
             qFatal("Double delete in allocator: page=%d, index=%d", pageIndex , index);
 
-        // Call the destructor
-        page->at(index)->~Type();
+        // Zero this instance as we're done with it.
+        void *mem = page->at(index);
+        memset(mem, 0, sizeof(Type));
 
         page->allocated[index] = false;
         page->available++;
@@ -425,29 +440,82 @@ struct Batch
     mutable uint uploadedThisFrame : 1; // solely for debugging purposes
 
     Buffer vbo;
-#ifdef QSG_SEPARATE_INDEX_BUFFER
     Buffer ibo;
-#endif
 
     QDataBuffer<DrawSet> drawSets;
 };
 
+// NOTE: Node is zero-allocated by the Allocator.
 struct Node
 {
-    Node()
-        : sgNode(0)
-        , parent(0)
-        , data(0)
-        , dirtyState(0)
-        , isOpaque(false)
-        , isBatchRoot(false)
-    {
+    QSGNode *sgNode;
+    void *data;
+
+    Node *m_parent;
+    Node *m_child;
+    Node *m_next;
+    Node *m_prev;
+
+    Node *parent() const { return m_parent; }
+
+    void append(Node *child) {
+        Q_ASSERT(child);
+        Q_ASSERT(!hasChild(child));
+        Q_ASSERT(child->m_parent == 0);
+        Q_ASSERT(child->m_next == 0);
+        Q_ASSERT(child->m_prev == 0);
+
+        if (!m_child) {
+            child->m_next = child;
+            child->m_prev = child;
+            m_child = child;
+        } else {
+            m_child->m_prev->m_next = child;
+            child->m_prev = m_child->m_prev;
+            m_child->m_prev = child;
+            child->m_next = m_child;
+        }
+        child->setParent(this);
     }
 
-    QSGNode *sgNode;
-    Node *parent;
-    void *data;
-    QList<Node *> children;
+    void remove(Node *child) {
+        Q_ASSERT(child);
+        Q_ASSERT(hasChild(child));
+
+        // only child..
+        if (child->m_next == child) {
+            m_child = 0;
+        } else {
+            if (m_child == child)
+                m_child = child->m_next;
+            child->m_next->m_prev = child->m_prev;
+            child->m_prev->m_next = child->m_next;
+        }
+        child->m_next = 0;
+        child->m_prev = 0;
+        child->setParent(0);
+    }
+
+    Node *firstChild() const { return m_child; }
+
+    Node *sibling() const {
+        Q_ASSERT(m_parent);
+        return m_next == m_parent->m_child ? 0 : m_next;
+    }
+
+    void setParent(Node *p) {
+        Q_ASSERT(m_parent == 0 || p == 0);
+        m_parent = p;
+    }
+
+    bool hasChild(Node *child) const {
+        Node *n = m_child;
+        while (n && n != child)
+            n = n->sibling();
+        return n;
+    }
+
+
 
     QSGNode::DirtyState dirtyState;
 
@@ -491,7 +559,7 @@ public:
     void updateRootTransforms(Node *n);
     void updateRootTransforms(Node *n, Node *root, const QMatrix4x4 &combined);
 
-    void updateStates(QSGNode *n);
+    void updateStates(QSGNode *n) override;
     void visitNode(Node *n);
     void registerWithParentRoot(QSGNode *subRoot, QSGNode *parentRoot);
 
@@ -521,7 +589,7 @@ public:
         float lastOpacity;
     };
 
-    ShaderManager(QSGRenderContext *ctx) : visualizeProgram(0), blitProgram(0), context(ctx) { }
+    ShaderManager(QSGDefaultRenderContext *ctx) : visualizeProgram(0), blitProgram(0), context(ctx) { }
     ~ShaderManager() {
         qDeleteAll(rewrittenShaders);
         qDeleteAll(stockShaders);
@@ -541,13 +609,13 @@ private:
     QHash<QSGMaterialType *, Shader *> stockShaders;
 
     QOpenGLShaderProgram *blitProgram;
-    QSGRenderContext *context;
+    QSGDefaultRenderContext *context;
 };
 
 class Q_QUICK_PRIVATE_EXPORT Renderer : public QSGRenderer, public QOpenGLFunctions
 {
 public:
-    Renderer(QSGRenderContext *);
+    Renderer(QSGDefaultRenderContext *);
     ~Renderer();
 
     enum VisualizeMode {
@@ -561,6 +629,7 @@ public:
 protected:
     void nodeChanged(QSGNode *node, QSGNode::DirtyState state) Q_DECL_OVERRIDE;
     void render() Q_DECL_OVERRIDE;
+    void releaseCachedResources() Q_DECL_OVERRIDE;
 
 private:
     enum ClipTypeBit
@@ -631,6 +700,7 @@ private:
     void visualizeDrawGeometry(const QSGGeometry *g);
     void setCustomRenderMode(const QByteArray &mode) Q_DECL_OVERRIDE;
 
+    QSGDefaultRenderContext *m_context;
     QSet<Node *> m_taggedRoots;
     QDataBuffer<Element *> m_opaqueRenderList;
     QDataBuffer<Element *> m_alphaRenderList;
@@ -673,9 +743,7 @@ private:
     ClipType m_currentClipType;
 
     QDataBuffer<char> m_vertexUploadPool;
-#ifdef QSG_SEPARATE_INDEX_BUFFER
     QDataBuffer<char> m_indexUploadPool;
-#endif
     // For minimal OpenGL core profile support
     QOpenGLVertexArrayObject *m_vao;
 
@@ -695,10 +763,7 @@ Batch *Renderer::newBatch()
         m_batchPool.resize(size - 1);
     } else {
         b = new Batch();
-        memset(&b->vbo, 0, sizeof(Buffer));
-#ifdef QSG_SEPARATE_INDEX_BUFFER
-        memset(&b->ibo, 0, sizeof(Buffer));
-#endif
+        memset(&b->vbo, 0, sizeof(Buffer) * 2); // Clear VBO & IBO
     }
     b->init();
     return b;

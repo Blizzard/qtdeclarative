@@ -1,35 +1,45 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
+
+#include <private/qtquickglobal_p.h>
+
+QT_REQUIRE_CONFIG(quick_shadereffect);
 
 #include "qqmlparserstatus.h"
 
@@ -37,8 +47,8 @@
 #include <QtGui/qcolor.h>
 #include <QtCore/qobject.h>
 #include <QtCore/qsize.h>
-#include <QtCore/qvariant.h>
-#include <QtGui/qopenglfunctions.h>
+#include <QtCore/qvector.h>
+#include <QtCore/qbytearray.h>
 
 #ifndef QQUICKSHADEREFFECTMESH_P_H
 #define QQUICKSHADEREFFECTMESH_P_H
@@ -56,6 +66,9 @@
 
 QT_BEGIN_NAMESPACE
 
+const char *qtPositionAttributeName();
+const char *qtTexCoordAttributeName();
+
 class QSGGeometry;
 class QRectF;
 
@@ -64,8 +77,10 @@ class QQuickShaderEffectMesh : public QObject
     Q_OBJECT
 public:
     QQuickShaderEffectMesh(QObject *parent = 0);
-    // If 'geometry' != 0, 'attributes' is the same as last time the function was called.
-    virtual QSGGeometry *updateGeometry(QSGGeometry *geometry, const QVector<QByteArray> &attributes, const QRectF &srcRect, const QRectF &rect) = 0;
+    virtual bool validateAttributes(const QVector<QByteArray> &attributes, int *posIndex) = 0;
+    // If 'geometry' != 0, 'attrCount' is the same as last time the function was called.
+    virtual QSGGeometry *updateGeometry(QSGGeometry *geometry, int attrCount, int posIndex,
+                                        const QRectF &srcRect, const QRectF &rect) = 0;
     // If updateGeometry() fails, the reason should appear in the log.
     virtual QString log() const { return QString(); }
 
@@ -80,7 +95,9 @@ class QQuickGridMesh : public QQuickShaderEffectMesh
     Q_PROPERTY(QSize resolution READ resolution WRITE setResolution NOTIFY resolutionChanged)
 public:
     QQuickGridMesh(QObject *parent = 0);
-    QSGGeometry *updateGeometry(QSGGeometry *geometry, const QVector<QByteArray> &attributes, const QRectF &srcRect, const QRectF &rect) Q_DECL_OVERRIDE;
+    bool validateAttributes(const QVector<QByteArray> &attributes, int *posIndex) Q_DECL_OVERRIDE;
+    QSGGeometry *updateGeometry(QSGGeometry *geometry, int attrCount, int posIndex,
+                                const QRectF &srcRect, const QRectF &rect) Q_DECL_OVERRIDE;
     QString log() const  Q_DECL_OVERRIDE { return m_log; }
 
     void setResolution(const QSize &res);
@@ -92,6 +109,48 @@ Q_SIGNALS:
 private:
     QSize m_resolution;
     QString m_log;
+};
+
+class QQuickScaleGrid;
+class QQuickBorderImageMesh : public QQuickShaderEffectMesh
+{
+    Q_OBJECT
+
+    Q_PROPERTY(QQuickScaleGrid *border READ border CONSTANT)
+    Q_PROPERTY(QSize size READ size WRITE setSize NOTIFY sizeChanged)
+    Q_PROPERTY(TileMode horizontalTileMode READ horizontalTileMode WRITE setHorizontalTileMode NOTIFY horizontalTileModeChanged)
+    Q_PROPERTY(TileMode verticalTileMode READ verticalTileMode WRITE setVerticalTileMode NOTIFY verticalTileModeChanged)
+public:
+    QQuickBorderImageMesh(QObject *parent = 0);
+
+    bool validateAttributes(const QVector<QByteArray> &attributes, int *posIndex) override;
+    QSGGeometry *updateGeometry(QSGGeometry *geometry, int attrCount, int posIndex,
+                                const QRectF &srcRect, const QRectF &rect) override;
+
+    QQuickScaleGrid *border() const;
+
+    enum TileMode { Stretch = Qt::StretchTile, Repeat = Qt::RepeatTile, Round = Qt::RoundTile };
+    Q_ENUM(TileMode)
+
+    QSize size() const;
+    void setSize(const QSize &size);
+
+    TileMode horizontalTileMode() const;
+    void setHorizontalTileMode(TileMode);
+
+    TileMode verticalTileMode() const;
+    void setVerticalTileMode(TileMode);
+
+Q_SIGNALS:
+    void sizeChanged();
+    void horizontalTileModeChanged();
+    void verticalTileModeChanged();
+
+private:
+    QQuickScaleGrid *m_border;
+    QSize m_size;
+    TileMode m_horizontalTileMode;
+    TileMode m_verticalTileMode;
 };
 
 inline QColor qt_premultiply_color(const QColor &c)

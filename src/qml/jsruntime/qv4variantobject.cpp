@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -36,6 +42,7 @@
 #include "qv4objectproto_p.h"
 #include <private/qqmlvaluetypewrapper_p.h>
 #include <private/qv8engine_p.h>
+#include <private/qv4qobjectwrapper_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -43,20 +50,23 @@ using namespace QV4;
 
 DEFINE_OBJECT_VTABLE(VariantObject);
 
-Heap::VariantObject::VariantObject()
+void Heap::VariantObject::init()
 {
+    Object::init();
+    scarceData = new ExecutionEngine::ScarceResourceData;
 }
 
-Heap::VariantObject::VariantObject(const QVariant &value)
+void Heap::VariantObject::init(const QVariant &value)
 {
-    data = value;
+    Object::init();
+    scarceData = new ExecutionEngine::ScarceResourceData(value);
     if (isScarce())
-        internalClass->engine->scarceResources.insert(this);
+        removeVmePropertyReference();
 }
 
 bool VariantObject::Data::isScarce() const
 {
-    QVariant::Type t = data.type();
+    QVariant::Type t = data().type();
     return t == QVariant::Pixmap || t == QVariant::Image;
 }
 
@@ -66,10 +76,10 @@ bool VariantObject::isEqualTo(Managed *m, Managed *other)
     QV4::VariantObject *lv = static_cast<QV4::VariantObject *>(m);
 
     if (QV4::VariantObject *rv = other->as<QV4::VariantObject>())
-        return lv->d()->data == rv->d()->data;
+        return lv->d()->data() == rv->d()->data();
 
     if (QV4::QQmlValueTypeWrapper *v = other->as<QQmlValueTypeWrapper>())
-        return v->isEqual(lv->d()->data);
+        return v->isEqual(lv->d()->data());
 
     return false;
 }
@@ -80,7 +90,7 @@ void VariantObject::addVmePropertyReference()
         // remove from the ep->scarceResources list
         // since it is now no longer eligible to be
         // released automatically by the engine.
-        d()->node.remove();
+        d()->addVmePropertyReference();
     }
 }
 
@@ -90,7 +100,7 @@ void VariantObject::removeVmePropertyReference()
         // and add to the ep->scarceResources list
         // since it is now eligible to be released
         // automatically by the engine.
-        internalClass()->engine->scarceResources.insert(d());
+        d()->removeVmePropertyReference();
     }
 }
 
@@ -103,64 +113,68 @@ void VariantPrototype::init()
     defineDefaultProperty(engine()->id_toString(), method_toString, 0);
 }
 
-QV4::ReturnedValue VariantPrototype::method_preserve(CallContext *ctx)
+void VariantPrototype::method_preserve(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    Scope scope(ctx);
-    Scoped<VariantObject> o(scope, ctx->thisObject().as<QV4::VariantObject>());
+    Scoped<VariantObject> o(scope, callData->thisObject.as<QV4::VariantObject>());
     if (o && o->d()->isScarce())
-        o->d()->node.remove();
-    return Encode::undefined();
+        o->d()->addVmePropertyReference();
+    RETURN_UNDEFINED();
 }
 
-QV4::ReturnedValue VariantPrototype::method_destroy(CallContext *ctx)
+void VariantPrototype::method_destroy(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    Scope scope(ctx);
-    Scoped<VariantObject> o(scope, ctx->thisObject().as<QV4::VariantObject>());
+    Scoped<VariantObject> o(scope, callData->thisObject.as<QV4::VariantObject>());
     if (o) {
         if (o->d()->isScarce())
-            o->d()->node.remove();
-        o->d()->data = QVariant();
+            o->d()->addVmePropertyReference();
+        o->d()->data() = QVariant();
     }
-    return Encode::undefined();
+    RETURN_UNDEFINED();
 }
 
-QV4::ReturnedValue VariantPrototype::method_toString(CallContext *ctx)
+void VariantPrototype::method_toString(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    Scope scope(ctx);
-    Scoped<VariantObject> o(scope, ctx->thisObject().as<QV4::VariantObject>());
+    Scoped<VariantObject> o(scope, callData->thisObject.as<QV4::VariantObject>());
     if (!o)
-        return Encode::undefined();
-    QString result = o->d()->data.toString();
-    if (result.isEmpty() && !o->d()->data.canConvert(QVariant::String))
-        result = QStringLiteral("QVariant(%0)").arg(QString::fromLatin1(o->d()->data.typeName()));
-    return Encode(ctx->d()->engine->newString(result));
+        RETURN_UNDEFINED();
+    QString result = o->d()->data().toString();
+    if (result.isEmpty() && !o->d()->data().canConvert(QVariant::String)) {
+        result = QLatin1String("QVariant(")
+                 + QLatin1String(o->d()->data().typeName())
+                 + QLatin1Char(')');
+    }
+    scope.result = scope.engine->newString(result);
 }
 
-QV4::ReturnedValue VariantPrototype::method_valueOf(CallContext *ctx)
+void VariantPrototype::method_valueOf(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    Scope scope(ctx);
-    Scoped<VariantObject> o(scope, ctx->thisObject().as<QV4::VariantObject>());
+    Scoped<VariantObject> o(scope, callData->thisObject.as<QV4::VariantObject>());
     if (o) {
-        QVariant v = o->d()->data;
+        QVariant v = o->d()->data();
         switch (v.type()) {
         case QVariant::Invalid:
-            return Encode::undefined();
+            scope.result = Encode::undefined();
+            return;
         case QVariant::String:
-            return Encode(ctx->d()->engine->newString(v.toString()));
+            scope.result = scope.engine->newString(v.toString());
+            return;
         case QVariant::Int:
-            return Encode(v.toInt());
+            scope.result = Encode(v.toInt());
+            return;
         case QVariant::Double:
         case QVariant::UInt:
-            return Encode(v.toDouble());
+            scope.result = Encode(v.toDouble());
+            return;
         case QVariant::Bool:
-            return Encode(v.toBool());
+            scope.result = Encode(v.toBool());
+            return;
         default:
             if (QMetaType::typeFlags(v.userType()) & QMetaType::IsEnumeration)
-                return Encode(v.toInt());
+                RETURN_RESULT(Encode(v.toInt()));
             break;
         }
     }
-    return ctx->thisObject().asReturnedValue();
+    scope.result = callData->thisObject;
 }
 
 QT_END_NAMESPACE

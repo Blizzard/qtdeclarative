@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -107,7 +113,7 @@ struct PoolList
         T *insertPos = 0;
 
         for (T *it = first; it; it = it->next) {
-            if (!(it->*sortMember < item->*sortMember))
+            if (!(it->*sortMember <= item->*sortMember))
                 break;
             insertPos = it;
         }
@@ -155,6 +161,43 @@ struct PoolList
         }
         return result;
     }
+
+    struct Iterator {
+        T *ptr;
+
+        explicit Iterator(T *p) : ptr(p) {}
+
+        T *operator->() {
+            return ptr;
+        }
+
+        const T *operator->() const {
+            return ptr;
+        }
+
+        T &operator*() {
+            return *ptr;
+        }
+
+        const T &operator*() const {
+            return *ptr;
+        }
+
+        void operator++() {
+            ptr = ptr->next;
+        }
+
+        bool operator==(const Iterator &rhs) const {
+            return ptr == rhs.ptr;
+        }
+
+        bool operator!=(const Iterator &rhs) const {
+            return ptr != rhs.ptr;
+        }
+    };
+
+    Iterator begin() { return Iterator(first); }
+    Iterator end() { return Iterator(nullptr); }
 };
 
 template <typename T>
@@ -164,7 +207,18 @@ class FixedPoolArray
 public:
     int count;
 
-    void init(QQmlJS::MemoryPool *pool, const QVector<T> &vector)
+    FixedPoolArray()
+        : data(0)
+        , count(0)
+    {}
+
+    void allocate(QQmlJS::MemoryPool *pool, int size)
+    {
+        count = size;
+        data = reinterpret_cast<T*>(pool->allocate(count * sizeof(T)));
+    }
+
+    void allocate(QQmlJS::MemoryPool *pool, const QVector<T> &vector)
     {
         count = vector.count();
         data = reinterpret_cast<T*>(pool->allocate(count * sizeof(T)));
@@ -175,6 +229,16 @@ public:
         } else {
             memcpy(data, static_cast<const void*>(vector.constData()), count * sizeof(T));
         }
+    }
+
+    template <typename Container>
+    void allocate(QQmlJS::MemoryPool *pool, const Container &container)
+    {
+        count = container.count();
+        data = reinterpret_cast<T*>(pool->allocate(count * sizeof(T)));
+        typename Container::ConstIterator it = container.constBegin();
+        for (int i = 0; i < count; ++i)
+            new (data + i) T(*it++);
     }
 
     const T &at(int index) const {
@@ -194,6 +258,9 @@ public:
                 return i;
         return -1;
     }
+
+    const T *begin() const { return data; }
+    const T *end() const { return data + count; }
 };
 
 struct Object;
@@ -211,6 +278,10 @@ struct Signal
 
     QStringList parameterStringList(const QV4::Compiler::StringTableGenerator *stringPool) const;
 
+    int parameterCount() const { return parameters->count; }
+    PoolList<SignalParameter>::Iterator parametersBegin() const { return parameters->begin(); }
+    PoolList<SignalParameter>::Iterator parametersEnd() const { return parameters->end(); }
+
     Signal *next;
 };
 
@@ -221,8 +292,17 @@ struct Property : public QV4::CompiledData::Property
 
 struct Binding : public QV4::CompiledData::Binding
 {
+    // The offset in the source file where the binding appeared. This is used for sorting to ensure
+    // that assignments to list properties are done in the correct order. We use the offset here instead
+    // of Binding::location as the latter has limited precision.
+    quint32 offset;
     // Binding's compiledScriptIndex is index in object's functionsAndExpressions
     Binding *next;
+};
+
+struct Alias : public QV4::CompiledData::Alias
+{
+    Alias *next;
 };
 
 struct Function
@@ -231,6 +311,13 @@ struct Function
     QV4::CompiledData::Location location;
     int nameIndex;
     quint32 index; // index in parsedQML::functions
+    FixedPoolArray<int> formals;
+
+    // --- QQmlPropertyCacheCreator interface
+    const int *formalsBegin() const { return formals.begin(); }
+    const int *formalsEnd() const { return formals.end(); }
+    // ---
+
     Function *next;
 };
 
@@ -259,14 +346,19 @@ struct Q_QML_PRIVATE_EXPORT Object
     Q_DECLARE_TR_FUNCTIONS(Object)
 public:
     quint32 inheritedTypeNameIndex;
-    quint32 idIndex;
-    int indexOfDefaultProperty;
+    quint32 idNameIndex;
+    int id;
+    int indexOfDefaultPropertyOrAlias;
+    bool defaultPropertyIsAlias;
+    quint32 flags;
 
     QV4::CompiledData::Location location;
     QV4::CompiledData::Location locationOfIdProperty;
 
     const Property *firstProperty() const { return properties->first; }
     int propertyCount() const { return properties->count; }
+    Alias *firstAlias() const { return aliases->first; }
+    int aliasCount() const { return aliases->count; }
     const Signal *firstSignal() const { return qmlSignals->first; }
     int signalCount() const { return qmlSignals->count; }
     Binding *firstBinding() const { return bindings->first; }
@@ -274,16 +366,28 @@ public:
     const Function *firstFunction() const { return functions->first; }
     int functionCount() const { return functions->count; }
 
+    PoolList<Binding>::Iterator bindingsBegin() const { return bindings->begin(); }
+    PoolList<Binding>::Iterator bindingsEnd() const { return bindings->end(); }
+    PoolList<Property>::Iterator propertiesBegin() const { return properties->begin(); }
+    PoolList<Property>::Iterator propertiesEnd() const { return properties->end(); }
+    PoolList<Alias>::Iterator aliasesBegin() const { return aliases->begin(); }
+    PoolList<Alias>::Iterator aliasesEnd() const { return aliases->end(); }
+    PoolList<Signal>::Iterator signalsBegin() const { return qmlSignals->begin(); }
+    PoolList<Signal>::Iterator signalsEnd() const { return qmlSignals->end(); }
+    PoolList<Function>::Iterator functionsBegin() const { return functions->begin(); }
+    PoolList<Function>::Iterator functionsEnd() const { return functions->end(); }
+
     // If set, then declarations for this object (and init bindings for these) should go into the
     // specified object. Used for declarations inside group properties.
     Object *declarationsOverride;
 
-    void init(QQmlJS::MemoryPool *pool, int typeNameIndex, int id, const QQmlJS::AST::SourceLocation &location = QQmlJS::AST::SourceLocation());
+    void init(QQmlJS::MemoryPool *pool, int typeNameIndex, int idIndex, const QQmlJS::AST::SourceLocation &location = QQmlJS::AST::SourceLocation());
 
     QString sanityCheckFunctionNames(const QSet<QString> &illegalNames, QQmlJS::AST::SourceLocation *errorLocation);
 
     QString appendSignal(Signal *signal);
     QString appendProperty(Property *prop, const QString &propertyName, bool isDefaultProperty, const QQmlJS::AST::SourceLocation &defaultToken, QQmlJS::AST::SourceLocation *errorLocation);
+    QString appendAlias(Alias *prop, const QString &aliasName, bool isDefaultProperty, const QQmlJS::AST::SourceLocation &defaultToken, QQmlJS::AST::SourceLocation *errorLocation);
     void appendFunction(QmlIR::Function *f);
 
     QString appendBinding(Binding *b, bool isListBinding);
@@ -293,12 +397,17 @@ public:
     QString bindingAsString(Document *doc, int scriptIndex) const;
 
     PoolList<CompiledFunctionOrExpression> *functionsAndExpressions;
-    FixedPoolArray<int> *runtimeFunctionIndices;
+    FixedPoolArray<int> runtimeFunctionIndices;
+
+    FixedPoolArray<quint32> namedObjectsInComponent;
+    int namedObjectsInComponentCount() const { return namedObjectsInComponent.count; }
+    const quint32 *namedObjectsInComponentTable() const { return namedObjectsInComponent.begin(); }
 
 private:
     friend struct IRLoader;
 
     PoolList<Property> *properties;
+    PoolList<Alias> *aliases;
     PoolList<Signal> *qmlSignals;
     PoolList<Binding> *bindings;
     PoolList<Function> *functions;
@@ -323,16 +432,10 @@ struct Q_QML_PRIVATE_EXPORT Document
     QList<const QV4::CompiledData::Import *> imports;
     QList<Pragma*> pragmas;
     QQmlJS::AST::UiProgram *program;
-    int indexOfRootObject;
-    QList<Object*> objects;
+    QVector<Object*> objects;
     QV4::Compiler::JSUnitGenerator jsGenerator;
-    quint32 unitFlags;
 
     QQmlRefPointer<QV4::CompiledData::CompilationUnit> javaScriptCompilationUnit;
-    QHash<int, QStringList> extraSignalParameters;
-
-    QV4::CompiledData::TypeReferenceMap typeReferences;
-    void collectTypeReferences();
 
     int registerString(const QString &str) { return jsGenerator.registerString(str); }
     QString stringAt(int index) const { return jsGenerator.stringForIndex(index); }
@@ -349,9 +452,9 @@ struct Q_QML_PRIVATE_EXPORT ScriptDirectivesCollector : public QQmlJS::Directive
     QList<const QV4::CompiledData::Import *> imports;
     bool hasPragmaLibrary;
 
-    virtual void pragmaLibrary();
-    virtual void importFile(const QString &jsfile, const QString &module, int lineNumber, int column);
-    virtual void importModule(const QString &uri, const QString &version, const QString &module, int lineNumber, int column);
+    void pragmaLibrary() override;
+    void importFile(const QString &jsfile, const QString &module, int lineNumber, int column) override;
+    void importModule(const QString &uri, const QString &version, const QString &module, int lineNumber, int column) override;
 };
 
 struct Q_QML_PRIVATE_EXPORT IRBuilder : public QQmlJS::AST::Visitor
@@ -366,21 +469,21 @@ public:
     using QQmlJS::AST::Visitor::visit;
     using QQmlJS::AST::Visitor::endVisit;
 
-    virtual bool visit(QQmlJS::AST::UiArrayMemberList *ast);
-    virtual bool visit(QQmlJS::AST::UiImport *ast);
-    virtual bool visit(QQmlJS::AST::UiPragma *ast);
-    virtual bool visit(QQmlJS::AST::UiHeaderItemList *ast);
-    virtual bool visit(QQmlJS::AST::UiObjectInitializer *ast);
-    virtual bool visit(QQmlJS::AST::UiObjectMemberList *ast);
-    virtual bool visit(QQmlJS::AST::UiParameterList *ast);
-    virtual bool visit(QQmlJS::AST::UiProgram *);
-    virtual bool visit(QQmlJS::AST::UiQualifiedId *ast);
-    virtual bool visit(QQmlJS::AST::UiArrayBinding *ast);
-    virtual bool visit(QQmlJS::AST::UiObjectBinding *ast);
-    virtual bool visit(QQmlJS::AST::UiObjectDefinition *ast);
-    virtual bool visit(QQmlJS::AST::UiPublicMember *ast);
-    virtual bool visit(QQmlJS::AST::UiScriptBinding *ast);
-    virtual bool visit(QQmlJS::AST::UiSourceElement *ast);
+    bool visit(QQmlJS::AST::UiArrayMemberList *ast) override;
+    bool visit(QQmlJS::AST::UiImport *ast) override;
+    bool visit(QQmlJS::AST::UiPragma *ast) override;
+    bool visit(QQmlJS::AST::UiHeaderItemList *ast) override;
+    bool visit(QQmlJS::AST::UiObjectInitializer *ast) override;
+    bool visit(QQmlJS::AST::UiObjectMemberList *ast) override;
+    bool visit(QQmlJS::AST::UiParameterList *ast) override;
+    bool visit(QQmlJS::AST::UiProgram *) override;
+    bool visit(QQmlJS::AST::UiQualifiedId *ast) override;
+    bool visit(QQmlJS::AST::UiArrayBinding *ast) override;
+    bool visit(QQmlJS::AST::UiObjectBinding *ast) override;
+    bool visit(QQmlJS::AST::UiObjectDefinition *ast) override;
+    bool visit(QQmlJS::AST::UiPublicMember *ast) override;
+    bool visit(QQmlJS::AST::UiScriptBinding *ast) override;
+    bool visit(QQmlJS::AST::UiSourceElement *ast) override;
 
     void accept(QQmlJS::AST::Node *node);
 
@@ -404,6 +507,8 @@ public:
     void appendBinding(const QQmlJS::AST::SourceLocation &qualifiedNameLocation, const QQmlJS::AST::SourceLocation &nameLocation, quint32 propertyNameIndex, QQmlJS::AST::Statement *value);
     void appendBinding(const QQmlJS::AST::SourceLocation &qualifiedNameLocation, const QQmlJS::AST::SourceLocation &nameLocation, quint32 propertyNameIndex, int objectIndex, bool isListItem = false, bool isOnAssignment = false);
 
+    bool appendAlias(QQmlJS::AST::UiPublicMember *node);
+
     Object *bindingsTarget() const;
 
     bool setId(const QQmlJS::AST::SourceLocation &idLocation, QQmlJS::AST::Statement *value);
@@ -420,6 +525,7 @@ public:
     QString stringAt(int index) const { return jsGenerator->stringForIndex(index); }
 
     static bool isStatementNodeScript(QQmlJS::AST::Statement *statement);
+    static bool isRedundantNullInitializerForPropertyDeclaration(Property *property, QQmlJS::AST::Statement *statement);
 
     QList<QQmlJS::DiagnosticMessage> errors;
 
@@ -427,7 +533,7 @@ public:
 
     QList<const QV4::CompiledData::Import *> _imports;
     QList<Pragma*> _pragmas;
-    QList<Object*> _objects;
+    QVector<Object*> _objects;
 
     QV4::CompiledData::TypeReferenceMap _typeReferences;
 
@@ -441,21 +547,21 @@ public:
 
 struct Q_QML_PRIVATE_EXPORT QmlUnitGenerator
 {
-    QV4::CompiledData::Unit *generate(Document &output);
+    QV4::CompiledData::Unit *generate(Document &output, const QV4::CompiledData::DependentTypesHasher &dependencyHasher = QV4::CompiledData::DependentTypesHasher());
 
 private:
     typedef bool (Binding::*BindingFilter)() const;
-    char *writeBindings(char *bindingPtr, Object *o, BindingFilter filter) const;
+    char *writeBindings(char *bindingPtr, const Object *o, BindingFilter filter) const;
 };
 
 #ifndef V4_BOOTSTRAP
 struct Q_QML_EXPORT PropertyResolver
 {
-    PropertyResolver(QQmlPropertyCache *cache)
+    PropertyResolver(const QQmlPropertyCache *cache)
         : cache(cache)
     {}
 
-    QQmlPropertyData *property(int index)
+    QQmlPropertyData *property(int index) const
     {
         return cache->property(index);
     }
@@ -465,12 +571,12 @@ struct Q_QML_EXPORT PropertyResolver
         IgnoreRevision
     };
 
-    QQmlPropertyData *property(const QString &name, bool *notInRevision = 0, RevisionCheck check = CheckRevision);
+    QQmlPropertyData *property(const QString &name, bool *notInRevision = 0, RevisionCheck check = CheckRevision) const;
 
     // This code must match the semantics of QQmlPropertyPrivate::findSignalByName
-    QQmlPropertyData *signal(const QString &name, bool *notInRevision);
+    QQmlPropertyData *signal(const QString &name, bool *notInRevision) const;
 
-    QQmlPropertyCache *cache;
+    const QQmlPropertyCache *cache;
 };
 #endif
 
@@ -495,8 +601,8 @@ struct Q_QML_PRIVATE_EXPORT JSCodeGen : public QQmlJS::Codegen
     QVector<int> generateJSCodeForFunctionsAndBindings(const QList<CompiledFunctionOrExpression> &functions);
 
 protected:
-    virtual void beginFunctionBodyHook();
-    virtual QV4::IR::Expr *fallbackNameLookup(const QString &name, int line, int col);
+    void beginFunctionBodyHook() override;
+    QV4::IR::Expr *fallbackNameLookup(const QString &name, int line, int col) override;
 
 private:
     QQmlPropertyData *lookupQmlCompliantProperty(QQmlPropertyCache *cache, const QString &name, bool *propertyExistsButForceNameLookup = 0);
@@ -513,6 +619,21 @@ private:
     QQmlPropertyCache *_scopeObject;
     int _qmlContextTemp;
     int _importedScriptsTemp;
+};
+
+struct Q_QML_PRIVATE_EXPORT IRLoader {
+    IRLoader(const QV4::CompiledData::Unit *unit, QmlIR::Document *output);
+
+    void load();
+
+private:
+    QmlIR::Object *loadObject(const QV4::CompiledData::Object *serializedObject);
+
+    template <typename _Tp> _Tp *New() { return pool->New<_Tp>(); }
+
+    const QV4::CompiledData::Unit *unit;
+    QmlIR::Document *output;
+    QQmlJS::MemoryPool *pool;
 };
 
 } // namespace QmlIR

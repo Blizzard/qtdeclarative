@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -59,8 +65,8 @@ struct StringObject : Object {
         LengthPropertyIndex = 0
     };
 
-    StringObject();
-    StringObject(const QV4::String *string);
+    void init();
+    void init(const QV4::String *string);
     String *string;
 
     Heap::String *getIndex(uint index) const;
@@ -68,7 +74,7 @@ struct StringObject : Object {
 };
 
 struct StringCtor : FunctionObject {
-    StringCtor(QV4::ExecutionContext *scope);
+    void init(QV4::ExecutionContext *scope);
 };
 
 }
@@ -76,7 +82,7 @@ struct StringCtor : FunctionObject {
 struct StringObject: Object {
     V4_OBJECT2(StringObject, Object)
     Q_MANAGED_TYPE(StringObject)
-    V4_INTERNALCLASS(stringClass)
+    V4_INTERNALCLASS(StringObject)
     V4_PROTOTYPE(stringPrototype)
 
     Heap::String *getIndex(uint index) const {
@@ -97,34 +103,38 @@ struct StringCtor: FunctionObject
 {
     V4_OBJECT2(StringCtor, FunctionObject)
 
-    static ReturnedValue construct(const Managed *m, CallData *callData);
-    static ReturnedValue call(const Managed *that, CallData *callData);
+    static void construct(const Managed *m, Scope &scope, CallData *callData);
+    static void call(const Managed *, Scope &scope, CallData *callData);
 };
 
 struct StringPrototype: StringObject
 {
+    V4_PROTOTYPE(objectPrototype)
     void init(ExecutionEngine *engine, Object *ctor);
 
-    static ReturnedValue method_toString(CallContext *context);
-    static ReturnedValue method_charAt(CallContext *context);
-    static ReturnedValue method_charCodeAt(CallContext *context);
-    static ReturnedValue method_concat(CallContext *context);
-    static ReturnedValue method_indexOf(CallContext *context);
-    static ReturnedValue method_lastIndexOf(CallContext *context);
-    static ReturnedValue method_localeCompare(CallContext *context);
-    static ReturnedValue method_match(CallContext *context);
-    static ReturnedValue method_replace(CallContext *ctx);
-    static ReturnedValue method_search(CallContext *ctx);
-    static ReturnedValue method_slice(CallContext *ctx);
-    static ReturnedValue method_split(CallContext *ctx);
-    static ReturnedValue method_substr(CallContext *context);
-    static ReturnedValue method_substring(CallContext *context);
-    static ReturnedValue method_toLowerCase(CallContext *ctx);
-    static ReturnedValue method_toLocaleLowerCase(CallContext *ctx);
-    static ReturnedValue method_toUpperCase(CallContext *ctx);
-    static ReturnedValue method_toLocaleUpperCase(CallContext *ctx);
-    static ReturnedValue method_fromCharCode(CallContext *context);
-    static ReturnedValue method_trim(CallContext *ctx);
+    static void method_toString(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_charAt(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_charCodeAt(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_concat(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_endsWith(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_indexOf(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_includes(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_lastIndexOf(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_localeCompare(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_match(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_replace(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_search(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_slice(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_split(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_startsWith(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_substr(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_substring(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_toLowerCase(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_toLocaleLowerCase(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_toUpperCase(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_toLocaleUpperCase(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_fromCharCode(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_trim(const BuiltinFunction *, Scope &scope, CallData *callData);
 };
 
 }

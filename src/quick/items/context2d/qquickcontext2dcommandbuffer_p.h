@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -45,6 +51,10 @@
 // We mean it.
 //
 
+#include <private/qtquickglobal_p.h>
+
+QT_REQUIRE_CONFIG(quick_canvas);
+
 #include <QtCore/qmutex.h>
 #include "qquickcontext2d_p.h"
 
@@ -61,10 +71,10 @@ public:
     void reset();
     void clear();
 
-    inline int size() {return commands.size();}
+    inline int size() const { return commands.size(); }
     inline bool isEmpty() const {return commands.isEmpty(); }
     inline bool hasNext() const {return cmdIdx < commands.size(); }
-    inline QQuickContext2D::PaintCommand takeNextCommand() { return commands[cmdIdx++]; }
+    inline QQuickContext2D::PaintCommand takeNextCommand() { return commands.at(cmdIdx++); }
 
     inline qreal takeGlobalAlpha() { return takeReal(); }
     inline QPainter::CompositionMode takeGlobalCompositeOperation(){ return static_cast<QPainter::CompositionMode>(takeInt()); }
@@ -221,25 +231,25 @@ public:
         colors << color;
     }
 
-    inline QTransform takeMatrix() { return matrixes[matrixIdx++]; }
+    inline QTransform takeMatrix() { return matrixes.at(matrixIdx++); }
 
-    inline QRectF takeRect() { return rects[rectIdx++]; }
+    inline QRectF takeRect() { return rects.at(rectIdx++); }
 
-    inline QPainterPath takePath() { return pathes[pathIdx++]; }
+    inline QPainterPath takePath() { return pathes.at(pathIdx++); }
 
-    inline const QImage& takeImage() { return images[imageIdx++]; }
-    inline QQmlRefPointer<QQuickCanvasPixmap> takePixmap() { return pixmaps[pixmapIdx++]; }
+    inline const QImage& takeImage() { return images.at(imageIdx++); }
+    inline QQmlRefPointer<QQuickCanvasPixmap> takePixmap() { return pixmaps.at(pixmapIdx++); }
 
-    inline int takeInt() { return ints[intIdx++]; }
-    inline bool takeBool() {return bools[boolIdx++]; }
-    inline qreal takeReal() { return reals[realIdx++]; }
-    inline QColor takeColor() { return colors[colorIdx++]; }
-    inline QBrush takeBrush() { return brushes[brushIdx++]; }
+    inline int takeInt() { return ints.at(intIdx++); }
+    inline bool takeBool() {return bools.at(boolIdx++); }
+    inline qreal takeReal() { return reals.at(realIdx++); }
+    inline QColor takeColor() { return colors.at(colorIdx++); }
+    inline QBrush takeBrush() { return brushes.at(brushIdx++); }
 
     void replay(QPainter* painter, QQuickContext2D::State& state, const QVector2D &scaleFactor);
 
 private:
-    QPen makePen(const QQuickContext2D::State& state);
+    static QPen makePen(const QQuickContext2D::State& state);
     void setPainterState(QPainter* painter, const QQuickContext2D::State& state, const QPen& pen);
     int cmdIdx;
     int intIdx;

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -33,14 +39,20 @@
 
 #include "qsgrenderer_p.h"
 #include "qsgnodeupdater_p.h"
-
-#include <qopenglframebufferobject.h>
-
+#if QT_CONFIG(opengl)
+# include <QtGui/QOpenGLFramebufferObject>
+# include <QtGui/QOpenGLContext>
+# include <QtGui/QOpenGLFunctions>
+#endif
 #include <private/qquickprofiler_p.h>
+
+#include <QtCore/QElapsedTimer>
 
 QT_BEGIN_NAMESPACE
 
+#if QT_CONFIG(opengl)
 static const bool qsg_sanity_check = qEnvironmentVariableIntValue("QSG_SANITY_CHECK");
+#endif
 
 static QElapsedTimer frameTimer;
 static qint64 preprocessTime;
@@ -57,19 +69,25 @@ int qt_sg_envInt(const char *name, int defaultValue)
 
 void QSGBindable::clear(QSGAbstractRenderer::ClearMode mode) const
 {
+#if QT_CONFIG(opengl)
     GLuint bits = 0;
     if (mode & QSGAbstractRenderer::ClearColorBuffer) bits |= GL_COLOR_BUFFER_BIT;
     if (mode & QSGAbstractRenderer::ClearDepthBuffer) bits |= GL_DEPTH_BUFFER_BIT;
     if (mode & QSGAbstractRenderer::ClearStencilBuffer) bits |= GL_STENCIL_BUFFER_BIT;
     QOpenGLContext::currentContext()->functions()->glClear(bits);
+#else
+    Q_UNUSED(mode)
+#endif
 }
 
 // Reactivate the color buffer after switching to the stencil.
 void QSGBindable::reactivate() const
 {
+#if QT_CONFIG(opengl)
     QOpenGLContext::currentContext()->functions()->glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+#endif
 }
-
+#if QT_CONFIG(opengl)
 QSGBindableFboId::QSGBindableFboId(GLuint id)
     : m_id(id)
 {
@@ -80,10 +98,10 @@ void QSGBindableFboId::bind() const
 {
     QOpenGLContext::currentContext()->functions()->glBindFramebuffer(GL_FRAMEBUFFER, m_id);
 }
-
+#endif
 /*!
     \class QSGRenderer
-    \brief The renderer class is the abstract baseclass use for rendering the
+    \brief The renderer class is the abstract baseclass used for rendering the
     QML scene graph.
 
     The renderer is not tied to any particular surface. It expects a context to
@@ -163,8 +181,9 @@ bool QSGRenderer::isMirrored() const
     return matrix(0, 0) * matrix(1, 1) - matrix(0, 1) * matrix(1, 0) > 0;
 }
 
-void QSGRenderer::renderScene(GLuint fboId)
+void QSGRenderer::renderScene(uint fboId)
 {
+#if QT_CONFIG(opengl)
     if (fboId) {
         QSGBindableFboId bindable(fboId);
         renderScene(bindable);
@@ -176,7 +195,11 @@ void QSGRenderer::renderScene(GLuint fboId)
         } bindable;
         renderScene(bindable);
     }
+#else
+    Q_UNUSED(fboId)
+#endif
 }
+
 void QSGRenderer::renderScene(const QSGBindable &bindable)
 {
     if (!rootNode())
@@ -199,8 +222,10 @@ void QSGRenderer::renderScene(const QSGBindable &bindable)
     bindable.bind();
     if (profileFrames)
         bindTime = frameTimer.nsecsElapsed();
-    Q_QUICK_SG_PROFILE_RECORD(QQuickProfiler::SceneGraphRendererFrame);
+    Q_QUICK_SG_PROFILE_RECORD(QQuickProfiler::SceneGraphRendererFrame,
+                              QQuickProfiler::SceneGraphRendererBinding);
 
+#if QT_CONFIG(opengl)
     // Sanity check that attribute registers are disabled
     if (qsg_sanity_check) {
         GLint count = 0;
@@ -213,11 +238,13 @@ void QSGRenderer::renderScene(const QSGBindable &bindable)
             }
         }
     }
+#endif
 
     render();
     if (profileFrames)
         renderTime = frameTimer.nsecsElapsed();
-    Q_QUICK_SG_PROFILE_END(QQuickProfiler::SceneGraphRendererFrame);
+    Q_QUICK_SG_PROFILE_END(QQuickProfiler::SceneGraphRendererFrame,
+                           QQuickProfiler::SceneGraphRendererRender);
 
     m_is_rendering = false;
     m_changed_emitted = false;
@@ -267,7 +294,7 @@ void QSGRenderer::preprocess()
 
     // We need to take a copy here, in case any of the preprocess calls deletes a node that
     // is in the preprocess list and thus, changes the m_nodes_to_preprocess behind our backs
-    // For the default case, when this does not happen, the cost is neglishible.
+    // For the default case, when this does not happen, the cost is negligible.
     QSet<QSGNode *> items = m_nodes_to_preprocess;
 
     for (QSet<QSGNode *>::const_iterator it = items.constBegin();
@@ -281,13 +308,15 @@ void QSGRenderer::preprocess()
     bool profileFrames = QSG_LOG_TIME_RENDERER().isDebugEnabled();
     if (profileFrames)
         preprocessTime = frameTimer.nsecsElapsed();
-    Q_QUICK_SG_PROFILE_RECORD(QQuickProfiler::SceneGraphRendererFrame);
+    Q_QUICK_SG_PROFILE_RECORD(QQuickProfiler::SceneGraphRendererFrame,
+                              QQuickProfiler::SceneGraphRendererPreprocess);
 
     nodeUpdater()->updateStates(root);
 
     if (profileFrames)
         updatePassTime = frameTimer.nsecsElapsed();
-    Q_QUICK_SG_PROFILE_RECORD(QQuickProfiler::SceneGraphRendererFrame);
+    Q_QUICK_SG_PROFILE_RECORD(QQuickProfiler::SceneGraphRendererFrame,
+                              QQuickProfiler::SceneGraphRendererUpdate);
 }
 
 void QSGRenderer::addNodesToPreprocess(QSGNode *node)

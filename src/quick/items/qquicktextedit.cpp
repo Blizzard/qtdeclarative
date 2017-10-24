@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -147,7 +153,7 @@ namespace {
             newNode->setFlag(QSGNode::OwnedByParent);
         }
 
-        void resetCursorNode(QSGRectangleNode* newNode)
+        void resetCursorNode(QSGInternalRectangleNode* newNode)
         {
             if (cursorNode)
                 removeChildNode(cursorNode);
@@ -159,7 +165,7 @@ namespace {
             }
         }
 
-        QSGRectangleNode *cursorNode;
+        QSGInternalRectangleNode *cursorNode;
         QQuickTextNode* frameDecorationsNode;
 
     };
@@ -184,7 +190,7 @@ QString QQuickTextEdit::text() const
     Q_D(const QQuickTextEdit);
     if (!d->textCached && isComponentComplete()) {
         QQuickTextEditPrivate *d = const_cast<QQuickTextEditPrivate *>(d_func());
-#ifndef QT_NO_TEXTHTMLPARSER
+#if QT_CONFIG(texthtmlparser)
         if (d->richText)
             d->text = d->control->toHtml();
         else
@@ -317,6 +323,39 @@ QString QQuickTextEdit::text() const
 */
 
 /*!
+    \qmlproperty enumeration QtQuick::TextEdit::font.hintingPreference
+    \since 5.8
+
+    Sets the preferred hinting on the text. This is a hint to the underlying text rendering system
+    to use a certain level of hinting, and has varying support across platforms. See the table in
+    the documentation for QFont::HintingPreference for more details.
+
+    \note This property only has an effect when used together with render type TextEdit.NativeRendering.
+
+    \list
+    \value Font.PreferDefaultHinting - Use the default hinting level for the target platform.
+    \value Font.PreferNoHinting - If possible, render text without hinting the outlines
+           of the glyphs. The text layout will be typographically accurate, using the same metrics
+           as are used e.g. when printing.
+    \value Font.PreferVerticalHinting - If possible, render text with no horizontal hinting,
+           but align glyphs to the pixel grid in the vertical direction. The text will appear
+           crisper on displays where the density is too low to give an accurate rendering
+           of the glyphs. But since the horizontal metrics of the glyphs are unhinted, the text's
+           layout will be scalable to higher density devices (such as printers) without impacting
+           details such as line breaks.
+    \value Font.PreferFullHinting - If possible, render text with hinting in both horizontal and
+           vertical directions. The text will be altered to optimize legibility on the target
+           device, but since the metrics will depend on the target size of the text, the positions
+           of glyphs, line breaks, and other typographical detail will not scale, meaning that a
+           text layout may look different on devices with different pixel densities.
+    \endlist
+
+    \qml
+    TextEdit { text: "Hello"; renderType: TextEdit.NativeRendering; font.hintingPreference: Font.PreferVerticalHinting }
+    \endqml
+*/
+
+/*!
     \qmlproperty string QtQuick::TextEdit::text
 
     The text to display.  If the text format is AutoText the text edit will
@@ -328,6 +367,8 @@ QString QQuickTextEdit::text() const
     insert() and remove() methods provide more fine-grained control and
     remarkably better performance for modifying especially large rich text
     content.
+
+    \sa clear()
 */
 void QQuickTextEdit::setText(const QString &text)
 {
@@ -340,7 +381,7 @@ void QQuickTextEdit::setText(const QString &text)
     if (!isComponentComplete()) {
         d->text = text;
     } else if (d->richText) {
-#ifndef QT_NO_TEXTHTMLPARSER
+#if QT_CONFIG(texthtmlparser)
         d->control->setHtml(text);
 #else
         d->control->setPlainText(text);
@@ -348,6 +389,19 @@ void QQuickTextEdit::setText(const QString &text)
     } else {
         d->control->setPlainText(text);
     }
+}
+
+/*!
+    \qmlproperty string QtQuick::TextEdit::preeditText
+    \readonly
+    \since 5.7
+
+    This property contains partial text input from an input method.
+*/
+QString QQuickTextEdit::preeditText() const
+{
+    Q_D(const QQuickTextEdit);
+    return d->control->preeditText();
 }
 
 /*!
@@ -404,7 +458,7 @@ void QQuickTextEdit::setTextFormat(TextFormat format)
     bool wasRich = d->richText;
     d->richText = format == RichText || (format == AutoText && (wasRich || Qt::mightBeRichText(text())));
 
-#ifndef QT_NO_TEXTHTMLPARSER
+#if QT_CONFIG(texthtmlparser)
     if (isComponentComplete()) {
         if (wasRich && !d->richText) {
             d->control->setPlainText(!d->textCached ? d->control->toHtml() : d->text);
@@ -486,8 +540,8 @@ void QQuickTextEdit::setFont(const QFont &font)
         }
         updateSize();
         updateWholeDocument();
-#ifndef QT_NO_IM
-        updateInputMethod(Qt::ImCursorRectangle | Qt::ImFont);
+#if QT_CONFIG(im)
+        updateInputMethod(Qt::ImCursorRectangle | Qt::ImAnchorRectangle | Qt::ImFont);
 #endif
     }
     emit fontChanged(d->sourceFont);
@@ -684,7 +738,7 @@ bool QQuickTextEditPrivate::determineHorizontalAlignment()
     Q_Q(QQuickTextEdit);
     if (hAlignImplicit && q->isComponentComplete()) {
         Qt::LayoutDirection direction = contentDirection;
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
         if (direction == Qt::LayoutDirectionAuto) {
             const QString preeditText = control->textCursor().block().layout()->preeditAreaText();
             direction = textDirection(preeditText);
@@ -710,7 +764,7 @@ void QQuickTextEditPrivate::mirrorChange()
     }
 }
 
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
 Qt::InputMethodHints QQuickTextEditPrivate::effectiveInputMethodHints() const
 {
     return inputMethodHints | Qt::ImhMultiLine;
@@ -838,7 +892,7 @@ void QQuickTextEdit::setWrapMode(WrapMode mode)
 /*!
     \qmlproperty int QtQuick::TextEdit::lineCount
 
-    Returns the total number of lines in the textEdit item.
+    Returns the total number of lines in the TextEdit item.
 */
 int QQuickTextEdit::lineCount() const
 {
@@ -958,7 +1012,7 @@ int QQuickTextEdit::positionAt(qreal x, qreal y) const
     y -= d->yoff;
 
     int r = d->document->documentLayout()->hitTest(QPointF(x, y), Qt::FuzzyHit);
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
     QTextCursor cursor = d->control->textCursor();
     if (r > cursor.position()) {
         // The cursor position includes positions within the preedit text, but only positions in the
@@ -1207,7 +1261,7 @@ int QQuickTextEdit::selectionEnd() const
 QString QQuickTextEdit::selectedText() const
 {
     Q_D(const QQuickTextEdit);
-#ifndef QT_NO_TEXTHTMLPARSER
+#if QT_CONFIG(texthtmlparser)
     return d->richText
             ? d->control->textCursor().selectedText()
             : d->control->textCursor().selection().toPlainText();
@@ -1325,17 +1379,17 @@ void QQuickTextEdit::setTextMargin(qreal margin)
 
 Qt::InputMethodHints QQuickTextEdit::inputMethodHints() const
 {
-#ifdef QT_NO_IM
+#if !QT_CONFIG(im)
     return Qt::ImhNone;
 #else
     Q_D(const QQuickTextEdit);
     return d->inputMethodHints;
-#endif // QT_NO_IM
+#endif // im
 }
 
 void QQuickTextEdit::setInputMethodHints(Qt::InputMethodHints hints)
 {
-#ifdef QT_NO_IM
+#if !QT_CONFIG(im)
     Q_UNUSED(hints);
 #else
     Q_D(QQuickTextEdit);
@@ -1346,7 +1400,7 @@ void QQuickTextEdit::setInputMethodHints(Qt::InputMethodHints hints)
     d->inputMethodHints = hints;
     updateInputMethod(Qt::ImHints);
     emit inputMethodHintsChanged();
-#endif // QT_NO_IM
+#endif // im
 }
 
 void QQuickTextEdit::geometryChanged(const QRectF &newGeometry,
@@ -1373,7 +1427,7 @@ void QQuickTextEdit::componentComplete()
     QQuickImplicitSizeItem::componentComplete();
 
     d->document->setBaseUrl(baseUrl());
-#ifndef QT_NO_TEXTHTML_PARSER
+#if QT_CONFIG(texthtmlparser)
     if (d->richText)
         d->control->setHtml(d->text);
     else
@@ -1500,7 +1554,7 @@ void QQuickTextEdit::setReadOnly(bool r)
     if (r == isReadOnly())
         return;
 
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
     setFlag(QQuickItem::ItemAcceptsInputMethod, !r);
 #endif
     Qt::TextInteractionFlags flags = Qt::LinksAccessibleByMouse;
@@ -1513,10 +1567,9 @@ void QQuickTextEdit::setReadOnly(bool r)
     if (!r)
         flags = flags | Qt::TextEditable;
     d->control->setTextInteractionFlags(flags);
-    if (!r)
-        d->control->moveCursor(QTextCursor::End);
+    d->control->moveCursor(QTextCursor::End);
 
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
     updateInputMethod(Qt::ImEnabled);
 #endif
     q_canPasteChanged();
@@ -1560,6 +1613,32 @@ bool QQuickTextEdit::event(QEvent *event)
         return event->isAccepted();
     }
     return QQuickImplicitSizeItem::event(event);
+}
+
+/*!
+    \qmlproperty bool QtQuick::TextEdit::overwriteMode
+    \since 5.8
+    Whether text entered by the user will overwrite existing text.
+
+    As with many text editors, the text editor widget can be configured
+    to insert or overwrite existing text with new text entered by the user.
+
+    If this property is \c true, existing text is overwritten, character-for-character
+    by new text; otherwise, text is inserted at the cursor position, displacing
+    existing text.
+
+    By default, this property is \c false (new text does not overwrite existing text).
+*/
+bool QQuickTextEdit::overwriteMode() const
+{
+    Q_D(const QQuickTextEdit);
+    return d->control->overwriteMode();
+}
+
+void QQuickTextEdit::setOverwriteMode(bool overwrite)
+{
+    Q_D(QQuickTextEdit);
+    d->control->setOverwriteMode(overwrite);
 }
 
 /*!
@@ -1650,6 +1729,9 @@ void QQuickTextEdit::select(int start, int end)
 
     // QTBUG-11100
     updateSelection();
+#if QT_CONFIG(im)
+    updateInputMethod();
+#endif
 }
 
 /*!
@@ -1661,14 +1743,14 @@ void QQuickTextEdit::select(int start, int end)
 bool QQuickTextEdit::isRightToLeft(int start, int end)
 {
     if (start > end) {
-        qmlInfo(this) << "isRightToLeft(start, end) called with the end property being smaller than the start.";
+        qmlWarning(this) << "isRightToLeft(start, end) called with the end property being smaller than the start.";
         return false;
     } else {
         return getText(start, end).isRightToLeft();
     }
 }
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 /*!
     \qmlmethod QtQuick::TextEdit::cut()
 
@@ -1701,7 +1783,7 @@ void QQuickTextEdit::paste()
     Q_D(QQuickTextEdit);
     d->control->paste();
 }
-#endif // QT_NO_CLIPBOARD
+#endif // clipboard
 
 
 /*!
@@ -1742,7 +1824,7 @@ void QQuickTextEdit::mousePressEvent(QMouseEvent *event)
         bool hadActiveFocus = hasActiveFocus();
         forceActiveFocus(Qt::MouseFocusReason);
         // re-open input panel on press if already focused
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
         if (hasActiveFocus() && hadActiveFocus && !isReadOnly())
             qGuiApp->inputMethod()->show();
 #else
@@ -1790,7 +1872,7 @@ void QQuickTextEdit::mouseMoveEvent(QMouseEvent *event)
         QQuickImplicitSizeItem::mouseMoveEvent(event);
 }
 
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
 /*!
 \overload
 Handles the given input method \a event.
@@ -1821,8 +1903,15 @@ QVariant QQuickTextEdit::inputMethodQuery(Qt::InputMethodQuery property, QVarian
     case Qt::ImHints:
         v = (int)d->effectiveInputMethodHints();
         break;
+    case Qt::ImInputItemClipRectangle:
+        v = QQuickItem::inputMethodQuery(property);
+        break;
     default:
+        if (property == Qt::ImCursorPosition && !argument.isNull())
+            argument = QVariant(argument.toPointF() - QPointF(d->xoff, d->yoff));
         v = d->control->inputMethodQuery(property, argument);
+        if (property == Qt::ImCursorRectangle || property == Qt::ImAnchorRectangle)
+            v = QVariant(v.toRectF().translated(d->xoff, d->yoff));
         break;
     }
     return v;
@@ -1836,7 +1925,7 @@ QVariant QQuickTextEdit::inputMethodQuery(Qt::InputMethodQuery property) const
 {
     return inputMethodQuery(property, QVariant());
 }
-#endif // QT_NO_IM
+#endif // im
 
 void QQuickTextEdit::triggerPreprocess()
 {
@@ -1978,7 +2067,7 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
                 // Having nodes spanning across frame boundaries will break the current bookkeeping mechanism. We need to prevent that.
                 QList<int> frameBoundaries;
                 frameBoundaries.reserve(frames.size());
-                Q_FOREACH (QTextFrame *frame, frames)
+                for (QTextFrame *frame : qAsConst(frames))
                     frameBoundaries.append(frame->firstPosition());
                 std::sort(frameBoundaries.begin(), frameBoundaries.end());
 
@@ -2038,9 +2127,9 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
     }
 
     if (d->cursorComponent == 0) {
-        QSGRectangleNode* cursor = 0;
+        QSGInternalRectangleNode* cursor = 0;
         if (!isReadOnly() && d->cursorVisible && d->control->cursorOn())
-            cursor = d->sceneGraphContext()->createRectangleNode(d->control->cursorRect(), d->color);
+            cursor = d->sceneGraphContext()->createInternalRectangleNode(d->control->cursorRect(), d->color);
         rootNode->resetCursorNode(cursor);
     }
 
@@ -2110,12 +2199,12 @@ bool QQuickTextEdit::canRedo() const
 */
 bool QQuickTextEdit::isInputMethodComposing() const
 {
-#ifdef QT_NO_IM
+#if !QT_CONFIG(im)
     return false;
 #else
     Q_D(const QQuickTextEdit);
     return d->control->hasImState();
-#endif // QT_NO_IM
+#endif // im
 }
 
 QQuickTextEditPrivate::ExtraData::ExtraData()
@@ -2136,14 +2225,14 @@ void QQuickTextEditPrivate::init()
 {
     Q_Q(QQuickTextEdit);
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     if (QGuiApplication::clipboard()->supportsSelection())
         q->setAcceptedMouseButtons(Qt::LeftButton | Qt::MiddleButton);
     else
 #endif
         q->setAcceptedMouseButtons(Qt::LeftButton);
 
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
     q->setFlag(QQuickItem::ItemAcceptsInputMethod);
 #endif
     q->setFlag(QQuickItem::ItemHasContents);
@@ -2165,8 +2254,10 @@ void QQuickTextEditPrivate::init()
     qmlobject_connect(control, QQuickTextControl, SIGNAL(cursorRectangleChanged()), q, QQuickTextEdit, SLOT(moveCursorDelegate()));
     qmlobject_connect(control, QQuickTextControl, SIGNAL(linkActivated(QString)), q, QQuickTextEdit, SIGNAL(linkActivated(QString)));
     qmlobject_connect(control, QQuickTextControl, SIGNAL(linkHovered(QString)), q, QQuickTextEdit, SIGNAL(linkHovered(QString)));
+    qmlobject_connect(control, QQuickTextControl, SIGNAL(overwriteModeChanged(bool)), q, QQuickTextEdit, SIGNAL(overwriteModeChanged(bool)));
     qmlobject_connect(control, QQuickTextControl, SIGNAL(textChanged()), q, QQuickTextEdit, SLOT(q_textChanged()));
-#ifndef QT_NO_CLIPBOARD
+    qmlobject_connect(control, QQuickTextControl, SIGNAL(preeditTextChanged()), q, QQuickTextEdit, SIGNAL(preeditTextChanged()));
+#if QT_CONFIG(clipboard)
     qmlobject_connect(QGuiApplication::clipboard(), QClipboard, SIGNAL(dataChanged()), q, QQuickTextEdit, SLOT(q_canPasteChanged()));
 #endif
     qmlobject_connect(document, QQuickTextDocumentWithImageResources, SIGNAL(undoAvailable(bool)), q, QQuickTextEdit, SIGNAL(canUndoChanged()));
@@ -2181,6 +2272,13 @@ void QQuickTextEditPrivate::init()
     document->setUndoRedoEnabled(true);
     updateDefaultTextOption();
     q->updateSize();
+}
+
+void QQuickTextEditPrivate::resetInputMethod()
+{
+    Q_Q(QQuickTextEdit);
+    if (!q->isReadOnly() && q->hasActiveFocus() && qGuiApp)
+        QGuiApplication::inputMethod()->reset();
 }
 
 void QQuickTextEdit::q_textChanged()
@@ -2245,7 +2343,7 @@ void QQuickTextEdit::q_contentsChange(int pos, int charsRemoved, int charsAdded)
 void QQuickTextEdit::moveCursorDelegate()
 {
     Q_D(QQuickTextEdit);
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
     updateInputMethod();
 #endif
     emit cursorRectangleChanged();
@@ -2254,6 +2352,7 @@ void QQuickTextEdit::moveCursorDelegate()
     QRectF cursorRect = cursorRectangle();
     d->cursorItem->setX(cursorRect.x());
     d->cursorItem->setY(cursorRect.y());
+    d->cursorItem->setHeight(cursorRect.height());
 }
 
 void QQuickTextEdit::updateSelection()
@@ -2381,7 +2480,7 @@ void QQuickTextEdit::updateSize()
 
     if (d->isImplicitResizeEnabled()) {
         // ### Setting the implicitWidth triggers another updateSize(), and unless there are bindings nothing has changed.
-        if (!widthValid() && !d->requireImplicitWidth)
+        if (!widthValid())
             setImplicitSize(newWidth + leftPadding() + rightPadding(), newHeight + topPadding() + bottomPadding());
         else
             setImplicitHeight(newHeight + topPadding() + bottomPadding());
@@ -2403,7 +2502,7 @@ void QQuickTextEdit::updateWholeDocument()
 {
     Q_D(QQuickTextEdit);
     if (!d->textNodeMap.isEmpty()) {
-        Q_FOREACH (TextNode* node, d->textNodeMap)
+        for (TextNode* node : qAsConst(d->textNodeMap))
             node->setDirty();
     }
 
@@ -2470,7 +2569,7 @@ void QQuickTextEditPrivate::updateDefaultTextOption()
 {
     Q_Q(QQuickTextEdit);
     QTextOption opt = document->defaultTextOption();
-    int oldAlignment = opt.alignment();
+    const Qt::Alignment oldAlignment = opt.alignment();
     Qt::LayoutDirection oldTextDirection = opt.textDirection();
 
     QQuickTextEdit::HAlignment horizontalAlignment = q->effectiveHAlign();
@@ -2485,7 +2584,7 @@ void QQuickTextEditPrivate::updateDefaultTextOption()
     else
         opt.setAlignment(Qt::Alignment(vAlign));
 
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
     if (contentDirection == Qt::LayoutDirectionAuto) {
         opt.setTextDirection(qGuiApp->inputMethod()->inputDirection());
     } else
@@ -2530,14 +2629,14 @@ void QQuickTextEditPrivate::handleFocusEvent(QFocusEvent *event)
     control->processEvent(event, QPointF(-xoff, -yoff));
     if (focus) {
         q->q_updateAlignment();
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
         if (focusOnPress && !q->isReadOnly())
             qGuiApp->inputMethod()->show();
         q->connect(QGuiApplication::inputMethod(), SIGNAL(inputDirectionChanged(Qt::LayoutDirection)),
                 q, SLOT(q_updateAlignment()));
 #endif
     } else {
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
         q->disconnect(QGuiApplication::inputMethod(), SIGNAL(inputDirectionChanged(Qt::LayoutDirection)),
                    q, SLOT(q_updateAlignment()));
 #endif
@@ -2588,7 +2687,7 @@ QString QQuickTextEdit::getText(int start, int end) const
     QTextCursor cursor(d->document);
     cursor.setPosition(start, QTextCursor::MoveAnchor);
     cursor.setPosition(end, QTextCursor::KeepAnchor);
-#ifndef QT_NO_TEXTHTMLPARSER
+#if QT_CONFIG(texthtmlparser)
     return d->richText
             ? cursor.selectedText()
             : cursor.selection().toPlainText();
@@ -2617,7 +2716,7 @@ QString QQuickTextEdit::getFormattedText(int start, int end) const
     cursor.setPosition(end, QTextCursor::KeepAnchor);
 
     if (d->richText) {
-#ifndef QT_NO_TEXTHTMLPARSER
+#if QT_CONFIG(texthtmlparser)
         return cursor.selection().toHtml();
 #else
         return cursor.selection().toPlainText();
@@ -2641,7 +2740,7 @@ void QQuickTextEdit::insert(int position, const QString &text)
     cursor.setPosition(position);
     d->richText = d->richText || (d->format == AutoText && Qt::mightBeRichText(text));
     if (d->richText) {
-#ifndef QT_NO_TEXTHTMLPARSER
+#if QT_CONFIG(texthtmlparser)
         cursor.insertHtml(text);
 #else
         cursor.insertText(text);
@@ -2734,12 +2833,12 @@ QString QQuickTextEdit::hoveredLink() const
     if (const_cast<QQuickTextEditPrivate *>(d)->isLinkHoveredConnected()) {
         return d->control->hoveredLink();
     } else {
-#ifndef QT_NO_CURSOR
+#if QT_CONFIG(cursor)
         if (QQuickWindow *wnd = window()) {
             QPointF pos = QCursor::pos(wnd->screen()) - wnd->position() - mapToScene(QPointF(0, 0));
             return d->control->anchorAt(pos);
         }
-#endif // QT_NO_CURSOR
+#endif // cursor
     }
     return QString();
 }
@@ -2784,7 +2883,7 @@ void QQuickTextEdit::append(const QString &text)
     if (!d->document->isEmpty())
         cursor.insertBlock();
 
-#ifndef QT_NO_TEXTHTMLPARSER
+#if QT_CONFIG(texthtmlparser)
     if (d->format == RichText || (d->format == AutoText && Qt::mightBeRichText(text))) {
         cursor.insertHtml(text);
     } else {
@@ -2792,7 +2891,7 @@ void QQuickTextEdit::append(const QString &text)
     }
 #else
     cursor.insertText(text);
-#endif // QT_NO_TEXTHTMLPARSER
+#endif // texthtmlparser
 
     cursor.endEditBlock();
     d->control->updateCursorRectangle(false);
@@ -2938,4 +3037,24 @@ void QQuickTextEdit::resetBottomPadding()
     d->setBottomPadding(0, true);
 }
 
+/*!
+    \qmlmethod QtQuick::TextEdit::clear()
+    \since 5.7
+
+    Clears the contents of the text edit
+    and resets partial text input from an input method.
+
+    Use this method instead of setting the \l text property to an empty string.
+
+    \sa QInputMethod::reset()
+*/
+void QQuickTextEdit::clear()
+{
+    Q_D(QQuickTextEdit);
+    d->resetInputMethod();
+    d->control->clear();
+}
+
 QT_END_NAMESPACE
+
+#include "moc_qquicktextedit_p.cpp"

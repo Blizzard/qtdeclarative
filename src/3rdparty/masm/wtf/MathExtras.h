@@ -88,7 +88,7 @@ inline double wtf_ceil(double x) { return copysign(ceil(x), x); }
 
 #endif
 
-#if OS(SOLARIS)
+#if OS(SOLARIS) && __cplusplus < 201103L
 
 namespace std {
 
@@ -152,7 +152,7 @@ inline long lroundf(float num) { return static_cast<long>(roundf(num)); }
 inline long long abs(long num) { return labs(num); }
 #endif
 
-#if COMPILER(MSVC)
+#if COMPILER(MSVC) && COMPILER(MSVC12_OR_LOWER)
 // MSVC's math.h does not currently supply log2 or log2f.
 inline double log2(double num)
 {

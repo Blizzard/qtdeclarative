@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -56,10 +62,55 @@
 
 QT_BEGIN_NAMESPACE
 
-class Q_QML_PRIVATE_EXPORT QV4DebugService : protected QQmlDebugService
+class QWindow;
+class QQuickWindow;
+
+#ifdef QT_NO_QML_DEBUGGER
+
+class QV4DebugService
+{
+public:
+    void signalEmitted(const QString &) {}
+};
+
+class QQmlProfilerService
+{
+public:
+    void startProfiling(QJSEngine *engine, quint64 features = std::numeric_limits<quint64>::max())
+    {
+        Q_UNUSED(engine);
+        Q_UNUSED(features);
+    }
+
+    void stopProfiling(QJSEngine *) {}
+};
+
+class QQmlEngineDebugService
+{
+public:
+    void objectCreated(QJSEngine *, QObject *) {}
+    virtual void setStatesDelegate(QQmlDebugStatesDelegate *) {}
+};
+
+class QQmlInspectorService {
+public:
+    void addWindow(QQuickWindow *) {}
+    void setParentWindow(QQuickWindow *, QWindow *) {}
+    void removeWindow(QQuickWindow *) {}
+};
+
+class QDebugMessageService {};
+class QQmlEngineControlService {};
+class QQmlNativeDebugService {};
+
+#else
+
+class Q_QML_PRIVATE_EXPORT QV4DebugService : public QQmlDebugService
 {
     Q_OBJECT
 public:
+    static const QString s_key;
+
     virtual void signalEmitted(const QString &signal) = 0;
 
 protected:
@@ -67,20 +118,20 @@ protected:
 
     QV4DebugService(float version, QObject *parent = 0) :
         QQmlDebugService(s_key, version, parent) {}
-
-    static const QString s_key;
 };
 
-class Q_QML_PRIVATE_EXPORT QQmlProfilerService : protected QQmlDebugService
+class Q_QML_PRIVATE_EXPORT QQmlProfilerService : public QQmlDebugService
 {
     Q_OBJECT
 public:
+    static const QString s_key;
+
     virtual void addGlobalProfiler(QQmlAbstractProfilerAdapter *profiler) = 0;
     virtual void removeGlobalProfiler(QQmlAbstractProfilerAdapter *profiler) = 0;
 
-    virtual void startProfiling(QQmlEngine *engine,
+    virtual void startProfiling(QJSEngine *engine,
                                 quint64 features = std::numeric_limits<quint64>::max()) = 0;
-    virtual void stopProfiling(QQmlEngine *engine) = 0;
+    virtual void stopProfiling(QJSEngine *engine) = 0;
 
     virtual void dataReady(QQmlAbstractProfilerAdapter *profiler) = 0;
 
@@ -89,15 +140,15 @@ protected:
 
     QQmlProfilerService(float version, QObject *parent = 0) :
         QQmlDebugService(s_key, version, parent) {}
-
-    static const QString s_key;
 };
 
-class Q_QML_PRIVATE_EXPORT QQmlEngineDebugService : protected QQmlDebugService
+class Q_QML_PRIVATE_EXPORT QQmlEngineDebugService : public QQmlDebugService
 {
     Q_OBJECT
 public:
-    virtual void objectCreated(QQmlEngine *engine, QObject *object) = 0;
+    static const QString s_key;
+
+    virtual void objectCreated(QJSEngine *engine, QObject *object) = 0;
     virtual void setStatesDelegate(QQmlDebugStatesDelegate *) = 0;
 
 protected:
@@ -107,38 +158,68 @@ protected:
         QQmlDebugService(s_key, version, parent) {}
 
     QQmlBoundSignal *nextSignal(QQmlBoundSignal *prev) { return prev->m_nextSignal; }
-
-    static const QString s_key;
 };
 
-class Q_QML_PRIVATE_EXPORT QQmlInspectorService : protected QQmlDebugService
+class Q_QML_PRIVATE_EXPORT QQmlInspectorService : public QQmlDebugService
 {
     Q_OBJECT
 public:
-    virtual void addView(QObject *) = 0;
-    virtual void removeView(QObject *) = 0;
+    static const QString s_key;
+
+    virtual void addWindow(QQuickWindow *) = 0;
+    virtual void setParentWindow(QQuickWindow *, QWindow *) = 0;
+    virtual void removeWindow(QQuickWindow *) = 0;
 
 protected:
     friend class QQmlDebugConnector;
 
     QQmlInspectorService(float version, QObject *parent = 0) :
         QQmlDebugService(s_key, version, parent) {}
-
-    static const QString s_key;
 };
 
-class Q_QML_PRIVATE_EXPORT QQmlNativeDebugService : protected QQmlDebugService
+class Q_QML_PRIVATE_EXPORT QDebugMessageService : public QQmlDebugService
 {
     Q_OBJECT
+public:
+    static const QString s_key;
+
+    virtual void synchronizeTime(const QElapsedTimer &otherTimer) = 0;
+
+protected:
+    friend class QQmlDebugConnector;
+
+    QDebugMessageService(float version, QObject *parent = 0) :
+        QQmlDebugService(s_key, version, parent) {}
+};
+
+class Q_QML_PRIVATE_EXPORT QQmlEngineControlService : public QQmlDebugService
+{
+    Q_OBJECT
+public:
+    static const QString s_key;
+
+protected:
+    friend class QQmlDebugConnector;
+
+    QQmlEngineControlService(float version, QObject *parent = 0) :
+        QQmlDebugService(s_key, version, parent) {}
+
+};
+
+class Q_QML_PRIVATE_EXPORT QQmlNativeDebugService : public QQmlDebugService
+{
+    Q_OBJECT
+public:
+    static const QString s_key;
 
 protected:
     friend class QQmlDebugConnector;
 
     QQmlNativeDebugService(float version, QObject *parent = 0)
         : QQmlDebugService(s_key, version,  parent) {}
-
-    static const QString s_key;
 };
+
+#endif
 
 QT_END_NAMESPACE
 

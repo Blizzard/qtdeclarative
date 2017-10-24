@@ -1,120 +1,139 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
 
 #include "qqmlinspectorservicefactory.h"
-#include "qquickviewinspector.h"
+#include "globalinspector.h"
+#include "qquickwindowinspector.h"
 
-#include <private/qqmlglobal_p.h>
-
-#include <QtCore/QCoreApplication>
-#include <QtCore/QDebug>
-#include <QtCore/QDir>
-#include <QtCore/QPluginLoader>
+#include <QtGui/QWindow>
 
 QT_BEGIN_NAMESPACE
 
 class QQmlInspectorServiceImpl : public QQmlInspectorService
 {
     Q_OBJECT
-
 public:
     QQmlInspectorServiceImpl(QObject *parent = 0);
 
-    void addView(QObject *);
-    void removeView(QObject *);
+    void addWindow(QQuickWindow *window) Q_DECL_OVERRIDE;
+    void setParentWindow(QQuickWindow *window, QWindow *parent) Q_DECL_OVERRIDE;
+    void removeWindow(QQuickWindow *window) Q_DECL_OVERRIDE;
+
+signals:
+    void scheduleMessage(const QByteArray &message);
 
 protected:
-    virtual void stateChanged(State state);
-    virtual void messageReceived(const QByteArray &);
-
-private Q_SLOTS:
-    void processMessage(const QByteArray &message);
-    void updateState();
+    virtual void messageReceived(const QByteArray &) Q_DECL_OVERRIDE;
 
 private:
     friend class QQmlInspectorServiceFactory;
 
-    QList<QObject*> m_views;
-    QmlJSDebugger::AbstractViewInspector *m_currentInspector;
+    QmlJSDebugger::GlobalInspector *checkInspector();
+    QmlJSDebugger::GlobalInspector *m_globalInspector;
+    QHash<QQuickWindow *, QWindow *> m_waitingWindows;
+
+    void messageFromClient(const QByteArray &message);
 };
 
 QQmlInspectorServiceImpl::QQmlInspectorServiceImpl(QObject *parent):
-    QQmlInspectorService(1, parent), m_currentInspector(0)
+    QQmlInspectorService(1, parent), m_globalInspector(0)
 {
+    connect(this, &QQmlInspectorServiceImpl::scheduleMessage,
+            this, &QQmlInspectorServiceImpl::messageFromClient, Qt::QueuedConnection);
 }
 
-void QQmlInspectorServiceImpl::addView(QObject *view)
+QmlJSDebugger::GlobalInspector *QQmlInspectorServiceImpl::checkInspector()
 {
-    m_views.append(view);
-    updateState();
+    if (state() == Enabled) {
+        if (!m_globalInspector) {
+            m_globalInspector = new QmlJSDebugger::GlobalInspector(this);
+            connect(m_globalInspector, &QmlJSDebugger::GlobalInspector::messageToClient,
+                    this, &QQmlDebugService::messageToClient);
+            for (QHash<QQuickWindow *, QWindow *>::ConstIterator i = m_waitingWindows.constBegin();
+                 i != m_waitingWindows.constEnd(); ++i) {
+                m_globalInspector->addWindow(i.key());
+                if (i.value() != 0)
+                    m_globalInspector->setParentWindow(i.key(), i.value());
+            }
+            m_waitingWindows.clear();
+        }
+    } else if (m_globalInspector) {
+        delete m_globalInspector;
+        m_globalInspector = 0;
+    }
+    return m_globalInspector;
 }
 
-void QQmlInspectorServiceImpl::removeView(QObject *view)
+void QQmlInspectorServiceImpl::addWindow(QQuickWindow *window)
 {
-    m_views.removeAll(view);
-    updateState();
-}
-
-void QQmlInspectorServiceImpl::stateChanged(State /*state*/)
-{
-    QMetaObject::invokeMethod(this, "updateState", Qt::QueuedConnection);
-}
-
-void QQmlInspectorServiceImpl::updateState()
-{
-    delete m_currentInspector;
-    m_currentInspector = 0;
-
-    if (m_views.isEmpty() || state() != Enabled)
-        return;
-
-    QQuickView *qtQuickView = qobject_cast<QQuickView*>(m_views.first());
-    if (qtQuickView)
-        m_currentInspector = new QmlJSDebugger::QQuickViewInspector(this, qtQuickView, this);
+    if (QmlJSDebugger::GlobalInspector *inspector = checkInspector())
+        inspector->addWindow(window);
     else
-        qWarning() << "QQmlInspector: No inspector available for view '"
-                   << m_views.first()->metaObject()->className() << "'.";
+        m_waitingWindows.insert(window, 0);
+}
+
+void QQmlInspectorServiceImpl::removeWindow(QQuickWindow *window)
+{
+    if (QmlJSDebugger::GlobalInspector *inspector = checkInspector())
+        inspector->removeWindow(window);
+    else
+        m_waitingWindows.remove(window);
+}
+
+void QQmlInspectorServiceImpl::setParentWindow(QQuickWindow *window, QWindow *parent)
+{
+    if (QmlJSDebugger::GlobalInspector *inspector = checkInspector())
+        inspector->setParentWindow(window, parent);
+    else
+        m_waitingWindows[window] = parent;
 }
 
 void QQmlInspectorServiceImpl::messageReceived(const QByteArray &message)
 {
-    QMetaObject::invokeMethod(this, "processMessage", Qt::QueuedConnection, Q_ARG(QByteArray, message));
+    // Move the message to the right thread via queued signal
+    emit scheduleMessage(message);
 }
 
-void QQmlInspectorServiceImpl::processMessage(const QByteArray &message)
+void QQmlInspectorServiceImpl::messageFromClient(const QByteArray &message)
 {
-    if (m_currentInspector)
-        m_currentInspector->handleMessage(message);
+    if (QmlJSDebugger::GlobalInspector *inspector = checkInspector())
+        inspector->processMessage(message);
 }
 
 QQmlDebugService *QQmlInspectorServiceFactory::create(const QString &key)

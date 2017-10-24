@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -582,8 +588,7 @@ void QAbstractAnimationJob::updateDirection(QAbstractAnimationJob::Direction dir
 void QAbstractAnimationJob::finished()
 {
     //TODO: update this code so it is valid to delete the animation in animationFinished
-    for (int i = 0; i < changeListeners.count(); ++i) {
-        const QAbstractAnimationJob::ChangeListener &change = changeListeners.at(i);
+    for (const auto &change : changeListeners) {
         if (change.types & QAbstractAnimationJob::Completion) {
             RETURN_IF_DELETED(change.listener->animationFinished(this));
         }
@@ -597,8 +602,7 @@ void QAbstractAnimationJob::finished()
 
 void QAbstractAnimationJob::stateChanged(QAbstractAnimationJob::State newState, QAbstractAnimationJob::State oldState)
 {
-    for (int i = 0; i < changeListeners.count(); ++i) {
-        const QAbstractAnimationJob::ChangeListener &change = changeListeners.at(i);
+    for (const auto &change : changeListeners) {
         if (change.types & QAbstractAnimationJob::StateChange) {
             RETURN_IF_DELETED(change.listener->animationStateChanged(this, newState, oldState));
         }
@@ -607,8 +611,7 @@ void QAbstractAnimationJob::stateChanged(QAbstractAnimationJob::State newState, 
 
 void QAbstractAnimationJob::currentLoopChanged()
 {
-    for (int i = 0; i < changeListeners.count(); ++i) {
-        const QAbstractAnimationJob::ChangeListener &change = changeListeners.at(i);
+    for (const auto &change : changeListeners) {
         if (change.types & QAbstractAnimationJob::CurrentLoop) {
            RETURN_IF_DELETED(change.listener->animationCurrentLoopChanged(this));
         }
@@ -619,8 +622,7 @@ void QAbstractAnimationJob::currentTimeChanged(int currentTime)
 {
     Q_ASSERT(m_hasCurrentTimeChangeListeners);
 
-    for (int i = 0; i < changeListeners.count(); ++i) {
-        const QAbstractAnimationJob::ChangeListener &change = changeListeners.at(i);
+    for (const auto &change : changeListeners) {
         if (change.types & QAbstractAnimationJob::CurrentTime) {
            RETURN_IF_DELETED(change.listener->animationCurrentTimeChanged(this, currentTime));
         }
@@ -632,17 +634,18 @@ void QAbstractAnimationJob::addAnimationChangeListener(QAnimationJobChangeListen
     if (changes & QAbstractAnimationJob::CurrentTime)
         m_hasCurrentTimeChangeListeners = true;
 
-    changeListeners.append(ChangeListener(listener, changes));
+    changeListeners.push_back(ChangeListener(listener, changes));
 }
 
 void QAbstractAnimationJob::removeAnimationChangeListener(QAnimationJobChangeListener *listener, QAbstractAnimationJob::ChangeTypes changes)
 {
     m_hasCurrentTimeChangeListeners = false;
 
-    changeListeners.removeOne(ChangeListener(listener, changes));
+    const auto it = std::find(changeListeners.begin(), changeListeners.end(), ChangeListener(listener, changes));
+    if (it != changeListeners.end())
+        changeListeners.erase(it);
 
-    for (int i = 0; i < changeListeners.count(); ++i) {
-        const QAbstractAnimationJob::ChangeListener &change = changeListeners.at(i);
+    for (const auto &change: changeListeners) {
         if (change.types & QAbstractAnimationJob::CurrentTime) {
             m_hasCurrentTimeChangeListeners = true;
             break;
@@ -669,3 +672,4 @@ QDebug operator<<(QDebug d, const QAbstractAnimationJob *job)
 QT_END_NAMESPACE
 
 //#include "moc_qabstractanimation2_p.cpp"
+#include "moc_qabstractanimationjob_p.cpp"

@@ -17,11 +17,13 @@ SUBDIRS =\
     preemptedStrictModule\
     invalidNamespaceModule\
     invalidFirstCommandModule\
-    protectedModule
+    protectedModule\
+    plugin/childplugin\
+    plugin.2/childplugin\
+    plugin.2.1/childplugin\
+    plugin.2.2
 
 tst_qqmlmoduleplugin_pro.depends += plugin
 SUBDIRS += tst_qqmlmoduleplugin.pro
-
-CONFIG += parallel_test
 
 QT += core-private gui-private qml-private

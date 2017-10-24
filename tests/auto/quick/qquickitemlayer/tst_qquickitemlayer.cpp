@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -35,6 +30,7 @@
 
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/qquickview.h>
+#include <QtQuick/qsgrendererinterface.h>
 #include <QtGui/qopenglcontext.h>
 #include <QtGui/qopenglfunctions.h>
 
@@ -48,10 +44,6 @@ public:
 
     QImage runTest(const QString &fileName)
     {
-#if defined(Q_OS_BLACKBERRY)
-        QWindow dummy;            // On BlackBerry first window is always full screen,
-        dummy.showFullScreen();   // so make test window a second window.
-#endif
         QQuickView view;
         view.setSource(testFileUrl(fileName));
 
@@ -65,9 +57,10 @@ private slots:
     void initTestCase() Q_DECL_OVERRIDE;
     void layerEnabled();
     void layerSmooth();
+#if QT_CONFIG(opengl)
     void layerMipmap();
     void layerEffect();
-
+#endif
     void layerVisibility_data();
     void layerVisibility();
 
@@ -95,17 +88,20 @@ private:
 
     bool m_isMesaSoftwareRasterizer;
     int m_mesaVersion;
+    bool m_isOpenGLRenderer;
 };
 
 tst_QQuickItemLayer::tst_QQuickItemLayer()
     : m_isMesaSoftwareRasterizer(false)
     , m_mesaVersion(0)
+    , m_isOpenGLRenderer(true)
 {
 }
 
 void tst_QQuickItemLayer::initTestCase()
 {
     QQmlDataTest::initTestCase();
+#if QT_CONFIG(opengl)
     QWindow window;
     QOpenGLContext context;
     window.setSurfaceType(QWindow::OpenGLSurface);
@@ -134,6 +130,13 @@ void tst_QQuickItemLayer::initTestCase()
             m_mesaVersion = QT_VERSION_CHECK(major, minor, patch);
         }
     }
+    window.create();
+#endif
+    QQuickView view;
+    view.showNormal();
+    QTest::qWaitForWindowExposed(&view);
+    if (view.rendererInterface()->graphicsApi() != QSGRendererInterface::OpenGL)
+        m_isOpenGLRenderer = false;
 }
 
 // The test draws a red and a blue box next to each other and tests that the
@@ -170,8 +173,7 @@ void tst_QQuickItemLayer::layerEnabled()
     QVERIFY(fb.pixel(0, 0) != fb.pixel(0, fb.height() - 1));
 }
 
-
-
+#if QT_CONFIG(opengl)
 // The test draws a one pixel wide line and scales it down by more than a a factor 2
 // If mipmpping works, the pixels should be gray, not white or black
 
@@ -197,8 +199,7 @@ void tst_QQuickItemLayer::layerEffect()
     QCOMPARE(fb.pixel(0, 0), qRgb(0xff, 0, 0));
     QCOMPARE(fb.pixel(fb.width() - 1, 0), qRgb(0, 0xff, 0));
 }
-
-
+#endif
 
 // The test draws a rectangle and verifies that there is padding on each side
 // as the source rect spans outside the item. The padding is verified using
@@ -207,6 +208,9 @@ void tst_QQuickItemLayer::layerSourceRect()
 {
     if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
         QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
+
+    if (!m_isOpenGLRenderer)
+        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
 
     QImage fb = runTest("SourceRect.qml");
 
@@ -228,6 +232,10 @@ void tst_QQuickItemLayer::layerIsTextureProvider()
 {
     if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
         QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
+
+    if (!m_isOpenGLRenderer)
+        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
+
     QImage fb = runTest("TextureProvider.qml");
     QCOMPARE(fb.pixel(0, 0), qRgb(0xff, 0, 0));
     QCOMPARE(fb.pixel(fb.width() - 1, 0), qRgb(0, 0xff, 0));
@@ -260,6 +268,9 @@ void tst_QQuickItemLayer::layerVisibility()
 {
     if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
         QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
+
+    if (!m_isOpenGLRenderer)
+        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
 
     QFETCH(bool, visible);
     QFETCH(bool, effect);
@@ -309,6 +320,9 @@ void tst_QQuickItemLayer::layerZOrder()
     if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
         QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
 
+    if (!m_isOpenGLRenderer)
+        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
+
     QFETCH(bool, effect);
 
     QQuickView view;
@@ -342,6 +356,9 @@ void tst_QQuickItemLayer::changeZOrder()
 {
     if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
         QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
+
+    if (!m_isOpenGLRenderer)
+        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
 
     QFETCH(bool, layered);
     QFETCH(bool, effect);
@@ -410,6 +427,10 @@ void tst_QQuickItemLayer::changeSamplerName()
 {
     if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
         QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
+
+    if (!m_isOpenGLRenderer)
+        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
+
     QImage fb = runTest("SamplerNameChange.qml");
     QCOMPARE(fb.pixel(0, 0), qRgb(0, 0, 0xff));
 }
@@ -418,6 +439,9 @@ void tst_QQuickItemLayer::itemEffect()
 {
     if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
         QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
+    if (!m_isOpenGLRenderer)
+        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
+
     QImage fb = runTest("ItemEffect.qml");
     QCOMPARE(fb.pixel(0, 0), qRgb(0xff, 0, 0));
     QCOMPARE(fb.pixel(199, 0), qRgb(0xff, 0, 0));
@@ -452,6 +476,9 @@ void tst_QQuickItemLayer::textureMirroring_data()
 void tst_QQuickItemLayer::textureMirroring()
 {
     QFETCH(int, mirroring);
+
+    if (!m_isOpenGLRenderer)
+        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
 
     QQuickView view;
     view.setSource(testFileUrl("TextureMirroring.qml"));

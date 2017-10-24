@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -51,7 +57,7 @@ QT_BEGIN_NAMESPACE
 
 namespace QV4 {
 
-struct Q_QML_EXPORT ObjectIterator
+struct Q_QML_EXPORT ObjectIteratorData
 {
     enum Flags {
         NoFlags = 0,
@@ -66,21 +72,52 @@ struct Q_QML_EXPORT ObjectIterator
     uint arrayIndex;
     uint memberIndex;
     uint flags;
+};
+V4_ASSERT_IS_TRIVIAL(ObjectIteratorData)
 
-    ObjectIterator(ExecutionEngine *e, Value *scratch1, Value *scratch2, Object *o, uint flags);
-    ObjectIterator(Scope &scope, const Object *o, uint flags);
-    void init(const Object *o);
+struct Q_QML_EXPORT ObjectIterator: ObjectIteratorData
+{
+    ObjectIterator(ExecutionEngine *e, Value *scratch1, Value *scratch2, Object *o, uint flags)
+    {
+        engine = e;
+        object = scratch1;
+        current = scratch2;
+        arrayNode = nullptr;
+        arrayIndex = 0;
+        memberIndex = 0;
+        this->flags = flags;
+        init(o);
+    }
+
+    ObjectIterator(Scope &scope, const Object *o, uint flags)
+    {
+        engine = scope.engine;
+        object = scope.alloc(1);
+        current = scope.alloc(1);
+        arrayNode = nullptr;
+        arrayIndex = 0;
+        memberIndex = 0;
+        this->flags = flags;
+        init(o);
+    }
+
     void next(Value *name, uint *index, Property *pd, PropertyAttributes *attributes = 0);
     ReturnedValue nextPropertyName(Value *value);
     ReturnedValue nextPropertyNameAsString(Value *value);
     ReturnedValue nextPropertyNameAsString();
+
+private:
+    void init(const Object *o);
 };
 
 namespace Heap {
 struct ForEachIteratorObject : Object {
-    ForEachIteratorObject(QV4::Object *o);
-    ObjectIterator it;
+    void init(QV4::Object *o);
+    ObjectIterator &it() { return *reinterpret_cast<ObjectIterator*>(&itData); }
     Value workArea[2];
+
+private:
+    ObjectIteratorData itData;
 };
 
 }
@@ -89,16 +126,18 @@ struct ForEachIteratorObject: Object {
     V4_OBJECT2(ForEachIteratorObject, Object)
     Q_MANAGED_TYPE(ForeachIteratorObject)
 
-    ReturnedValue nextPropertyName() { return d()->it.nextPropertyNameAsString(); }
+    ReturnedValue nextPropertyName() { return d()->it().nextPropertyNameAsString(); }
 
 protected:
     static void markObjects(Heap::Base *that, ExecutionEngine *e);
 };
 
 inline
-Heap::ForEachIteratorObject::ForEachIteratorObject(QV4::Object *o)
-    : it(internalClass->engine, workArea, workArea + 1, o, ObjectIterator::EnumerableOnly|ObjectIterator::WithProtoChain)
+void Heap::ForEachIteratorObject::init(QV4::Object *o)
 {
+    Object::init();
+    it() = ObjectIterator(internalClass->engine, workArea, workArea + 1, o,
+                          ObjectIterator::EnumerableOnly | ObjectIterator::WithProtoChain);
 }
 
 

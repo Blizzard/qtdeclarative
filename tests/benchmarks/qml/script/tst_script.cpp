@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -57,10 +52,8 @@ private slots:
    void property_getter_qmetaproperty();
 #endif
     void property_qobject();
-    void property_qmlobject();
 
     void setproperty_js();
-    void setproperty_qmlobject();
 
     void function_js();
 #if 0
@@ -68,7 +61,6 @@ private slots:
     void function_cpp();
 #endif
     void function_qobject();
-    void function_qmlobject();
 
     void function_args_js();
 #if 0
@@ -76,7 +68,6 @@ private slots:
     void function_args_cpp();
 #endif
     void function_args_qobject();
-    void function_args_qmlobject();
 
     void signal_unconnected();
     void signal_qml();
@@ -183,7 +174,7 @@ void tst_script::property_js()
     }
 }
 
-#if 0
+#if 0 // This requires internal API access in V4
 static QJSValue property_getter_method(QScriptContext *, QJSEngine *engine)
 {
     static int x = 0;
@@ -310,26 +301,6 @@ void tst_script::property_qobject()
     }
 }
 
-void tst_script::property_qmlobject()
-{
-    QQmlEngine qmlengine;
-
-    TestObject to;
-    QV8Engine *engine = QQmlEnginePrivate::getV8Engine(&qmlengine);
-    v8::HandleScope handle_scope;
-    v8::Context::Scope scope(engine->context());
-    QJSValue v = engine->scriptValueFromInternal(engine->qobjectWrapper()->newQObject(&to));
-
-    QJSValueList args;
-    args << v;
-    QJSValue prog = qmlengine.evaluate(PROPERTY_PROGRAM).call(args);
-    prog.call();
-
-    QBENCHMARK {
-        prog.call();
-    }
-}
-
 #define SETPROPERTY_PROGRAM \
     "(function(testObject) { return (function() { " \
     "    for (var ii = 0; ii < 10000; ++ii) { " \
@@ -347,27 +318,6 @@ void tst_script::setproperty_js()
     QJSValueList args;
     args << v;
     QJSValue prog = engine.evaluate(SETPROPERTY_PROGRAM).call(args);
-    prog.call();
-
-    QBENCHMARK {
-        prog.call();
-    }
-}
-
-void tst_script::setproperty_qmlobject()
-{
-    QQmlEngine qmlengine;
-
-    TestObject to;
-
-    QV8Engine *engine = QQmlEnginePrivate::getV8Engine(&qmlengine);
-    v8::HandleScope handle_scope;
-    v8::Context::Scope scope(engine->context());
-    QJSValue v = engine->scriptValueFromInternal(engine->qobjectWrapper()->newQObject(&to));
-
-    QJSValueList args;
-    args << v;
-    QJSValue prog = qmlengine.evaluate(SETPROPERTY_PROGRAM).call(args);
     prog.call();
 
     QBENCHMARK {
@@ -442,27 +392,6 @@ void tst_script::function_qobject()
     }
 }
 
-void tst_script::function_qmlobject()
-{
-    QQmlEngine qmlengine;
-
-    TestObject to;
-
-    QV8Engine *engine = QQmlEnginePrivate::getV8Engine(&qmlengine);
-    v8::HandleScope handle_scope;
-    v8::Context::Scope scope(engine->context());
-    QJSValue v = engine->scriptValueFromInternal(engine->qobjectWrapper()->newQObject(&to));
-
-    QJSValueList args;
-    args << v;
-    QJSValue prog = qmlengine.evaluate(FUNCTION_PROGRAM).call(args);
-    prog.call();
-
-    QBENCHMARK {
-        prog.call();
-    }
-}
-
 #define FUNCTION_ARGS_PROGRAM \
     "(function(testObject) { return (function() { " \
     "    var test = 0; " \
@@ -523,27 +452,6 @@ void tst_script::function_args_qobject()
     QJSValueList args;
     args << v;
     QJSValue prog = engine.evaluate(FUNCTION_ARGS_PROGRAM).call(args);
-    prog.call();
-
-    QBENCHMARK {
-        prog.call();
-    }
-}
-
-void tst_script::function_args_qmlobject()
-{
-    QQmlEngine qmlengine;
-
-    TestObject to;
-
-    QV8Engine *engine = QQmlEnginePrivate::getV8Engine(&qmlengine);
-    v8::HandleScope handle_scope;
-    v8::Context::Scope scope(engine->context());
-    QJSValue v = engine->scriptValueFromInternal(engine->qobjectWrapper()->newQObject(&to));
-
-    QJSValueList args;
-    args << v;
-    QJSValue prog = qmlengine.evaluate(FUNCTION_ARGS_PROGRAM).call(args);
     prog.call();
 
     QBENCHMARK {

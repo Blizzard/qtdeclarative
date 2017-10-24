@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -40,7 +46,11 @@
 
 using namespace QV4;
 
+QT_WARNING_SUPPRESS_GCC_TAUTOLOGICAL_COMPARE_ON
+
 const QV4::VTable QV4::ArrayData::static_vtbl = {
+    0,
+    0,
     0,
     QV4::ArrayData::IsExecutionContext,
     QV4::ArrayData::IsString,
@@ -88,13 +98,15 @@ const ArrayVTable SparseArrayData::static_vtbl =
     SparseArrayData::length
 };
 
+QT_WARNING_SUPPRESS_GCC_TAUTOLOGICAL_COMPARE_OFF
+
 Q_STATIC_ASSERT(sizeof(Heap::ArrayData) == sizeof(Heap::SimpleArrayData));
 Q_STATIC_ASSERT(sizeof(Heap::ArrayData) == sizeof(Heap::SparseArrayData));
 
 static Q_ALWAYS_INLINE void storeValue(ReturnedValue *target, uint value)
 {
     Value v;
-    v.setTagValue(Value::fromReturnedValue(*target).tag(), value);
+    v.setEmpty(value);
     *target = v.asReturnedValue();
 }
 
@@ -137,13 +149,13 @@ void ArrayData::realloc(Object *o, Type newType, uint requested, bool enforceAtt
     Scoped<ArrayData> newData(scope);
     if (newType < Heap::ArrayData::Sparse) {
         Heap::SimpleArrayData *n = scope.engine->memoryManager->allocManaged<SimpleArrayData>(size);
-        new (n) Heap::SimpleArrayData;
+        n->init();
         n->offset = 0;
         n->len = d ? d->d()->len : 0;
         newData = n;
     } else {
         Heap::SparseArrayData *n = scope.engine->memoryManager->allocManaged<SparseArrayData>(size);
-        new (n) Heap::SparseArrayData;
+        n->init();
         newData = n;
     }
     newData->setAlloc(alloc);
@@ -183,6 +195,7 @@ void ArrayData::realloc(Object *o, Type newType, uint requested, bool enforceAtt
     } else {
         sparse->sparse = new SparseArray;
         lastFree = &sparse->freeList;
+        storeValue(lastFree, 0);
         for (uint i = 0; i < toCopy; ++i) {
             if (!sparse->arrayData[i].isEmpty()) {
                 SparseArrayNode *n = sparse->sparse->insert(i);
@@ -203,6 +216,8 @@ void ArrayData::realloc(Object *o, Type newType, uint requested, bool enforceAtt
         }
         storeValue(lastFree, UINT_MAX);
     }
+
+    Q_ASSERT(Value::fromReturnedValue(sparse->freeList).isEmpty());
     // ### Could explicitly free the old data
 }
 
@@ -224,8 +239,14 @@ void ArrayData::ensureAttributes(Object *o)
 void SimpleArrayData::markObjects(Heap::Base *d, ExecutionEngine *e)
 {
     Heap::SimpleArrayData *dd = static_cast<Heap::SimpleArrayData *>(d);
-    for (uint i = 0; i < dd->len; ++i)
-        dd->arrayData[dd->mappedIndex(i)].mark(e);
+    uint end = dd->offset + dd->len;
+    if (end > dd->alloc) {
+        for (uint i = 0; i < end - dd->alloc; ++i)
+            dd->arrayData[i].mark(e);
+        end = dd->alloc;
+    }
+    for (uint i = dd->offset; i < end; ++i)
+        dd->arrayData[i].mark(e);
 }
 
 ReturnedValue SimpleArrayData::get(const Heap::ArrayData *d, uint index)
@@ -351,12 +372,12 @@ void SparseArrayData::free(Heap::ArrayData *d, uint idx)
     Value *v = d->arrayData + idx;
     if (d->attrs && d->attrs[idx].isAccessor()) {
         // double slot, free both. Order is important, so we have a double slot for allocation again afterwards.
-        v[1].setTagValue(Value::Empty_Type, Value::fromReturnedValue(d->freeList).value());
-        v[0].setTagValue(Value::Empty_Type, idx + 1);
+        v[1].setEmpty(Value::fromReturnedValue(d->freeList).emptyValue());
+        v[0].setEmpty(idx + 1);
     } else {
-        v->setTagValue(Value::Empty_Type, Value::fromReturnedValue(d->freeList).value());
+        v->setEmpty(Value::fromReturnedValue(d->freeList).emptyValue());
     }
-    d->freeList = idx;
+    d->freeList = Primitive::emptyValue(idx).asReturnedValue();
     if (d->attrs)
         d->attrs[idx].clear();
 }
@@ -394,9 +415,9 @@ uint SparseArrayData::allocate(Object *o, bool doubleSlot)
             Q_ASSERT(dd->arrayData[Value::fromReturnedValue(*last).value()].value() != Value::fromReturnedValue(*last).value());
             if (dd->arrayData[Value::fromReturnedValue(*last).value()].value() == (Value::fromReturnedValue(*last).value() + 1)) {
                 // found two slots in a row
-                uint idx = Value::fromReturnedValue(*last).uint_32();
+                uint idx = Value::fromReturnedValue(*last).emptyValue();
                 Value lastV = Value::fromReturnedValue(*last);
-                lastV.setTagValue(lastV.tag(), dd->arrayData[lastV.value() + 1].value());
+                lastV.setEmpty(dd->arrayData[lastV.emptyValue() + 1].value());
                 *last = lastV.rawValue();
                 dd->attrs[idx] = Attr_Accessor;
                 return idx;
@@ -410,7 +431,8 @@ uint SparseArrayData::allocate(Object *o, bool doubleSlot)
         }
         uint idx = Value::fromReturnedValue(dd->freeList).value();
         Q_ASSERT(idx != UINT_MAX);
-        dd->freeList = dd->arrayData[idx].uint_32();
+        dd->freeList = dd->arrayData[idx].asReturnedValue();
+        Q_ASSERT(Value::fromReturnedValue(dd->freeList).isEmpty());
         if (dd->attrs)
             dd->attrs[idx] = Attr_Data;
         return idx;
@@ -465,13 +487,14 @@ bool SparseArrayData::del(Object *o, uint index)
 
     if (isAccessor) {
         // free up both indices
-        dd->arrayData[pidx + 1].setTagValue(Value::Empty_Type, Value::fromReturnedValue(dd->freeList).value());
-        dd->arrayData[pidx].setTagValue(Value::Undefined_Type, pidx + 1);
+        dd->arrayData[pidx + 1].setEmpty(Value::fromReturnedValue(dd->freeList).emptyValue());
+        dd->arrayData[pidx].setEmpty(pidx + 1);
     } else {
-        dd->arrayData[pidx].setTagValue(Value::Empty_Type, Value::fromReturnedValue(dd->freeList).value());
+        Q_ASSERT(dd->type == Heap::ArrayData::Sparse);
+        dd->arrayData[pidx].setEmpty(Value::fromReturnedValue(dd->freeList).emptyValue());
     }
 
-    dd->freeList = pidx;
+    dd->freeList = Primitive::emptyValue(pidx).asReturnedValue();
     dd->sparse->erase(n);
     return true;
 }
@@ -676,7 +699,7 @@ bool ArrayElementLessThan::operator()(Value v1, Value v2) const
         callData->thisObject = Primitive::undefinedValue();
         callData->args[0] = v1;
         callData->args[1] = v2;
-        result = Runtime::callValue(scope.engine, m_comparefn, callData);
+        result = QV4::Runtime::method_callValue(scope.engine, m_comparefn, callData);
 
         return result->toNumber() < 0;
     }

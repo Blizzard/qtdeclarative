@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -225,6 +231,17 @@ protected:
         }
     };
 
+    struct TempScope {
+        TempScope(QV4::IR::Function *f)
+            : function(f),
+              tempCountForScope(f->currentTemp) {}
+        ~TempScope() {
+            function->currentTemp = tempCountForScope;
+        }
+        QV4::IR::Function *function;
+        int tempCountForScope;
+    };
+
     Environment *newEnvironment(AST::Node *node, Environment *parent, CompilationMode compilationMode)
     {
         Environment *env = new Environment(parent, compilationMode);
@@ -287,7 +304,6 @@ protected:
     }
 
     QV4::IR::Expr *member(QV4::IR::Expr *base, const QString *name);
-    QV4::IR::Expr *subscript(QV4::IR::Expr *base, QV4::IR::Expr *index);
     QV4::IR::Expr *argument(QV4::IR::Expr *expr);
     QV4::IR::Expr *reference(QV4::IR::Expr *expr);
     QV4::IR::Expr *unop(QV4::IR::AluOp op, QV4::IR::Expr *expr, const AST::SourceLocation &loc = AST::SourceLocation());
@@ -325,103 +341,103 @@ protected:
     virtual void beginFunctionBodyHook() {}
 
     // nodes
-    virtual bool visit(AST::ArgumentList *ast);
-    virtual bool visit(AST::CaseBlock *ast);
-    virtual bool visit(AST::CaseClause *ast);
-    virtual bool visit(AST::CaseClauses *ast);
-    virtual bool visit(AST::Catch *ast);
-    virtual bool visit(AST::DefaultClause *ast);
-    virtual bool visit(AST::ElementList *ast);
-    virtual bool visit(AST::Elision *ast);
-    virtual bool visit(AST::Finally *ast);
-    virtual bool visit(AST::FormalParameterList *ast);
-    virtual bool visit(AST::FunctionBody *ast);
-    virtual bool visit(AST::Program *ast);
-    virtual bool visit(AST::PropertyNameAndValue *ast);
-    virtual bool visit(AST::PropertyAssignmentList *ast);
-    virtual bool visit(AST::PropertyGetterSetter *ast);
-    virtual bool visit(AST::SourceElements *ast);
-    virtual bool visit(AST::StatementList *ast);
-    virtual bool visit(AST::UiArrayMemberList *ast);
-    virtual bool visit(AST::UiImport *ast);
-    virtual bool visit(AST::UiHeaderItemList *ast);
-    virtual bool visit(AST::UiPragma *ast);
-    virtual bool visit(AST::UiObjectInitializer *ast);
-    virtual bool visit(AST::UiObjectMemberList *ast);
-    virtual bool visit(AST::UiParameterList *ast);
-    virtual bool visit(AST::UiProgram *ast);
-    virtual bool visit(AST::UiQualifiedId *ast);
-    virtual bool visit(AST::UiQualifiedPragmaId *ast);
-    virtual bool visit(AST::VariableDeclaration *ast);
-    virtual bool visit(AST::VariableDeclarationList *ast);
+    bool visit(AST::ArgumentList *ast) override;
+    bool visit(AST::CaseBlock *ast) override;
+    bool visit(AST::CaseClause *ast) override;
+    bool visit(AST::CaseClauses *ast) override;
+    bool visit(AST::Catch *ast) override;
+    bool visit(AST::DefaultClause *ast) override;
+    bool visit(AST::ElementList *ast) override;
+    bool visit(AST::Elision *ast) override;
+    bool visit(AST::Finally *ast) override;
+    bool visit(AST::FormalParameterList *ast) override;
+    bool visit(AST::FunctionBody *ast) override;
+    bool visit(AST::Program *ast) override;
+    bool visit(AST::PropertyNameAndValue *ast) override;
+    bool visit(AST::PropertyAssignmentList *ast) override;
+    bool visit(AST::PropertyGetterSetter *ast) override;
+    bool visit(AST::SourceElements *ast) override;
+    bool visit(AST::StatementList *ast) override;
+    bool visit(AST::UiArrayMemberList *ast) override;
+    bool visit(AST::UiImport *ast) override;
+    bool visit(AST::UiHeaderItemList *ast) override;
+    bool visit(AST::UiPragma *ast) override;
+    bool visit(AST::UiObjectInitializer *ast) override;
+    bool visit(AST::UiObjectMemberList *ast) override;
+    bool visit(AST::UiParameterList *ast) override;
+    bool visit(AST::UiProgram *ast) override;
+    bool visit(AST::UiQualifiedId *ast) override;
+    bool visit(AST::UiQualifiedPragmaId *ast) override;
+    bool visit(AST::VariableDeclaration *ast) override;
+    bool visit(AST::VariableDeclarationList *ast) override;
 
     // expressions
-    virtual bool visit(AST::Expression *ast);
-    virtual bool visit(AST::ArrayLiteral *ast);
-    virtual bool visit(AST::ArrayMemberExpression *ast);
-    virtual bool visit(AST::BinaryExpression *ast);
-    virtual bool visit(AST::CallExpression *ast);
-    virtual bool visit(AST::ConditionalExpression *ast);
-    virtual bool visit(AST::DeleteExpression *ast);
-    virtual bool visit(AST::FalseLiteral *ast);
-    virtual bool visit(AST::FieldMemberExpression *ast);
-    virtual bool visit(AST::FunctionExpression *ast);
-    virtual bool visit(AST::IdentifierExpression *ast);
-    virtual bool visit(AST::NestedExpression *ast);
-    virtual bool visit(AST::NewExpression *ast);
-    virtual bool visit(AST::NewMemberExpression *ast);
-    virtual bool visit(AST::NotExpression *ast);
-    virtual bool visit(AST::NullExpression *ast);
-    virtual bool visit(AST::NumericLiteral *ast);
-    virtual bool visit(AST::ObjectLiteral *ast);
-    virtual bool visit(AST::PostDecrementExpression *ast);
-    virtual bool visit(AST::PostIncrementExpression *ast);
-    virtual bool visit(AST::PreDecrementExpression *ast);
-    virtual bool visit(AST::PreIncrementExpression *ast);
-    virtual bool visit(AST::RegExpLiteral *ast);
-    virtual bool visit(AST::StringLiteral *ast);
-    virtual bool visit(AST::ThisExpression *ast);
-    virtual bool visit(AST::TildeExpression *ast);
-    virtual bool visit(AST::TrueLiteral *ast);
-    virtual bool visit(AST::TypeOfExpression *ast);
-    virtual bool visit(AST::UnaryMinusExpression *ast);
-    virtual bool visit(AST::UnaryPlusExpression *ast);
-    virtual bool visit(AST::VoidExpression *ast);
-    virtual bool visit(AST::FunctionDeclaration *ast);
+    bool visit(AST::Expression *ast) override;
+    bool visit(AST::ArrayLiteral *ast) override;
+    bool visit(AST::ArrayMemberExpression *ast) override;
+    bool visit(AST::BinaryExpression *ast) override;
+    bool visit(AST::CallExpression *ast) override;
+    bool visit(AST::ConditionalExpression *ast) override;
+    bool visit(AST::DeleteExpression *ast) override;
+    bool visit(AST::FalseLiteral *ast) override;
+    bool visit(AST::FieldMemberExpression *ast) override;
+    bool visit(AST::FunctionExpression *ast) override;
+    bool visit(AST::IdentifierExpression *ast) override;
+    bool visit(AST::NestedExpression *ast) override;
+    bool visit(AST::NewExpression *ast) override;
+    bool visit(AST::NewMemberExpression *ast) override;
+    bool visit(AST::NotExpression *ast) override;
+    bool visit(AST::NullExpression *ast) override;
+    bool visit(AST::NumericLiteral *ast) override;
+    bool visit(AST::ObjectLiteral *ast) override;
+    bool visit(AST::PostDecrementExpression *ast) override;
+    bool visit(AST::PostIncrementExpression *ast) override;
+    bool visit(AST::PreDecrementExpression *ast) override;
+    bool visit(AST::PreIncrementExpression *ast) override;
+    bool visit(AST::RegExpLiteral *ast) override;
+    bool visit(AST::StringLiteral *ast) override;
+    bool visit(AST::ThisExpression *ast) override;
+    bool visit(AST::TildeExpression *ast) override;
+    bool visit(AST::TrueLiteral *ast) override;
+    bool visit(AST::TypeOfExpression *ast) override;
+    bool visit(AST::UnaryMinusExpression *ast) override;
+    bool visit(AST::UnaryPlusExpression *ast) override;
+    bool visit(AST::VoidExpression *ast) override;
+    bool visit(AST::FunctionDeclaration *ast) override;
 
     // source elements
-    virtual bool visit(AST::FunctionSourceElement *ast);
-    virtual bool visit(AST::StatementSourceElement *ast);
+    bool visit(AST::FunctionSourceElement *ast) override;
+    bool visit(AST::StatementSourceElement *ast) override;
 
     // statements
-    virtual bool visit(AST::Block *ast);
-    virtual bool visit(AST::BreakStatement *ast);
-    virtual bool visit(AST::ContinueStatement *ast);
-    virtual bool visit(AST::DebuggerStatement *ast);
-    virtual bool visit(AST::DoWhileStatement *ast);
-    virtual bool visit(AST::EmptyStatement *ast);
-    virtual bool visit(AST::ExpressionStatement *ast);
-    virtual bool visit(AST::ForEachStatement *ast);
-    virtual bool visit(AST::ForStatement *ast);
-    virtual bool visit(AST::IfStatement *ast);
-    virtual bool visit(AST::LabelledStatement *ast);
-    virtual bool visit(AST::LocalForEachStatement *ast);
-    virtual bool visit(AST::LocalForStatement *ast);
-    virtual bool visit(AST::ReturnStatement *ast);
-    virtual bool visit(AST::SwitchStatement *ast);
-    virtual bool visit(AST::ThrowStatement *ast);
-    virtual bool visit(AST::TryStatement *ast);
-    virtual bool visit(AST::VariableStatement *ast);
-    virtual bool visit(AST::WhileStatement *ast);
-    virtual bool visit(AST::WithStatement *ast);
+    bool visit(AST::Block *ast) override;
+    bool visit(AST::BreakStatement *ast) override;
+    bool visit(AST::ContinueStatement *ast) override;
+    bool visit(AST::DebuggerStatement *ast) override;
+    bool visit(AST::DoWhileStatement *ast) override;
+    bool visit(AST::EmptyStatement *ast) override;
+    bool visit(AST::ExpressionStatement *ast) override;
+    bool visit(AST::ForEachStatement *ast) override;
+    bool visit(AST::ForStatement *ast) override;
+    bool visit(AST::IfStatement *ast) override;
+    bool visit(AST::LabelledStatement *ast) override;
+    bool visit(AST::LocalForEachStatement *ast) override;
+    bool visit(AST::LocalForStatement *ast) override;
+    bool visit(AST::ReturnStatement *ast) override;
+    bool visit(AST::SwitchStatement *ast) override;
+    bool visit(AST::ThrowStatement *ast) override;
+    bool visit(AST::TryStatement *ast) override;
+    bool visit(AST::VariableStatement *ast) override;
+    bool visit(AST::WhileStatement *ast) override;
+    bool visit(AST::WithStatement *ast) override;
 
     // ui object members
-    virtual bool visit(AST::UiArrayBinding *ast);
-    virtual bool visit(AST::UiObjectBinding *ast);
-    virtual bool visit(AST::UiObjectDefinition *ast);
-    virtual bool visit(AST::UiPublicMember *ast);
-    virtual bool visit(AST::UiScriptBinding *ast);
-    virtual bool visit(AST::UiSourceElement *ast);
+    bool visit(AST::UiArrayBinding *ast) override;
+    bool visit(AST::UiObjectBinding *ast) override;
+    bool visit(AST::UiObjectDefinition *ast) override;
+    bool visit(AST::UiPublicMember *ast) override;
+    bool visit(AST::UiScriptBinding *ast) override;
+    bool visit(AST::UiSourceElement *ast) override;
 
     bool throwSyntaxErrorOnEvalOrArgumentsInStrictMode(QV4::IR::Expr* expr, const AST::SourceLocation &loc);
     virtual void throwSyntaxError(const AST::SourceLocation &loc, const QString &detail);
@@ -480,39 +496,39 @@ protected:
         void checkName(const QStringRef &name, const AST::SourceLocation &loc);
         void checkForArguments(AST::FormalParameterList *parameters);
 
-        virtual bool visit(AST::Program *ast);
-        virtual void endVisit(AST::Program *);
+        bool visit(AST::Program *ast) override;
+        void endVisit(AST::Program *) override;
 
-        virtual bool visit(AST::CallExpression *ast);
-        virtual bool visit(AST::NewMemberExpression *ast);
-        virtual bool visit(AST::ArrayLiteral *ast);
-        virtual bool visit(AST::VariableDeclaration *ast);
-        virtual bool visit(AST::IdentifierExpression *ast);
-        virtual bool visit(AST::ExpressionStatement *ast);
-        virtual bool visit(AST::FunctionExpression *ast);
+        bool visit(AST::CallExpression *ast) override;
+        bool visit(AST::NewMemberExpression *ast) override;
+        bool visit(AST::ArrayLiteral *ast) override;
+        bool visit(AST::VariableDeclaration *ast) override;
+        bool visit(AST::IdentifierExpression *ast) override;
+        bool visit(AST::ExpressionStatement *ast) override;
+        bool visit(AST::FunctionExpression *ast) override;
 
         void enterFunction(AST::FunctionExpression *ast, bool enterName, bool isExpression = true);
 
-        virtual void endVisit(AST::FunctionExpression *);
+        void endVisit(AST::FunctionExpression *) override;
 
-        virtual bool visit(AST::ObjectLiteral *ast);
+        bool visit(AST::ObjectLiteral *ast) override;
 
-        virtual bool visit(AST::PropertyGetterSetter *ast);
-        virtual void endVisit(AST::PropertyGetterSetter *);
+        bool visit(AST::PropertyGetterSetter *ast) override;
+        void endVisit(AST::PropertyGetterSetter *) override;
 
-        virtual bool visit(AST::FunctionDeclaration *ast);
-        virtual void endVisit(AST::FunctionDeclaration *);
+        bool visit(AST::FunctionDeclaration *ast) override;
+        void endVisit(AST::FunctionDeclaration *) override;
 
-        virtual bool visit(AST::WithStatement *ast);
+        bool visit(AST::WithStatement *ast) override;
 
-        virtual bool visit(AST::DoWhileStatement *ast);
-        virtual bool visit(AST::ForStatement *ast);
-        virtual bool visit(AST::LocalForStatement *ast);
-        virtual bool visit(AST::ForEachStatement *ast);
-        virtual bool visit(AST::LocalForEachStatement *ast);
-        virtual bool visit(AST::ThisExpression *ast);
+        bool visit(AST::DoWhileStatement *ast) override;
+        bool visit(AST::ForStatement *ast) override;
+        bool visit(AST::LocalForStatement *ast) override;
+        bool visit(AST::ForEachStatement *ast) override;
+        bool visit(AST::LocalForEachStatement *ast) override;
+        bool visit(AST::ThisExpression *ast) override;
 
-        virtual bool visit(AST::Block *ast);
+        bool visit(AST::Block *ast) override;
 
     protected:
         void enterFunction(AST::Node *ast, const QString &name, AST::FormalParameterList *formals, AST::FunctionBody *body, AST::FunctionExpression *expr, bool isExpression);
@@ -538,8 +554,8 @@ public:
         , engine(engine)
     {}
 
-    virtual void throwSyntaxError(const AST::SourceLocation &loc, const QString &detail);
-    virtual void throwReferenceError(const AST::SourceLocation &loc, const QString &detail);
+    void throwSyntaxError(const AST::SourceLocation &loc, const QString &detail) override;
+    void throwReferenceError(const AST::SourceLocation &loc, const QString &detail) override;
 private:
     QV4::ExecutionEngine *engine;
 };

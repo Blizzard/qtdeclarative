@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -69,6 +75,9 @@ static void generateWarning(QV4::ExecutionEngine *v4, const QString& description
 
 //  F(elementType, elementTypeName, sequenceType, defaultValue)
 #define FOREACH_QML_SEQUENCE_TYPE(F) \
+    F(int, IntVector, QVector<int>, 0) \
+    F(qreal, RealVector, QVector<qreal>, 0.0) \
+    F(bool, BoolVector, QVector<bool>, false) \
     F(int, Int, QList<int>, 0) \
     F(qreal, Real, QList<qreal>, 0.0) \
     F(bool, Bool, QList<bool>, false) \
@@ -207,11 +216,16 @@ namespace Heap {
 
 template <typename Container>
 struct QQmlSequence : Object {
-    QQmlSequence(const Container &container);
-    QQmlSequence(QObject *object, int propertyIndex);
+    void init(const Container &container);
+    void init(QObject *object, int propertyIndex);
+    void destroy() {
+        delete container;
+        object.destroy();
+        Object::destroy();
+    }
 
-    mutable Container container;
-    QPointer<QObject> object;
+    mutable Container *container;
+    QQmlQPointer<QObject> object;
     int propertyIndex;
     bool isReference;
 };
@@ -250,10 +264,10 @@ public:
             loadReference();
         }
         qint32 signedIdx = static_cast<qint32>(index);
-        if (signedIdx < d()->container.count()) {
+        if (signedIdx < d()->container->count()) {
             if (hasProperty)
                 *hasProperty = true;
-            return convertElementToValue(engine(), d()->container.at(signedIdx));
+            return convertElementToValue(engine(), d()->container->at(signedIdx));
         }
         if (hasProperty)
             *hasProperty = false;
@@ -279,22 +293,22 @@ public:
 
         qint32 signedIdx = static_cast<qint32>(index);
 
-        int count = d()->container.count();
+        int count = d()->container->count();
 
         typename Container::value_type element = convertValueToElement<typename Container::value_type>(value);
 
         if (signedIdx == count) {
-            d()->container.append(element);
+            d()->container->append(element);
         } else if (signedIdx < count) {
-            d()->container[signedIdx] = element;
+            (*d()->container)[signedIdx] = element;
         } else {
             /* according to ECMA262r3 we need to insert */
             /* the value at the given index, increasing length to index+1. */
-            d()->container.reserve(signedIdx + 1);
+            d()->container->reserve(signedIdx + 1);
             while (signedIdx > count++) {
-                d()->container.append(typename Container::value_type());
+                d()->container->append(typename Container::value_type());
             }
-            d()->container.append(element);
+            d()->container->append(element);
         }
 
         if (d()->isReference)
@@ -314,7 +328,7 @@ public:
             loadReference();
         }
         qint32 signedIdx = static_cast<qint32>(index);
-        return (signedIdx < d()->container.count()) ? QV4::Attr_Data : QV4::Attr_Invalid;
+        return (signedIdx < d()->container->count()) ? QV4::Attr_Data : QV4::Attr_Invalid;
     }
 
     void containerAdvanceIterator(ObjectIterator *it, Value *name, uint *index, Property *p, PropertyAttributes *attrs)
@@ -330,11 +344,11 @@ public:
             loadReference();
         }
 
-        if (it->arrayIndex < static_cast<uint>(d()->container.count())) {
+        if (it->arrayIndex < static_cast<uint>(d()->container->count())) {
             *index = it->arrayIndex;
             ++it->arrayIndex;
             *attrs = QV4::Attr_Data;
-            p->value = convertElementToValue(engine(), d()->container.at(*index));
+            p->value = convertElementToValue(engine(), d()->container->at(*index));
             return;
         }
         QV4::Object::advanceIterator(this, it, name, index, p, attrs);
@@ -352,12 +366,12 @@ public:
         }
         qint32 signedIdx = static_cast<qint32>(index);
 
-        if (signedIdx >= d()->container.count())
+        if (signedIdx >= d()->container->count())
             return false;
 
         /* according to ECMA262r3 it should be Undefined, */
         /* but we cannot, so we insert a default-value instead. */
-        d()->container.replace(signedIdx, typename Container::value_type());
+        d()->container->replace(signedIdx, typename Container::value_type());
 
         if (d()->isReference)
             storeReference();
@@ -390,28 +404,28 @@ public:
 
     struct CompareFunctor
     {
-        CompareFunctor(QV4::ExecutionContext *ctx, const QV4::Value &compareFn)
-            : m_ctx(ctx), m_compareFn(&compareFn)
+        CompareFunctor(QV4::ExecutionEngine *v4, const QV4::Value &compareFn)
+            : m_v4(v4), m_compareFn(&compareFn)
         {}
 
         bool operator()(typename Container::value_type lhs, typename Container::value_type rhs)
         {
-            QV4::Scope scope(m_ctx);
+            QV4::Scope scope(m_v4);
             ScopedObject compare(scope, m_compareFn);
             ScopedCallData callData(scope, 2);
-            callData->args[0] = convertElementToValue(this->m_ctx->d()->engine, lhs);
-            callData->args[1] = convertElementToValue(this->m_ctx->d()->engine, rhs);
-            callData->thisObject = this->m_ctx->d()->engine->globalObject;
-            QV4::ScopedValue result(scope, compare->call(callData));
-            return result->toNumber() < 0;
+            callData->args[0] = convertElementToValue(m_v4, lhs);
+            callData->args[1] = convertElementToValue(m_v4, rhs);
+            callData->thisObject = m_v4->globalObject;
+            compare->call(scope, callData);
+            return scope.result.toNumber() < 0;
         }
 
     private:
-        QV4::ExecutionContext *m_ctx;
+        QV4::ExecutionEngine *m_v4;
         const QV4::Value *m_compareFn;
     };
 
-    void sort(QV4::CallContext *ctx)
+    void sort(const BuiltinFunction *, Scope &scope, CallData *callData)
     {
         if (d()->isReference) {
             if (!d()->object)
@@ -419,72 +433,69 @@ public:
             loadReference();
         }
 
-        QV4::Scope scope(ctx);
-        if (ctx->argc() == 1 && ctx->args()[0].as<FunctionObject>()) {
-            CompareFunctor cf(ctx, ctx->args()[0]);
-            std::sort(d()->container.begin(), d()->container.end(), cf);
+        if (callData->argc == 1 && callData->args[0].as<FunctionObject>()) {
+            CompareFunctor cf(scope.engine, callData->args[0]);
+            std::sort(d()->container->begin(), d()->container->end(), cf);
         } else {
             DefaultCompareFunctor cf;
-            std::sort(d()->container.begin(), d()->container.end(), cf);
+            std::sort(d()->container->begin(), d()->container->end(), cf);
         }
 
         if (d()->isReference)
             storeReference();
     }
 
-    static QV4::ReturnedValue method_get_length(QV4::CallContext *ctx)
+    static void method_get_length(const BuiltinFunction *, Scope &scope, CallData *callData)
     {
-        QV4::Scope scope(ctx);
-        QV4::Scoped<QQmlSequence<Container> > This(scope, ctx->thisObject().as<QQmlSequence<Container> >());
+        QV4::Scoped<QQmlSequence<Container> > This(scope, callData->thisObject.as<QQmlSequence<Container> >());
         if (!This)
-            return ctx->engine()->throwTypeError();
+            THROW_TYPE_ERROR();
 
         if (This->d()->isReference) {
             if (!This->d()->object)
-                return QV4::Encode(0);
+                RETURN_RESULT(Encode(0));
             This->loadReference();
         }
-        return QV4::Encode(This->d()->container.count());
+        RETURN_RESULT(Encode(This->d()->container->count()));
     }
 
-    static QV4::ReturnedValue method_set_length(QV4::CallContext* ctx)
+    static void method_set_length(const BuiltinFunction *, Scope &scope, CallData *callData)
     {
-        QV4::Scope scope(ctx);
-        QV4::Scoped<QQmlSequence<Container> > This(scope, ctx->thisObject().as<QQmlSequence<Container> >());
+        QV4::Scoped<QQmlSequence<Container> > This(scope, callData->thisObject.as<QQmlSequence<Container> >());
         if (!This)
-            return ctx->engine()->throwTypeError();
+            THROW_TYPE_ERROR();
 
-        quint32 newLength = ctx->args()[0].toUInt32();
+        quint32 newLength = callData->args[0].toUInt32();
         /* Qt containers have int (rather than uint) allowable indexes. */
         if (newLength > INT_MAX) {
             generateWarning(scope.engine, QLatin1String("Index out of range during length set"));
-            return QV4::Encode::undefined();
+            RETURN_UNDEFINED();
         }
         /* Read the sequence from the QObject property if we're a reference */
         if (This->d()->isReference) {
             if (!This->d()->object)
-                return QV4::Encode::undefined();
+                RETURN_UNDEFINED();
             This->loadReference();
         }
         /* Determine whether we need to modify the sequence */
         qint32 newCount = static_cast<qint32>(newLength);
-        qint32 count = This->d()->container.count();
+        qint32 count = This->d()->container->count();
         if (newCount == count) {
-            return QV4::Encode::undefined();
+            RETURN_UNDEFINED();
         } else if (newCount > count) {
             /* according to ECMA262r3 we need to insert */
             /* undefined values increasing length to newLength. */
             /* We cannot, so we insert default-values instead. */
-            This->d()->container.reserve(newCount);
+            This->d()->container->reserve(newCount);
             while (newCount > count++) {
-                This->d()->container.append(typename Container::value_type());
+                This->d()->container->append(typename Container::value_type());
             }
         } else {
             /* according to ECMA262r3 we need to remove */
             /* elements until the sequence is the required length. */
             while (newCount < count) {
                 count--;
-                This->d()->container.removeAt(count);
+                This->d()->container->removeAt(count);
             }
         }
         /* write back if required. */
@@ -492,11 +503,11 @@ public:
             /* write back.  already checked that object is non-null, so skip that check here. */
             This->storeReference();
         }
-        return QV4::Encode::undefined();
+        RETURN_UNDEFINED();
     }
 
     QVariant toVariant() const
-    { return QVariant::fromValue<Container>(d()->container); }
+    { return QVariant::fromValue<Container>(*d()->container); }
 
     static QVariant toVariant(QV4::ArrayObject *array)
     {
@@ -513,7 +524,7 @@ public:
     {
         Q_ASSERT(d()->object);
         Q_ASSERT(d()->isReference);
-        void *a[] = { &d()->container, 0 };
+        void *a[] = { d()->container, 0 };
         QMetaObject::metacall(d()->object, QMetaObject::ReadProperty, d()->propertyIndex, a);
     }
 
@@ -522,8 +533,8 @@ public:
         Q_ASSERT(d()->object);
         Q_ASSERT(d()->isReference);
         int status = -1;
-        QQmlPropertyPrivate::WriteFlags flags = QQmlPropertyPrivate::DontRemoveBinding;
-        void *a[] = { &d()->container, 0, &status, &flags };
+        QQmlPropertyData::WriteFlags flags = QQmlPropertyData::DontRemoveBinding;
+        void *a[] = { d()->container, 0, &status, &flags };
         QMetaObject::metacall(d()->object, QMetaObject::WriteProperty, d()->propertyIndex, a);
     }
 
@@ -544,11 +555,14 @@ public:
 
 
 template <typename Container>
-Heap::QQmlSequence<Container>::QQmlSequence(const Container &container)
-    : container(container)
-    , propertyIndex(-1)
-    , isReference(false)
+void Heap::QQmlSequence<Container>::init(const Container &container)
 {
+    Object::init();
+    this->container = new Container(container);
+    propertyIndex = -1;
+    isReference = false;
+    object.init();
+
     QV4::Scope scope(internalClass->engine);
     QV4::Scoped<QV4::QQmlSequence<Container> > o(scope, this);
     o->setArrayType(Heap::ArrayData::Custom);
@@ -556,11 +570,13 @@ Heap::QQmlSequence<Container>::QQmlSequence(const Container &container)
 }
 
 template <typename Container>
-Heap::QQmlSequence<Container>::QQmlSequence(QObject *object, int propertyIndex)
-    : object(object)
-    , propertyIndex(propertyIndex)
-    , isReference(true)
+void Heap::QQmlSequence<Container>::init(QObject *object, int propertyIndex)
 {
+    Object::init();
+    this->container = new Container;
+    this->propertyIndex = propertyIndex;
+    isReference = true;
+    this->object.init(object);
     QV4::Scope scope(internalClass->engine);
     QV4::Scoped<QV4::QQmlSequence<Container> > o(scope, this);
     o->setArrayType(Heap::ArrayData::Custom);
@@ -572,30 +588,28 @@ Heap::QQmlSequence<Container>::QQmlSequence(QObject *object, int propertyIndex)
 
 namespace QV4 {
 
+typedef QQmlSequence<QVector<int> > QQmlIntVectorList;
+DEFINE_OBJECT_TEMPLATE_VTABLE(QQmlIntVectorList);
+typedef QQmlSequence<QVector<qreal> > QQmlRealVectorList;
+DEFINE_OBJECT_TEMPLATE_VTABLE(QQmlRealVectorList);
+typedef QQmlSequence<QVector<bool> > QQmlBoolVectorList;
+DEFINE_OBJECT_TEMPLATE_VTABLE(QQmlBoolVectorList);
 typedef QQmlSequence<QStringList> QQmlQStringList;
-template<>
-DEFINE_OBJECT_VTABLE(QQmlQStringList);
+DEFINE_OBJECT_TEMPLATE_VTABLE(QQmlQStringList);
 typedef QQmlSequence<QList<QString> > QQmlStringList;
-template<>
-DEFINE_OBJECT_VTABLE(QQmlStringList);
+DEFINE_OBJECT_TEMPLATE_VTABLE(QQmlStringList);
 typedef QQmlSequence<QList<int> > QQmlIntList;
-template<>
-DEFINE_OBJECT_VTABLE(QQmlIntList);
+DEFINE_OBJECT_TEMPLATE_VTABLE(QQmlIntList);
 typedef QQmlSequence<QList<QUrl> > QQmlUrlList;
-template<>
-DEFINE_OBJECT_VTABLE(QQmlUrlList);
+DEFINE_OBJECT_TEMPLATE_VTABLE(QQmlUrlList);
 typedef QQmlSequence<QModelIndexList> QQmlQModelIndexList;
-template<>
-DEFINE_OBJECT_VTABLE(QQmlQModelIndexList);
+DEFINE_OBJECT_TEMPLATE_VTABLE(QQmlQModelIndexList);
 typedef QQmlSequence<QItemSelection> QQmlQItemSelectionRangeList;
-template<>
-DEFINE_OBJECT_VTABLE(QQmlQItemSelectionRangeList);
+DEFINE_OBJECT_TEMPLATE_VTABLE(QQmlQItemSelectionRangeList);
 typedef QQmlSequence<QList<bool> > QQmlBoolList;
-template<>
-DEFINE_OBJECT_VTABLE(QQmlBoolList);
+DEFINE_OBJECT_TEMPLATE_VTABLE(QQmlBoolList);
 typedef QQmlSequence<QList<qreal> > QQmlRealList;
-template<>
-DEFINE_OBJECT_VTABLE(QQmlRealList);
+DEFINE_OBJECT_TEMPLATE_VTABLE(QQmlRealList);
 
 }
 
@@ -608,26 +622,25 @@ void SequencePrototype::init()
 }
 #undef REGISTER_QML_SEQUENCE_METATYPE
 
-QV4::ReturnedValue SequencePrototype::method_sort(QV4::CallContext *ctx)
+void SequencePrototype::method_sort(const BuiltinFunction *b, Scope &scope, CallData *callData)
 {
-    QV4::Scope scope(ctx);
-    QV4::ScopedObject o(scope, ctx->thisObject());
+    QV4::ScopedObject o(scope, callData->thisObject);
     if (!o || !o->isListType())
-        return ctx->engine()->throwTypeError();
+        THROW_TYPE_ERROR();
 
-    if (ctx->argc() >= 2)
-        return o.asReturnedValue();
+    if (callData->argc >= 2)
+        RETURN_RESULT(o);
 
 #define CALL_SORT(SequenceElementType, SequenceElementTypeName, SequenceType, DefaultValue) \
         if (QQml##SequenceElementTypeName##List *s = o->as<QQml##SequenceElementTypeName##List>()) { \
-            s->sort(ctx); \
+            s->sort(b, scope, callData); \
         } else
 
         FOREACH_QML_SEQUENCE_TYPE(CALL_SORT)
 
 #undef CALL_SORT
         {}
-    return o.asReturnedValue();
+    RETURN_RESULT(o);
 }
 
 #define IS_SEQUENCE(unused1, unused2, SequenceType, unused3) \

@@ -30,9 +30,14 @@
 
 #if ENABLE(ASSEMBLER)
 
-#if CPU(ARM_THUMB2)
 #include "MacroAssemblerARMv7.h"
+#include "MacroAssemblerARM64.h"
+
+#if CPU(ARM_THUMB2)
 namespace JSC { typedef MacroAssemblerARMv7 MacroAssemblerBase; };
+
+#elif CPU(ARM64)
+namespace JSC { typedef MacroAssemblerARM64 MacroAssemblerBase; };
 
 #elif CPU(ARM_TRADITIONAL)
 #include "MacroAssemblerARM.h"
@@ -64,13 +69,54 @@ typedef MacroAssemblerSH4 MacroAssemblerBase;
 
 namespace JSC {
 
+template <typename MacroAssemblerBase>
 class MacroAssembler : public MacroAssemblerBase {
 public:
+
+    using DoubleCondition = typename MacroAssemblerBase::DoubleCondition;
+    using ResultCondition = typename MacroAssemblerBase::ResultCondition;
+    using RelationalCondition = typename MacroAssemblerBase::RelationalCondition;
+    using RegisterID = typename MacroAssemblerBase::RegisterID;
+    using Address = typename MacroAssemblerBase::Address;
+    using ExtendedAddress = typename MacroAssemblerBase::ExtendedAddress;
+    using BaseIndex = typename MacroAssemblerBase::BaseIndex;
+    using ImplicitAddress = typename MacroAssemblerBase::ImplicitAddress;
+    using AbsoluteAddress = typename MacroAssemblerBase::AbsoluteAddress;
+    using TrustedImm32 = typename MacroAssemblerBase::TrustedImm32;
+    using TrustedImm64 = typename MacroAssemblerBase::TrustedImm64;
+    using TrustedImmPtr = typename MacroAssemblerBase::TrustedImmPtr;
+    using Imm32 = typename MacroAssemblerBase::Imm32;
+    using Imm64 = typename MacroAssemblerBase::Imm64;
+    using ImmPtr = typename MacroAssemblerBase::ImmPtr;
+    using Label = typename MacroAssemblerBase::Label;
+    using DataLabelPtr = typename MacroAssemblerBase::DataLabelPtr;
+    using DataLabel32 = typename MacroAssemblerBase::DataLabel32;
+    using DataLabelCompact = typename MacroAssemblerBase::DataLabelCompact;
+    using Jump = typename MacroAssemblerBase::Jump;
+    using PatchableJump = typename MacroAssemblerBase::PatchableJump;
+    using MacroAssemblerBase::PointerSize;
 
     using MacroAssemblerBase::pop;
     using MacroAssemblerBase::jump;
     using MacroAssemblerBase::branch32;
     using MacroAssemblerBase::move;
+    using MacroAssemblerBase::store32;
+    using MacroAssemblerBase::add32;
+    using MacroAssemblerBase::xor32;
+    using MacroAssemblerBase::sub32;
+    using MacroAssemblerBase::load32;
+
+
+#if defined(V4_BOOTSTRAP)
+    using MacroAssemblerBase::loadPtr;
+    using MacroAssemblerBase::storePtr;
+#elif CPU(X86_64) || CPU(ARM64)
+    using MacroAssemblerBase::add64;
+    using MacroAssemblerBase::sub64;
+    using MacroAssemblerBase::xor64;
+    using MacroAssemblerBase::load64;
+    using MacroAssemblerBase::store64;
+#endif
 
 #if ENABLE(JIT_CONSTANT_BLINDING)
     using MacroAssemblerBase::add32;
@@ -96,41 +142,41 @@ public:
     static DoubleCondition invert(DoubleCondition cond)
     {
         switch (cond) {
-        case DoubleEqual:
-            return DoubleNotEqualOrUnordered;
-        case DoubleNotEqual:
-            return DoubleEqualOrUnordered;
-        case DoubleGreaterThan:
-            return DoubleLessThanOrEqualOrUnordered;
-        case DoubleGreaterThanOrEqual:
-            return DoubleLessThanOrUnordered;
-        case DoubleLessThan:
-            return DoubleGreaterThanOrEqualOrUnordered;
-        case DoubleLessThanOrEqual:
-            return DoubleGreaterThanOrUnordered;
-        case DoubleEqualOrUnordered:
-            return DoubleNotEqual;
-        case DoubleNotEqualOrUnordered:
-            return DoubleEqual;
-        case DoubleGreaterThanOrUnordered:
-            return DoubleLessThanOrEqual;
-        case DoubleGreaterThanOrEqualOrUnordered:
-            return DoubleLessThan;
-        case DoubleLessThanOrUnordered:
-            return DoubleGreaterThanOrEqual;
-        case DoubleLessThanOrEqualOrUnordered:
-            return DoubleGreaterThan;
+        case DoubleCondition::DoubleEqual:
+            return DoubleCondition::DoubleNotEqualOrUnordered;
+        case DoubleCondition::DoubleNotEqual:
+            return DoubleCondition::DoubleEqualOrUnordered;
+        case DoubleCondition::DoubleGreaterThan:
+            return DoubleCondition::DoubleLessThanOrEqualOrUnordered;
+        case DoubleCondition::DoubleGreaterThanOrEqual:
+            return DoubleCondition::DoubleLessThanOrUnordered;
+        case DoubleCondition::DoubleLessThan:
+            return DoubleCondition::DoubleGreaterThanOrEqualOrUnordered;
+        case DoubleCondition::DoubleLessThanOrEqual:
+            return DoubleCondition::DoubleGreaterThanOrUnordered;
+        case DoubleCondition::DoubleEqualOrUnordered:
+            return DoubleCondition::DoubleNotEqual;
+        case DoubleCondition::DoubleNotEqualOrUnordered:
+            return DoubleCondition::DoubleEqual;
+        case DoubleCondition::DoubleGreaterThanOrUnordered:
+            return DoubleCondition::DoubleLessThanOrEqual;
+        case DoubleCondition::DoubleGreaterThanOrEqualOrUnordered:
+            return DoubleCondition::DoubleLessThan;
+        case DoubleCondition::DoubleLessThanOrUnordered:
+            return DoubleCondition::DoubleGreaterThanOrEqual;
+        case DoubleCondition::DoubleLessThanOrEqualOrUnordered:
+            return DoubleCondition::DoubleGreaterThan;
         default:
             RELEASE_ASSERT_NOT_REACHED();
-            return DoubleEqual; // make compiler happy
+            return DoubleCondition::DoubleEqual; // make compiler happy
         }
     }
     
     static bool isInvertible(ResultCondition cond)
     {
         switch (cond) {
-        case Zero:
-        case NonZero:
+        case ResultCondition::Zero:
+        case ResultCondition::NonZero:
             return true;
         default:
             return false;
@@ -140,13 +186,13 @@ public:
     static ResultCondition invert(ResultCondition cond)
     {
         switch (cond) {
-        case Zero:
-            return NonZero;
-        case NonZero:
-            return Zero;
+        case ResultCondition::Zero:
+            return ResultCondition::NonZero;
+        case ResultCondition::NonZero:
+            return ResultCondition::Zero;
         default:
             RELEASE_ASSERT_NOT_REACHED();
-            return Zero; // Make compiler happy for release builds.
+            return ResultCondition::Zero; // Make compiler happy for release builds.
         }
     }
 #endif
@@ -155,19 +201,19 @@ public:
     // described in terms of other macro assembly methods.
     void pop()
     {
-        addPtr(TrustedImm32(sizeof(void*)), stackPointerRegister);
+        addPtr(TrustedImm32(PointerSize), MacroAssemblerBase::stackPointerRegister);
     }
     
     void peek(RegisterID dest, int index = 0)
     {
-        loadPtr(Address(stackPointerRegister, (index * sizeof(void*))), dest);
+        loadPtr(Address(MacroAssemblerBase::stackPointerRegister, (index * PointerSize)), dest);
     }
 
     Address addressForPoke(int index)
     {
-        return Address(stackPointerRegister, (index * sizeof(void*)));
+        return Address(MacroAssemblerBase::stackPointerRegister, (index * PointerSize));
     }
-    
+
     void poke(RegisterID src, int index = 0)
     {
         storePtr(src, addressForPoke(index));
@@ -178,15 +224,17 @@ public:
         store32(value, addressForPoke(index));
     }
 
+#if !defined(V4_BOOTSTRAP)
     void poke(TrustedImmPtr imm, int index = 0)
     {
         storePtr(imm, addressForPoke(index));
     }
+#endif
 
-#if CPU(X86_64)
+#if (CPU(X86_64) || CPU(ARM64)) && !defined(V4_BOOTSTRAP)
     void peek64(RegisterID dest, int index = 0)
     {
-        load64(Address(stackPointerRegister, (index * sizeof(void*))), dest);
+        load64(Address(MacroAssemblerBase::stackPointerRegister, (index * sizeof(void*))), dest);
     }
 
     void poke(TrustedImm64 value, int index = 0)
@@ -200,14 +248,6 @@ public:
     }
 #endif
     
-#if CPU(MIPS)
-    void poke(FPRegisterID src, int index = 0)
-    {
-        ASSERT(!(index & 1));
-        storeDouble(src, addressForPoke(index));
-    }
-#endif
-
     // Backwards banches, these are currently all implemented using existing forwards branch mechanisms.
     void branchPtr(RelationalCondition cond, RegisterID op1, TrustedImmPtr imm, Label target)
     {
@@ -253,7 +293,7 @@ public:
         branchTestPtr(cond, reg).linkTo(target, this);
     }
 
-#if !CPU(ARM_THUMB2)
+#if !CPU(ARM_THUMB2) && !CPU(ARM64)
     PatchableJump patchableBranchPtr(RelationalCondition cond, Address left, TrustedImmPtr right = TrustedImmPtr(0))
     {
         return PatchableJump(branchPtr(cond, left, right));
@@ -273,7 +313,7 @@ public:
     {
         return PatchableJump(branchTest32(cond, reg, mask));
     }
-#endif // !CPU(ARM_THUMB2)
+#endif // !CPU(ARM_THUMB2) && !CPU(ARM64)
 
 #if !CPU(ARM)
     PatchableJump patchableBranch32(RelationalCondition cond, RegisterID reg, TrustedImm32 imm)
@@ -292,40 +332,41 @@ public:
     static RelationalCondition commute(RelationalCondition condition)
     {
         switch (condition) {
-        case Above:
-            return Below;
-        case AboveOrEqual:
-            return BelowOrEqual;
-        case Below:
-            return Above;
-        case BelowOrEqual:
-            return AboveOrEqual;
-        case GreaterThan:
-            return LessThan;
-        case GreaterThanOrEqual:
-            return LessThanOrEqual;
-        case LessThan:
-            return GreaterThan;
-        case LessThanOrEqual:
-            return GreaterThanOrEqual;
+        case RelationalCondition::Above:
+            return RelationalCondition::Below;
+        case RelationalCondition::AboveOrEqual:
+            return RelationalCondition::BelowOrEqual;
+        case RelationalCondition::Below:
+            return RelationalCondition::Above;
+        case RelationalCondition::BelowOrEqual:
+            return RelationalCondition::AboveOrEqual;
+        case RelationalCondition::GreaterThan:
+            return RelationalCondition::LessThan;
+        case RelationalCondition::GreaterThanOrEqual:
+            return RelationalCondition::LessThanOrEqual;
+        case RelationalCondition::LessThan:
+            return RelationalCondition::GreaterThan;
+        case RelationalCondition::LessThanOrEqual:
+            return RelationalCondition::GreaterThanOrEqual;
         default:
             break;
         }
 
-        ASSERT(condition == Equal || condition == NotEqual);
+        ASSERT(condition == RelationalCondition::Equal || condition == RelationalCondition::NotEqual);
         return condition;
     }
 
     static const unsigned BlindingModulus = 64;
     bool shouldConsiderBlinding()
     {
-        return !(random() & (BlindingModulus - 1));
+        return !(this->random() & (BlindingModulus - 1));
     }
 
+#if !defined(V4_BOOTSTRAP)
     // Ptr methods
     // On 32-bit platforms (i.e. x86), these methods directly map onto their 32-bit equivalents.
     // FIXME: should this use a test for 32-bitness instead of this specific exception?
-#if !CPU(X86_64)
+#if !CPU(X86_64) && !CPU(ARM64)
     void addPtr(Address src, RegisterID dest)
     {
         add32(src, dest);
@@ -846,6 +887,7 @@ public:
     {
         return branchSub64(cond, src1, src2, dest);
     }
+#endif // !defined(V4_BOOTSTRAP)
 
 #if ENABLE(JIT_CONSTANT_BLINDING)
     using MacroAssemblerBase::and64;
@@ -1442,6 +1484,22 @@ public:
     }
 #endif
 };
+
+#if CPU(ARM_THUMB2)
+typedef MacroAssembler<MacroAssemblerARMv7> DefaultMacroAssembler;
+#elif CPU(ARM64)
+typedef MacroAssembler<MacroAssemblerARM64> DefaultMacroAssembler;
+#elif CPU(ARM_TRADITIONAL)
+typedef MacroAssembler<MacroAssemblerARM> DefaultMacroAssembler;
+#elif CPU(MIPS)
+typedef MacroAssembler<MacroAssemblerMIPS> DefaultMacroAssembler;
+#elif CPU(X86)
+typedef MacroAssembler<MacroAssemblerX86> DefaultMacroAssembler;
+#elif CPU(X86_64)
+typedef MacroAssembler<MacroAssemblerX86_64> DefaultMacroAssembler;
+#elif CPU(SH4)
+typedef JSC::MacroAssemblerSH4 DefaultMacroAssembler;
+#endif
 
 } // namespace JSC
 

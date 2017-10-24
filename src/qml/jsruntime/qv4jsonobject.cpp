@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -38,6 +44,7 @@
 #include <qv4objectiterator_p.h>
 #include <qv4scopedvalue_p.h>
 #include <qv4runtime_p.h>
+#include <qv4variantobject_p.h>
 #include "qv4string_p.h"
 
 #include <qstack.h>
@@ -584,8 +591,7 @@ bool JsonParser::parseString(QString *string)
                 return false;
             }
             if (QChar::requiresSurrogates(ch)) {
-                *string += QChar(QChar::highSurrogate(ch));
-                *string += QChar(QChar::lowSurrogate(ch));
+                *string += QChar(QChar::highSurrogate(ch)) + QChar(QChar::lowSurrogate(ch));
             } else {
                 *string += QChar(ch);
             }
@@ -638,36 +644,39 @@ struct Stringify
 
 static QString quote(const QString &str)
 {
-    QString product = QStringLiteral("\"");
-    for (int i = 0; i < str.length(); ++i) {
+    QString product;
+    const int length = str.length();
+    product.reserve(length + 2);
+    product += QLatin1Char('"');
+    for (int i = 0; i < length; ++i) {
         QChar c = str.at(i);
         switch (c.unicode()) {
         case '"':
-            product += QStringLiteral("\\\"");
+            product += QLatin1String("\\\"");
             break;
         case '\\':
-            product += QStringLiteral("\\\\");
+            product += QLatin1String("\\\\");
             break;
         case '\b':
-            product += QStringLiteral("\\b");
+            product += QLatin1String("\\b");
             break;
         case '\f':
-            product += QStringLiteral("\\f");
+            product += QLatin1String("\\f");
             break;
         case '\n':
-            product += QStringLiteral("\\n");
+            product += QLatin1String("\\n");
             break;
         case '\r':
-            product += QStringLiteral("\\r");
+            product += QLatin1String("\\r");
             break;
         case '\t':
-            product += QStringLiteral("\\t");
+            product += QLatin1String("\\t");
             break;
         default:
             if (c.unicode() <= 0x1f) {
-                product += QStringLiteral("\\u00");
-                product += c.unicode() > 0xf ? QLatin1Char('1') : QLatin1Char('0');
-                product += QLatin1Char("0123456789abcdef"[c.unicode() & 0xf]);
+                product += QLatin1String("\\u00");
+                product += (c.unicode() > 0xf ? QLatin1Char('1') : QLatin1Char('0')) +
+                        QLatin1Char("0123456789abcdef"[c.unicode() & 0xf]);
             } else {
                 product += c;
             }
@@ -680,53 +689,57 @@ static QString quote(const QString &str)
 QString Stringify::Str(const QString &key, const Value &v)
 {
     Scope scope(v4);
+    scope.result = v;
 
-    ScopedValue value(scope, v);
-    ScopedObject o(scope, value);
+    ScopedObject o(scope, scope.result);
     if (o) {
         ScopedString s(scope, v4->newString(QStringLiteral("toJSON")));
         ScopedFunctionObject toJSON(scope, o->get(s));
         if (!!toJSON) {
             ScopedCallData callData(scope, 1);
-            callData->thisObject = value;
+            callData->thisObject = scope.result;
             callData->args[0] = v4->newString(key);
-            value = toJSON->call(callData);
+            toJSON->call(scope, callData);
         }
     }
 
     if (replacerFunction) {
         ScopedObject holder(scope, v4->newObject());
-        holder->put(scope.engine, QString(), value);
+        holder->put(scope.engine, QString(), scope.result);
         ScopedCallData callData(scope, 2);
         callData->args[0] = v4->newString(key);
-        callData->args[1] = value;
+        callData->args[1] = scope.result;
         callData->thisObject = holder;
-        value = replacerFunction->call(callData);
+        replacerFunction->call(scope, callData);
     }
 
-    o = value->asReturnedValue();
+    o = scope.result.asReturnedValue();
     if (o) {
         if (NumberObject *n = o->as<NumberObject>())
-            value = Encode(n->value());
+            scope.result = Encode(n->value());
         else if (StringObject *so = o->as<StringObject>())
-            value = so->d()->string;
+            scope.result = so->d()->string;
         else if (BooleanObject *b = o->as<BooleanObject>())
-            value = Encode(b->value());
+            scope.result = Encode(b->value());
     }
 
-    if (value->isNull())
+    if (scope.result.isNull())
         return QStringLiteral("null");
-    if (value->isBoolean())
-        return value->booleanValue() ? QStringLiteral("true") : QStringLiteral("false");
-    if (value->isString())
-        return quote(value->stringValue()->toQString());
+    if (scope.result.isBoolean())
+        return scope.result.booleanValue() ? QStringLiteral("true") : QStringLiteral("false");
+    if (String *s = scope.result.stringValue())
+        return quote(s->toQString());
 
-    if (value->isNumber()) {
-        double d = value->toNumber();
-        return std::isfinite(d) ? value->toQString() : QStringLiteral("null");
+    if (scope.result.isNumber()) {
+        double d = scope.result.toNumber();
+        return std::isfinite(d) ? scope.result.toQString() : QStringLiteral("null");
     }
 
-    o = value->asReturnedValue();
+    if (const QV4::VariantObject *v = scope.result.as<QV4::VariantObject>()) {
+        return v->d()->data().toString();
+    }
+
+    o = scope.result.asReturnedValue();
     if (o) {
         if (!o->as<FunctionObject>()) {
             if (o->as<ArrayObject>()) {
@@ -801,10 +814,10 @@ QString Stringify::JO(Object *o)
     if (partial.isEmpty()) {
         result = QStringLiteral("{}");
     } else if (gap.isEmpty()) {
-        result = QStringLiteral("{") + partial.join(QLatin1Char(',')) + QLatin1Char('}');
+        result = QLatin1Char('{') + partial.join(QLatin1Char(',')) + QLatin1Char('}');
     } else {
-        QString separator = QStringLiteral(",\n") + indent;
-        result = QStringLiteral("{\n") + indent + partial.join(separator) + QLatin1Char('\n')
+        QString separator = QLatin1String(",\n") + indent;
+        result = QLatin1String("{\n") + indent + partial.join(separator) + QLatin1Char('\n')
                  + stepback + QLatin1Char('}');
     }
 
@@ -847,10 +860,10 @@ QString Stringify::JA(ArrayObject *a)
     if (partial.isEmpty()) {
         result = QStringLiteral("[]");
     } else if (gap.isEmpty()) {
-        result = QStringLiteral("[") + partial.join(QLatin1Char(',')) + QStringLiteral("]");
+        result = QLatin1Char('[') + partial.join(QLatin1Char(',')) + QLatin1Char(']');
     } else {
-        QString separator = QStringLiteral(",\n") + indent;
-        result = QStringLiteral("[\n") + indent + partial.join(separator) + QStringLiteral("\n") + stepback + QStringLiteral("]");
+        QString separator = QLatin1String(",\n") + indent;
+        result = QLatin1String("[\n") + indent + partial.join(separator) + QLatin1Char('\n') + stepback + QLatin1Char(']');
     }
 
     indent = stepback;
@@ -859,8 +872,9 @@ QString Stringify::JA(ArrayObject *a)
 }
 
 
-Heap::JsonObject::JsonObject()
+void Heap::JsonObject::init()
 {
+    Object::init();
     Scope scope(internalClass->engine);
     ScopedObject o(scope, this);
 
@@ -869,10 +883,9 @@ Heap::JsonObject::JsonObject()
 }
 
 
-ReturnedValue JsonObject::method_parse(CallContext *ctx)
+void JsonObject::method_parse(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    Scope scope(ctx);
-    ScopedValue v(scope, ctx->argument(0));
+    ScopedValue v(scope, callData->argument(0));
     QString jtext = v->toQString();
 
     DEBUG << "parsing source = " << jtext;
@@ -881,19 +894,17 @@ ReturnedValue JsonObject::method_parse(CallContext *ctx)
     ScopedValue result(scope, parser.parse(&error));
     if (error.error != QJsonParseError::NoError) {
         DEBUG << "parse error" << error.errorString();
-        return ctx->engine()->throwSyntaxError(QStringLiteral("JSON.parse: Parse error"));
+        RETURN_RESULT(scope.engine->throwSyntaxError(QStringLiteral("JSON.parse: Parse error")));
     }
 
-    return result->asReturnedValue();
+    scope.result = result;
 }
 
-ReturnedValue JsonObject::method_stringify(CallContext *ctx)
+void JsonObject::method_stringify(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    Scope scope(ctx);
-
     Stringify stringify(scope.engine);
 
-    ScopedObject o(scope, ctx->argument(1));
+    ScopedObject o(scope, callData->argument(1));
     if (o) {
         stringify.replacerFunction = o->as<FunctionObject>();
         if (o->isArrayObject()) {
@@ -903,7 +914,7 @@ ReturnedValue JsonObject::method_stringify(CallContext *ctx)
                 Value *v = stringify.propertyList + i;
                 *v = o->getIndexed(i);
                 if (v->as<NumberObject>() || v->as<StringObject>() || v->isNumber())
-                    *v = RuntimeHelpers::toString(scope.engine, *v);
+                    *v = v->toString(scope.engine);
                 if (!v->isString()) {
                     v->setM(0);
                 } else {
@@ -918,7 +929,7 @@ ReturnedValue JsonObject::method_stringify(CallContext *ctx)
         }
     }
 
-    ScopedValue s(scope, ctx->argument(2));
+    ScopedValue s(scope, callData->argument(2));
     if (NumberObject *n = s->as<NumberObject>())
         s = Encode(n->value());
     else if (StringObject *so = s->as<StringObject>())
@@ -926,16 +937,16 @@ ReturnedValue JsonObject::method_stringify(CallContext *ctx)
 
     if (s->isNumber()) {
         stringify.gap = QString(qMin(10, (int)s->toInteger()), ' ');
-    } else if (s->isString()) {
-        stringify.gap = s->stringValue()->toQString().left(10);
+    } else if (String *str = s->stringValue()) {
+        stringify.gap = str->toQString().left(10);
     }
 
 
-    ScopedValue arg0(scope, ctx->argument(0));
+    ScopedValue arg0(scope, callData->argument(0));
     QString result = stringify.Str(QString(), arg0);
     if (result.isEmpty() || scope.engine->hasException)
-        return Encode::undefined();
-    return ctx->d()->engine->newString(result)->asReturnedValue();
+        RETURN_UNDEFINED();
+    scope.result = scope.engine->newString(result);
 }
 
 
@@ -968,8 +979,8 @@ QJsonValue JsonObject::toJsonValue(const Value &value, V4ObjectSet &visitedObjec
         return QJsonValue(QJsonValue::Null);
     else if (value.isUndefined())
         return QJsonValue(QJsonValue::Undefined);
-    else if (value.isString())
-        return QJsonValue(value.toQString());
+    else if (String *s = value.stringValue())
+        return QJsonValue(s->toQString());
 
     Q_ASSERT(value.isObject());
     Scope scope(value.as<Object>()->engine());

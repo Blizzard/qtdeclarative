@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -54,6 +60,8 @@ DEFINE_BOOL_CONFIG_OPTION(qmlVisualTouchDebugging, QML_VISUAL_TOUCH_DEBUGGING)
 
     The TouchPoint type contains information about a touch point, such as the current
     position, pressure, and area.
+
+    \image touchpoint-metrics.png
 */
 
 /*!
@@ -95,16 +103,29 @@ void QQuickTouchPoint::setY(qreal y)
 }
 
 /*!
+    \qmlproperty size QtQuick::TouchPoint::ellipseDiameters
+    \since 5.9
+
+    This property holds the major and minor axes of the ellipse representing
+    the covered area of the touch point.
+*/
+void QQuickTouchPoint::setEllipseDiameters(const QSizeF &d)
+{
+    if (_ellipseDiameters == d)
+        return;
+    _ellipseDiameters = d;
+    emit ellipseDiametersChanged();
+}
+
+/*!
     \qmlproperty real QtQuick::TouchPoint::pressure
     \qmlproperty vector2d QtQuick::TouchPoint::velocity
-    \qmlproperty rectangle QtQuick::TouchPoint::area
 
     These properties hold additional information about the current state of the touch point.
 
     \list
     \li \c pressure is a value in the range of 0.0 to 1.0.
     \li \c velocity is a vector with magnitude reported in pixels per second.
-    \li \c area is a rectangle covering the area of the touch point, centered on the current position of the touch point.
     \endlist
 
     Not all touch devices support velocity. If velocity is not supported, it will be reported
@@ -118,6 +139,26 @@ void QQuickTouchPoint::setPressure(qreal pressure)
     emit pressureChanged();
 }
 
+/*!
+    \qmlproperty real QtQuick::TouchPoint::rotation
+    \since 5.9
+
+    This property holds the angular orientation of this touch point. The return
+    value is in degrees, where zero (the default) indicates the finger or token
+    is pointing upwards, a negative angle means it's rotated to the left, and a
+    positive angle means it's rotated to the right. Most touchscreens do not
+    detect rotation, so zero is the most common value.
+
+    \sa QTouchEvent::TouchPoint::rotation()
+*/
+void QQuickTouchPoint::setRotation(qreal r)
+{
+    if (_rotation == r)
+        return;
+    _rotation = r;
+    emit rotationChanged();
+}
+
 void QQuickTouchPoint::setVelocity(const QVector2D &velocity)
 {
     if (_velocity == velocity)
@@ -126,6 +167,16 @@ void QQuickTouchPoint::setVelocity(const QVector2D &velocity)
     emit velocityChanged();
 }
 
+/*!
+    \deprecated
+    \qmlproperty rectangle QtQuick::TouchPoint::area
+
+    A rectangle covering the area of the touch point, centered on the current
+    position of the touch point.
+
+    It is deprecated because a touch point is more correctly modeled as an ellipse,
+    whereas this rectangle represents the outer bounds of the ellipse after \l rotation.
+*/
 void QQuickTouchPoint::setArea(const QRectF &area)
 {
     if (_area == area)
@@ -213,6 +264,25 @@ void QQuickTouchPoint::setSceneY(qreal sceneY)
         return;
     _sceneY = sceneY;
     emit sceneYChanged();
+}
+
+/*!
+    \qmlproperty PointingDeviceUniqueId QtQuick::TouchPoint::uniqueId
+    \since 5.9
+
+    This property holds the unique ID of the touch point or token.
+
+    It is normally empty, because touchscreens cannot uniquely identify fingers.
+    But when it is set, it is expected to uniquely identify a specific token
+    (fiducial object).
+
+    Interpreting the contents of this ID requires knowledge of the hardware and
+    drivers in use (e.g. various TUIO-based touch surfaces).
+*/
+void QQuickTouchPoint::setUniqueId(const QPointingDeviceUniqueId &id)
+{
+    _uniqueId = id;
+    emit uniqueIdChanged();
 }
 
 /*!
@@ -356,7 +426,7 @@ QQuickMultiPointTouchArea::QQuickMultiPointTouchArea(QQuickItem *parent)
 QQuickMultiPointTouchArea::~QQuickMultiPointTouchArea()
 {
     clearTouchLists();
-    foreach (QObject *obj, _touchPoints) {
+    for (QObject *obj : qAsConst(_touchPoints)) {
         QQuickTouchPoint *dtp = static_cast<QQuickTouchPoint*>(obj);
         if (!dtp->isQmlDefined())
             delete dtp;
@@ -442,20 +512,12 @@ void QQuickMultiPointTouchArea::touchEvent(QTouchEvent *event)
             }
         }
         updateTouchData(event);
-        if (event->type() == QEvent::TouchEnd) {
-            //TODO: move to window
-            _stealMouse = false;
-            setKeepMouseGrab(false);
-            setKeepTouchGrab(false);
-            ungrabTouchPoints();
-        }
+        if (event->type() == QEvent::TouchEnd)
+            ungrab();
         break;
     }
     case QEvent::TouchCancel:
-        _stealMouse = false;
-        setKeepMouseGrab(false);
-        setKeepTouchGrab(false);
-        ungrabTouchPoints();
+        ungrab();
         break;
     default:
         QQuickItem::touchEvent(event);
@@ -470,7 +532,13 @@ void QQuickMultiPointTouchArea::grabGesture()
     grabMouse();
     setKeepMouseGrab(true);
 
-    grabTouchPoints(_touchPoints.keys().toVector());
+    QVector<int> ids;
+    ids.reserve(_touchPoints.size());
+    for (auto it = _touchPoints.keyBegin(), end = _touchPoints.keyEnd(); it != end; ++it) {
+        if (*it != -1) // -1 might be the mouse-point, but we already grabbed the mouse above.
+            ids.append(*it);
+    }
+    grabTouchPoints(ids);
     setKeepTouchGrab(true);
 }
 
@@ -522,7 +590,7 @@ void QQuickMultiPointTouchArea::updateTouchData(QEvent *event)
     }
     int numTouchPoints = touchPoints.count();
     //always remove released touches, and make sure we handle all releases before adds.
-    foreach (const QTouchEvent::TouchPoint &p, touchPoints) {
+    for (const QTouchEvent::TouchPoint &p : qAsConst(touchPoints)) {
         Qt::TouchPointState touchPointState = p.state();
         int id = p.id();
         if (touchPointState & Qt::TouchPointReleased) {
@@ -537,7 +605,7 @@ void QQuickMultiPointTouchArea::updateTouchData(QEvent *event)
         }
     }
     if (numTouchPoints >= _minimumTouchPoints && numTouchPoints <= _maximumTouchPoints) {
-        foreach (const QTouchEvent::TouchPoint &p, touchPoints) {
+        for (const QTouchEvent::TouchPoint &p : qAsConst(touchPoints)) {
             Qt::TouchPointState touchPointState = p.state();
             int id = p.id();
             if (touchPointState & Qt::TouchPointReleased) {
@@ -547,13 +615,13 @@ void QQuickMultiPointTouchArea::updateTouchData(QEvent *event)
                 addTouchPoint(&p);
                 started = true;
             } else if (touchPointState & Qt::TouchPointMoved) {
-                QQuickTouchPoint* dtp = static_cast<QQuickTouchPoint*>(_touchPoints[id]);
+                QQuickTouchPoint* dtp = static_cast<QQuickTouchPoint*>(_touchPoints.value(id));
                 Q_ASSERT(dtp);
                 _movedTouchPoints.append(dtp);
                 updateTouchPoint(dtp,&p);
                 moved = true;
             } else {
-                QQuickTouchPoint* dtp = static_cast<QQuickTouchPoint*>(_touchPoints[id]);
+                QQuickTouchPoint* dtp = static_cast<QQuickTouchPoint*>(_touchPoints.value(id));
                 Q_ASSERT(dtp);
                 updateTouchPoint(dtp,&p);
             }
@@ -563,7 +631,7 @@ void QQuickMultiPointTouchArea::updateTouchData(QEvent *event)
         if (!_stealMouse /* !ignoring gesture*/) {
             bool offerGrab = false;
             const int dragThreshold = QGuiApplication::styleHints()->startDragDistance();
-            foreach (const QTouchEvent::TouchPoint &p, touchPoints) {
+            for (const QTouchEvent::TouchPoint &p : qAsConst(touchPoints)) {
                 if (p.state() == Qt::TouchPointReleased)
                     continue;
                 const QPointF &currentPos = p.scenePos();
@@ -597,7 +665,7 @@ void QQuickMultiPointTouchArea::updateTouchData(QEvent *event)
 
 void QQuickMultiPointTouchArea::clearTouchLists()
 {
-    foreach (QObject *obj, _releasedTouchPoints) {
+    for (QObject *obj : qAsConst(_releasedTouchPoints)) {
         QQuickTouchPoint *dtp = static_cast<QQuickTouchPoint*>(obj);
         if (!dtp->isQmlDefined()) {
             _touchPoints.remove(dtp->pointId());
@@ -614,7 +682,7 @@ void QQuickMultiPointTouchArea::clearTouchLists()
 void QQuickMultiPointTouchArea::addTouchPoint(const QTouchEvent::TouchPoint *p)
 {
     QQuickTouchPoint *dtp = 0;
-    foreach (QQuickTouchPoint* tp, _touchPrototypes) {
+    for (QQuickTouchPoint* tp : qAsConst(_touchPrototypes)) {
         if (!tp->inUse()) {
             tp->setInUse(true);
             dtp = tp;
@@ -634,7 +702,7 @@ void QQuickMultiPointTouchArea::addTouchPoint(const QTouchEvent::TouchPoint *p)
 void QQuickMultiPointTouchArea::addTouchPoint(const QMouseEvent *e)
 {
     QQuickTouchPoint *dtp = 0;
-    foreach (QQuickTouchPoint *tp, _touchPrototypes)
+    for (QQuickTouchPoint *tp : qAsConst(_touchPrototypes))
         if (!tp->inUse()) {
             tp->setInUse(true);
             dtp = tp;
@@ -687,9 +755,12 @@ void QQuickMultiPointTouchArea::updateTouchPoint(QQuickTouchPoint *dtp, const QT
 {
     //TODO: if !qmlDefined, could bypass setters.
     //      also, should only emit signals after all values have been set
+    dtp->setUniqueId(p->uniqueId());
     dtp->setX(p->pos().x());
     dtp->setY(p->pos().y());
+    dtp->setEllipseDiameters(p->ellipseDiameters());
     dtp->setPressure(p->pressure());
+    dtp->setRotation(p->rotation());
     dtp->setVelocity(p->velocity());
     dtp->setArea(p->rect());
     dtp->setStartX(p->startPos().x());
@@ -774,18 +845,17 @@ void QQuickMultiPointTouchArea::mouseReleaseEvent(QMouseEvent *event)
 
 void QQuickMultiPointTouchArea::ungrab()
 {
+    _stealMouse = false;
+    setKeepMouseGrab(false);
+    setKeepTouchGrab(false);
+    ungrabTouchPoints();
+
     if (_touchPoints.count()) {
-        QQuickWindow *c = window();
-        if (c && c->mouseGrabberItem() == this) {
-            _stealMouse = false;
-            setKeepMouseGrab(false);
-        }
-        setKeepTouchGrab(false);
-        foreach (QObject *obj, _touchPoints)
+        for (QObject *obj : qAsConst(_touchPoints))
             static_cast<QQuickTouchPoint*>(obj)->setPressed(false);
         emit canceled(_touchPoints.values());
         clearTouchLists();
-        foreach (QObject *obj, _touchPoints) {
+        for (QObject *obj : qAsConst(_touchPoints)) {
             QQuickTouchPoint *dtp = static_cast<QQuickTouchPoint*>(obj);
             if (!dtp->isQmlDefined())
                 delete dtp;
@@ -851,10 +921,10 @@ bool QQuickMultiPointTouchArea::sendMouseEvent(QMouseEvent *event)
     return false;
 }
 
-bool QQuickMultiPointTouchArea::childMouseEventFilter(QQuickItem *i, QEvent *event)
+bool QQuickMultiPointTouchArea::childMouseEventFilter(QQuickItem *receiver, QEvent *event)
 {
     if (!isEnabled() || !isVisible())
-        return QQuickItem::childMouseEventFilter(i, event);
+        return QQuickItem::childMouseEventFilter(receiver, event);
     switch (event->type()) {
     case QEvent::MouseButtonPress:
     case QEvent::MouseMove:
@@ -871,17 +941,13 @@ bool QQuickMultiPointTouchArea::childMouseEventFilter(QQuickItem *i, QEvent *eve
             if (!shouldFilter(event))
                 return false;
             updateTouchData(event);
-            //TODO: verify this behavior
-            _stealMouse = false;
-            setKeepMouseGrab(false);
-            setKeepTouchGrab(false);
-            ungrabTouchPoints();
+            ungrab();
         }
         break;
     default:
         break;
     }
-    return QQuickItem::childMouseEventFilter(i, event);
+    return QQuickItem::childMouseEventFilter(receiver, event);
 }
 
 bool QQuickMultiPointTouchArea::shouldFilter(QEvent *event)
@@ -904,7 +970,7 @@ bool QQuickMultiPointTouchArea::shouldFilter(QEvent *event)
         case QEvent::TouchUpdate:
         case QEvent::TouchEnd: {
                 QTouchEvent *te = static_cast<QTouchEvent*>(event);
-                foreach (const QTouchEvent::TouchPoint &point, te->touchPoints()) {
+                for (const QTouchEvent::TouchPoint &point : te->touchPoints()) {
                     if (contains(mapFromScene(point.scenePos()))) {
                         containsPoint = true;
                         break;
@@ -930,8 +996,8 @@ QSGNode *QQuickMultiPointTouchArea::updatePaintNode(QSGNode *oldNode, UpdatePain
     if (!qmlVisualTouchDebugging())
         return 0;
 
-    QSGRectangleNode *rectangle = static_cast<QSGRectangleNode *>(oldNode);
-    if (!rectangle) rectangle = QQuickItemPrivate::get(this)->sceneGraphContext()->createRectangleNode();
+    QSGInternalRectangleNode *rectangle = static_cast<QSGInternalRectangleNode *>(oldNode);
+    if (!rectangle) rectangle = QQuickItemPrivate::get(this)->sceneGraphContext()->createInternalRectangleNode();
 
     rectangle->setRect(QRectF(0, 0, width(), height()));
     rectangle->setColor(QColor(255, 0, 0, 50));
@@ -940,3 +1006,5 @@ QSGNode *QQuickMultiPointTouchArea::updatePaintNode(QSGNode *oldNode, UpdatePain
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickmultipointtoucharea_p.cpp"

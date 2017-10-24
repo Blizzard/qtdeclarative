@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -82,6 +88,7 @@ bool QQmlValueTypeFactoryImpl::isValueType(int idx)
             && idx != QVariant::StringList
             && idx != QMetaType::QObjectStar
             && idx != QMetaType::VoidStar
+            && idx != QMetaType::Nullptr
             && idx != QMetaType::QVariant
             && idx != QMetaType::QLocale) {
         return true;
@@ -213,7 +220,7 @@ void QQmlValueType::read(QObject *obj, int idx)
     QMetaObject::metacall(obj, QMetaObject::ReadProperty, idx, a);
 }
 
-void QQmlValueType::write(QObject *obj, int idx, QQmlPropertyPrivate::WriteFlags flags)
+void QQmlValueType::write(QObject *obj, int idx, QQmlPropertyData::WriteFlags flags)
 {
     Q_ASSERT(gadgetPtr);
     int status = -1;
@@ -253,7 +260,7 @@ int QQmlValueType::metaCall(QObject *, QMetaObject::Call type, int _id, void **a
 
 QString QQmlPointFValueType::toString() const
 {
-    return QString(QLatin1String("QPointF(%1, %2)")).arg(v.x()).arg(v.y());
+    return QString::asprintf("QPointF(%g, %g)", v.x(), v.y());
 }
 
 qreal QQmlPointFValueType::x() const
@@ -300,7 +307,7 @@ void QQmlPointValueType::setY(int y)
 
 QString QQmlSizeFValueType::toString() const
 {
-    return QString(QLatin1String("QSizeF(%1, %2)")).arg(v.width()).arg(v.height());
+    return QString::asprintf("QSizeF(%g, %g)", v.width(), v.height());
 }
 
 qreal QQmlSizeFValueType::width() const
@@ -346,7 +353,7 @@ void QQmlSizeValueType::setHeight(int h)
 
 QString QQmlRectFValueType::toString() const
 {
-    return QString(QLatin1String("QRectF(%1, %2, %3, %4)")).arg(v.x()).arg(v.y()).arg(v.width()).arg(v.height());
+    return QString::asprintf("QRectF(%g, %g, %g, %g)", v.x(), v.y(), v.width(), v.height());
 }
 
 qreal QQmlRectFValueType::x() const
@@ -517,7 +524,7 @@ void QQmlEasingValueType::setBezierCurve(const QVariantList &customCurveVariant)
     QVariantList variantList = customCurveVariant;
     if ((variantList.count() % 6) == 0) {
         bool allRealsOk = true;
-        QList<qreal> reals;
+        QVector<qreal> reals;
         const int variantListCount = variantList.count();
         reals.reserve(variantListCount);
         for (int i = 0; i < variantListCount; i++) {
@@ -551,10 +558,13 @@ void QQmlEasingValueType::setBezierCurve(const QVariantList &customCurveVariant)
 QVariantList QQmlEasingValueType::bezierCurve() const
 {
     QVariantList rv;
-    QVector<QPointF> points = v.toCubicSpline();
-    for (int ii = 0; ii < points.count(); ++ii)
-        rv << QVariant(points.at(ii).x()) << QVariant(points.at(ii).y());
+    const QVector<QPointF> points = v.toCubicSpline();
+    rv.reserve(points.size() * 2);
+    for (const auto &point : points)
+        rv << QVariant(point.x()) << QVariant(point.y());
     return rv;
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qqmlvaluetype_p.cpp"

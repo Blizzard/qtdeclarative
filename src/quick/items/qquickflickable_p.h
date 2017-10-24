@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -101,11 +107,12 @@ class Q_QUICK_PRIVATE_EXPORT QQuickFlickable : public QQuickItem
 
     Q_PROPERTY(bool pixelAligned READ pixelAligned WRITE setPixelAligned NOTIFY pixelAlignedChanged)
 
+    Q_PROPERTY(qreal horizontalOvershoot READ horizontalOvershoot NOTIFY horizontalOvershootChanged REVISION 9)
+    Q_PROPERTY(qreal verticalOvershoot READ verticalOvershoot NOTIFY verticalOvershootChanged REVISION 9)
+
     Q_PROPERTY(QQmlListProperty<QObject> flickableData READ flickableData)
     Q_PROPERTY(QQmlListProperty<QQuickItem> flickableChildren READ flickableChildren)
     Q_CLASSINFO("DefaultProperty", "flickableData")
-
-    Q_FLAGS(BoundsBehavior)
 
 public:
     QQuickFlickable(QQuickItem *parent=0);
@@ -121,6 +128,7 @@ public:
         DragAndOvershootBounds = DragOverBounds | OvershootBounds
     };
     Q_DECLARE_FLAGS(BoundsBehavior, BoundsBehaviorFlag)
+    Q_FLAG(BoundsBehavior)
 
     BoundsBehavior boundsBehavior() const;
     void setBoundsBehavior(BoundsBehavior);
@@ -188,15 +196,19 @@ public:
     bool isAtYEnd() const;
     bool isAtYBeginning() const;
 
-    QQuickItem *contentItem();
+    QQuickItem *contentItem() const;
 
-    enum FlickableDirection { AutoFlickDirection=0x00, HorizontalFlick=0x01, VerticalFlick=0x02, HorizontalAndVerticalFlick=0x03 };
+    enum FlickableDirection { AutoFlickDirection=0x0, HorizontalFlick=0x1, VerticalFlick=0x2, HorizontalAndVerticalFlick=0x3,
+                              AutoFlickIfNeeded=0xc };
     Q_ENUM(FlickableDirection)
     FlickableDirection flickableDirection() const;
     void setFlickableDirection(FlickableDirection);
 
     bool pixelAligned() const;
     void setPixelAligned(bool align);
+
+    qreal horizontalOvershoot() const;
+    qreal verticalOvershoot() const;
 
     Q_INVOKABLE void resizeContent(qreal w, qreal h, QPointF center);
     Q_INVOKABLE void returnToBounds();
@@ -241,13 +253,15 @@ Q_SIGNALS:
     void dragStarted();
     void dragEnded();
     void pixelAlignedChanged();
+    Q_REVISION(9) void horizontalOvershootChanged();
+    Q_REVISION(9) void verticalOvershootChanged();
 
 protected:
     bool childMouseEventFilter(QQuickItem *, QEvent *) Q_DECL_OVERRIDE;
     void mousePressEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
     void mouseMoveEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
     void mouseReleaseEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
-#ifndef QT_NO_WHEELEVENT
+#if QT_CONFIG(wheelevent)
     void wheelEvent(QWheelEvent *event) Q_DECL_OVERRIDE;
 #endif
     void timerEvent(QTimerEvent *event) Q_DECL_OVERRIDE;
@@ -273,7 +287,7 @@ protected:
     void geometryChanged(const QRectF &newGeometry,
                          const QRectF &oldGeometry) Q_DECL_OVERRIDE;
     void mouseUngrabEvent() Q_DECL_OVERRIDE;
-    bool sendMouseEvent(QQuickItem *item, QMouseEvent *event);
+    bool filterMouseEvent(QQuickItem *receiver, QMouseEvent *event);
 
     bool xflick() const;
     bool yflick() const;
@@ -284,6 +298,7 @@ protected:
 private:
     Q_DISABLE_COPY(QQuickFlickable)
     Q_DECLARE_PRIVATE(QQuickFlickable)
+    friend class QQuickFlickableContentItem;
     friend class QQuickFlickableVisibleArea;
     friend class QQuickFlickableReboundTransition;
 };

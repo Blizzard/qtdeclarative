@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -48,6 +54,7 @@
 #include <private/qv4function_p.h>
 #include <private/qqmlboundsignal_p.h>
 #include <private/qfinitestack_p.h>
+#include <private/qqmlbinding_p.h>
 #include "qqmlprofilerdefinitions_p.h"
 #include "qqmlabstractprofileradapter_p.h"
 
@@ -55,6 +62,54 @@
 #include <QString>
 
 QT_BEGIN_NAMESPACE
+
+#ifdef QT_NO_QML_DEBUGGER
+
+#define Q_QML_PROFILE_IF_ENABLED(feature, profiler, Code)
+#define Q_QML_PROFILE(feature, profiler, Method)
+#define Q_QML_OC_PROFILE(member, Code)
+
+class QQmlProfiler {};
+
+struct QQmlBindingProfiler
+{
+    QQmlBindingProfiler(quintptr, QV4::Function *) {}
+};
+
+struct QQmlHandlingSignalProfiler
+{
+    QQmlHandlingSignalProfiler(quintptr, QQmlBoundSignalExpression *) {}
+};
+
+struct QQmlCompilingProfiler
+{
+    QQmlCompilingProfiler(quintptr, QQmlDataBlob *) {}
+};
+
+struct QQmlVmeProfiler {
+    QQmlVmeProfiler() {}
+
+    void init(quintptr, int) {}
+
+    const QV4::CompiledData::Object *pop() { return nullptr; }
+    void push(const QV4::CompiledData::Object *) {}
+
+    static const quintptr profiler = 0;
+};
+
+struct QQmlObjectCreationProfiler
+{
+    QQmlObjectCreationProfiler(quintptr, const QV4::CompiledData::Object *) {}
+    void update(QV4::CompiledData::CompilationUnit *, const QV4::CompiledData::Object *,
+                const QString &, const QUrl &) {}
+};
+
+struct QQmlObjectCompletionProfiler
+{
+    QQmlObjectCompletionProfiler(QQmlVmeProfiler *) {}
+};
+
+#else
 
 #define Q_QML_PROFILE_IF_ENABLED(feature, profiler, Code)\
     if (profiler && (profiler->featuresEnabled & (1 << feature))) {\
@@ -65,116 +120,203 @@ QT_BEGIN_NAMESPACE
 #define Q_QML_PROFILE(feature, profiler, Method)\
     Q_QML_PROFILE_IF_ENABLED(feature, profiler, profiler->Method)
 
+#define Q_QML_OC_PROFILE(member, Code)\
+    Q_QML_PROFILE_IF_ENABLED(QQmlProfilerDefinitions::ProfileCreating, member.profiler, Code)
+
 // This struct is somewhat dangerous to use:
 // The messageType is a bit field. You can pack multiple messages into
 // one object, e.g. RangeStart and RangeLocation. Each one will be read
 // independently when converting to QByteArrays. Thus you can only pack
 // messages if their data doesn't overlap. It's up to you to figure that
 // out.
-struct Q_AUTOTEST_EXPORT QQmlProfilerData
+struct Q_AUTOTEST_EXPORT QQmlProfilerData : public QQmlProfilerDefinitions
 {
-    QQmlProfilerData() {}
-
-    QQmlProfilerData(qint64 time, int messageType, int detailType, const QUrl &url,
-                     int x = 0, int y = 0) :
-        time(time), messageType(messageType), detailType(detailType), detailUrl(url),
-        x(x), y(y) {}
-
-    QQmlProfilerData(qint64 time, int messageType, int detailType, const QString &str,
-                     int x = 0, int y = 0) :
-        time(time), messageType(messageType), detailType(detailType),detailString(str),
-        x(x), y(y) {}
-
-    QQmlProfilerData(qint64 time, int messageType, int detailType, const QString &str,
-                     const QUrl &url, int x = 0, int y = 0) :
-        time(time), messageType(messageType), detailType(detailType), detailString(str),
-        detailUrl(url), x(x), y(y) {}
-
-
-    QQmlProfilerData(qint64 time, int messageType, int detailType) :
-        time(time), messageType(messageType), detailType(detailType) {}
-
+    QQmlProfilerData(qint64 time = -1, int messageType = -1,
+                     RangeType detailType = MaximumRangeType, quintptr locationId = 0) :
+        time(time), locationId(locationId), messageType(messageType), detailType(detailType)
+    {}
 
     qint64 time;
+    quintptr locationId;
+
     int messageType;        //bit field of QQmlProfilerService::Message
-    int detailType;
-
-    // RangeData prefers detailString; RangeLocation prefers detailUrl.
-    QString detailString;   //used by RangeData and possibly by RangeLocation
-    QUrl detailUrl;         //used by RangeLocation and possibly by RangeData
-
-    int x;                  //used by RangeLocation
-    int y;                  //used by RangeLocation
+    RangeType detailType;
 };
 
 Q_DECLARE_TYPEINFO(QQmlProfilerData, Q_MOVABLE_TYPE);
 
-class QQmlProfiler : public QObject, public QQmlProfilerDefinitions {
+class Q_QML_PRIVATE_EXPORT QQmlProfiler : public QObject, public QQmlProfilerDefinitions {
     Q_OBJECT
 public:
-    void startBinding(const QQmlSourceLocation &location)
+
+    class FunctionRefCount : public QQmlRefCount {
+    public:
+        FunctionRefCount(QV4::Function *function):
+            m_function(function)
+        {
+            m_function->compilationUnit->addref();
+        }
+
+        FunctionRefCount(const FunctionRefCount &other) :
+            QQmlRefCount(other), m_function(other.m_function)
+        {
+            m_function->compilationUnit->addref();
+        }
+
+        FunctionRefCount &operator=(const FunctionRefCount &other)
+        {
+            if (this != &other) {
+                QQmlRefCount::operator=(other);
+                other.m_function->compilationUnit->addref();
+                m_function->compilationUnit->release();
+                m_function = other.m_function;
+            }
+            return *this;
+        }
+
+        ~FunctionRefCount()
+        {
+            m_function->compilationUnit->release();
+        }
+
+    private:
+        QV4::Function *m_function;
+    };
+
+    struct Location {
+        Location(const QQmlSourceLocation &location = QQmlSourceLocation(),
+                 const QUrl &url = QUrl()) :
+            location(location), url(url) {}
+        QQmlSourceLocation location;
+        QUrl url;
+    };
+
+    // Unfortunately we have to resolve the locations right away because the QML context might not
+    // be available anymore when we send the data.
+    struct RefLocation : public Location {
+        RefLocation() : Location(), locationType(MaximumRangeType), ref(nullptr), sent(false)
+        {}
+
+        RefLocation(QV4::Function *function) :
+            Location(function->sourceLocation()), locationType(Binding),
+            ref(new FunctionRefCount(function),
+                QQmlRefPointer<QQmlRefCount>::Adopt), sent(false)
+        {}
+
+        RefLocation(QV4::CompiledData::CompilationUnit *ref, const QUrl &url, const QV4::CompiledData::Object *obj,
+                    const QString &type) :
+            Location(QQmlSourceLocation(type, obj->location.line, obj->location.column), url),
+            locationType(Creating), ref(ref), sent(false)
+        {}
+
+        RefLocation(QQmlBoundSignalExpression *ref) :
+            Location(ref->sourceLocation()), locationType(HandlingSignal), ref(ref), sent(false)
+        {}
+
+        RefLocation(QQmlDataBlob *ref) :
+            Location(QQmlSourceLocation(), ref->url()), locationType(Compiling), ref(ref),
+            sent(false)
+        {}
+
+        bool isValid() const
+        {
+            return locationType != MaximumRangeType;
+        }
+
+        RangeType locationType;
+        QQmlRefPointer<QQmlRefCount> ref;
+        bool sent;
+    };
+
+    typedef QHash<quintptr, Location> LocationHash;
+
+    void startBinding(QV4::Function *function)
     {
+        // Use the QV4::Function as ID, as that is common among different instances of the same
+        // component. QQmlBinding is per instance.
+        // Add 1 to the ID, to make it different from the IDs the V4 profiler produces. The +1 makes
+        // the pointer point into the middle of the QV4::Function. Thus it still points to valid
+        // memory but we cannot accidentally create a duplicate key from another object.
+        quintptr locationId(id(function) + 1);
         m_data.append(QQmlProfilerData(m_timer.nsecsElapsed(),
-                                       (1 << RangeStart | 1 << RangeLocation), 1 << Binding,
-                                       location.sourceFile, qmlSourceCoordinate(location.line), qmlSourceCoordinate(location.column)));
+                                       (1 << RangeStart | 1 << RangeLocation), Binding,
+                                       locationId));
+
+        RefLocation &location = m_locations[locationId];
+        if (!location.isValid())
+            location = RefLocation(function);
     }
 
     // Have toByteArrays() construct another RangeData event from the same QString later.
     // This is somewhat pointless but important for backwards compatibility.
-    void startCompiling(const QUrl &url)
+    void startCompiling(QQmlDataBlob *blob)
+    {
+        quintptr locationId(id(blob));
+        m_data.append(QQmlProfilerData(m_timer.nsecsElapsed(),
+                                       (1 << RangeStart | 1 << RangeLocation | 1 << RangeData),
+                                       Compiling, locationId));
+
+        RefLocation &location = m_locations[locationId];
+        if (!location.isValid())
+            location = RefLocation(blob);
+    }
+
+    void startHandlingSignal(QQmlBoundSignalExpression *expression)
+    {
+        quintptr locationId(id(expression));
+        m_data.append(QQmlProfilerData(m_timer.nsecsElapsed(),
+                                       (1 << RangeStart | 1 << RangeLocation), HandlingSignal,
+                                       locationId));
+
+        RefLocation &location = m_locations[locationId];
+        if (!location.isValid())
+            location = RefLocation(expression);
+    }
+
+    void startCreating(const QV4::CompiledData::Object *obj)
     {
         m_data.append(QQmlProfilerData(m_timer.nsecsElapsed(),
                                        (1 << RangeStart | 1 << RangeLocation | 1 << RangeData),
-                                       1 << Compiling, url, 1, 1));
+                                       Creating, id(obj)));
     }
 
-    void startHandlingSignal(const QQmlSourceLocation &location)
+    void updateCreating(const QV4::CompiledData::Object *obj,
+                        QV4::CompiledData::CompilationUnit *ref,
+                        const QUrl &url, const QString &type)
     {
-        m_data.append(QQmlProfilerData(m_timer.nsecsElapsed(),
-                                       (1 << RangeStart | 1 << RangeLocation), 1 << HandlingSignal,
-                                       location.sourceFile, location.line, location.column));
-    }
-
-    void startCreating()
-    {
-        m_data.append(QQmlProfilerData(m_timer.nsecsElapsed(), 1 << RangeStart, 1 << Creating));
-    }
-
-    void startCreating(const QString &typeName, const QUrl &fileName, int line, int column)
-    {
-        m_data.append(QQmlProfilerData(m_timer.nsecsElapsed(),
-                                       (1 << RangeStart | 1 << RangeLocation | 1 << RangeData),
-                                       1 << Creating, typeName, fileName, line, column));
-    }
-
-    void updateCreating(const QString &typeName, const QUrl &fileName, int line, int column)
-    {
-        m_data.append(QQmlProfilerData(m_timer.nsecsElapsed(),
-                                       (1 << RangeLocation | 1 << RangeData),
-                                       1 << Creating, typeName, fileName, line, column));
+        quintptr locationId(id(obj));
+        RefLocation &location = m_locations[locationId];
+        if (!location.isValid())
+            location = RefLocation(ref, url, obj, type);
     }
 
     template<RangeType Range>
     void endRange()
     {
-        m_data.append(QQmlProfilerData(m_timer.nsecsElapsed(), 1 << RangeEnd, 1 << Range));
+        m_data.append(QQmlProfilerData(m_timer.nsecsElapsed(), 1 << RangeEnd, Range));
     }
 
     QQmlProfiler();
 
     quint64 featuresEnabled;
 
-public slots:
+    template<typename Object>
+    static quintptr id(const Object *pointer)
+    {
+        return reinterpret_cast<quintptr>(pointer);
+    }
+
     void startProfiling(quint64 features);
     void stopProfiling();
-    void reportData();
+    void reportData(bool trackLocations);
     void setTimer(const QElapsedTimer &timer) { m_timer = timer; }
 
 signals:
-    void dataReady(const QVector<QQmlProfilerData> &);
+    void dataReady(const QVector<QQmlProfilerData> &, const QQmlProfiler::LocationHash &);
 
 protected:
     QElapsedTimer m_timer;
+    QHash<quintptr, RefLocation> m_locations;
     QVector<QQmlProfilerData> m_data;
 };
 
@@ -188,11 +330,11 @@ struct QQmlProfilerHelper : public QQmlProfilerDefinitions {
 };
 
 struct QQmlBindingProfiler : public QQmlProfilerHelper {
-    QQmlBindingProfiler(QQmlProfiler *profiler, const QV4::FunctionObject *function) :
+    QQmlBindingProfiler(QQmlProfiler *profiler, QV4::Function *function) :
         QQmlProfilerHelper(profiler)
     {
         Q_QML_PROFILE(QQmlProfilerDefinitions::ProfileBinding, profiler,
-                      startBinding(function->sourceLocation()));
+                      startBinding(function));
     }
 
     ~QQmlBindingProfiler()
@@ -207,7 +349,7 @@ struct QQmlHandlingSignalProfiler : public QQmlProfilerHelper {
         QQmlProfilerHelper(profiler)
     {
         Q_QML_PROFILE(QQmlProfilerDefinitions::ProfileHandlingSignal, profiler,
-                      startHandlingSignal(expression->sourceLocation()));
+                      startHandlingSignal(expression));
     }
 
     ~QQmlHandlingSignalProfiler()
@@ -218,10 +360,10 @@ struct QQmlHandlingSignalProfiler : public QQmlProfilerHelper {
 };
 
 struct QQmlCompilingProfiler : public QQmlProfilerHelper {
-    QQmlCompilingProfiler(QQmlProfiler *profiler, const QUrl &url) :
+    QQmlCompilingProfiler(QQmlProfiler *profiler, QQmlDataBlob *blob) :
         QQmlProfilerHelper(profiler)
     {
-        Q_QML_PROFILE(QQmlProfilerDefinitions::ProfileCompiling, profiler, startCompiling(url));
+        Q_QML_PROFILE(QQmlProfilerDefinitions::ProfileCompiling, profiler, startCompiling(blob));
     }
 
     ~QQmlCompilingProfiler()
@@ -233,14 +375,6 @@ struct QQmlCompilingProfiler : public QQmlProfilerHelper {
 struct QQmlVmeProfiler : public QQmlProfilerDefinitions {
 public:
 
-    struct Data {
-        Data() : m_line(0), m_column(0) {}
-        QUrl m_url;
-        int m_line;
-        int m_column;
-        QString m_typeName;
-    };
-
     QQmlVmeProfiler() : profiler(0) {}
 
     void init(QQmlProfiler *p, int maxDepth)
@@ -249,35 +383,33 @@ public:
         ranges.allocate(maxDepth);
     }
 
-    Data pop()
+    const QV4::CompiledData::Object *pop()
     {
         if (ranges.count() > 0)
             return ranges.pop();
         else
-            return Data();
+            return nullptr;
     }
 
-    void push(const Data &data)
+    void push(const QV4::CompiledData::Object *object)
     {
         if (ranges.capacity() > ranges.count())
-            ranges.push(data);
+            ranges.push(object);
     }
 
     QQmlProfiler *profiler;
 
 private:
-    QFiniteStack<Data> ranges;
+    QFiniteStack<const QV4::CompiledData::Object *> ranges;
 };
 
-#define Q_QML_OC_PROFILE(member, Code)\
-    Q_QML_PROFILE_IF_ENABLED(QQmlProfilerDefinitions::ProfileCreating, member.profiler, Code)
-
-class QQmlObjectCreationProfiler : public QQmlVmeProfiler::Data {
+class QQmlObjectCreationProfiler {
 public:
 
-    QQmlObjectCreationProfiler(QQmlProfiler *profiler) : profiler(profiler)
+    QQmlObjectCreationProfiler(QQmlProfiler *profiler, const QV4::CompiledData::Object *obj)
+        : profiler(profiler)
     {
-        Q_QML_PROFILE(QQmlProfilerDefinitions::ProfileCreating, profiler, startCreating());
+        Q_QML_PROFILE(QQmlProfilerDefinitions::ProfileCreating, profiler, startCreating(obj));
     }
 
     ~QQmlObjectCreationProfiler()
@@ -285,13 +417,10 @@ public:
         Q_QML_PROFILE(QQmlProfilerDefinitions::ProfileCreating, profiler, endRange<QQmlProfilerDefinitions::Creating>());
     }
 
-    void update(const QString &typeName, const QUrl &url, int line, int column)
+    void update(QV4::CompiledData::CompilationUnit *ref, const QV4::CompiledData::Object *obj,
+                const QString &typeName, const QUrl &url)
     {
-        profiler->updateCreating(typeName, url, line, column);
-        m_typeName = typeName;
-        m_url = url;
-        m_line = line;
-        m_column = column;
+        profiler->updateCreating(obj, ref, url, typeName);
     }
 
 private:
@@ -304,8 +433,7 @@ public:
         profiler(parent->profiler)
     {
         Q_QML_PROFILE_IF_ENABLED(QQmlProfilerDefinitions::ProfileCreating, profiler, {
-            QQmlVmeProfiler::Data data = parent->pop();
-            profiler->startCreating(data.m_typeName, data.m_url, data.m_line, data.m_column);
+            profiler->startCreating(parent->pop());
         });
     }
 
@@ -320,5 +448,8 @@ private:
 
 QT_END_NAMESPACE
 Q_DECLARE_METATYPE(QVector<QQmlProfilerData>)
+Q_DECLARE_METATYPE(QQmlProfiler::LocationHash)
+
+#endif // QT_NO_QML_DEBUGGER
 
 #endif // QQMLPROFILER_P_H

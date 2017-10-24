@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -46,7 +52,7 @@
 using namespace QV4;
 using namespace QV4::IR;
 
-EvalInstructionSelection::EvalInstructionSelection(QV4::ExecutableAllocator *execAllocator, Module *module, QV4::Compiler::JSUnitGenerator *jsGenerator)
+EvalInstructionSelection::EvalInstructionSelection(QV4::ExecutableAllocator *execAllocator, Module *module, QV4::Compiler::JSUnitGenerator *jsGenerator, EvalISelFactory *iselFactory)
     : useFastLookups(true)
     , useTypeInference(true)
     , executableAllocator(execAllocator)
@@ -61,6 +67,7 @@ EvalInstructionSelection::EvalInstructionSelection(QV4::ExecutableAllocator *exe
     Q_ASSERT(execAllocator);
 #endif
     Q_ASSERT(module);
+    jsGenerator->codeGeneratorName = iselFactory->codeGeneratorName;
 }
 
 EvalInstructionSelection::~EvalInstructionSelection()
@@ -89,7 +96,7 @@ void IRDecoder::visitMove(IR::Move *s)
         }
     } else if (s->target->asTemp() || s->target->asArgLocal()) {
         if (IR::Name *n = s->source->asName()) {
-            if (n->id && *n->id == QStringLiteral("this")) // TODO: `this' should be a builtin.
+            if (n->id && *n->id == QLatin1String("this")) // TODO: `this' should be a builtin.
                 loadThisObject(s->target);
             else if (n->builtin == IR::Name::builtin_qml_context)
                 loadQmlContext(s->target);
@@ -140,24 +147,24 @@ void IRDecoder::visitMove(IR::Move *s)
                 const int attachedPropertiesId = m->attachedPropertiesId;
                 const bool isSingletonProperty = m->kind == IR::Member::MemberOfSingletonObject;
 
-                if (_function && attachedPropertiesId == 0 && !m->property->isConstant()) {
+                if (_function && attachedPropertiesId == 0 && !m->property->isConstant() && _function->isQmlBinding) {
                     if (m->kind == IR::Member::MemberOfQmlContextObject) {
-                        _function->contextObjectPropertyDependencies.insert(m->property->coreIndex, m->property->notifyIndex);
+                        _function->contextObjectPropertyDependencies.insert(m->property->coreIndex(), m->property->notifyIndex());
                         captureRequired = false;
                     } else if (m->kind == IR::Member::MemberOfQmlScopeObject) {
-                        _function->scopeObjectPropertyDependencies.insert(m->property->coreIndex, m->property->notifyIndex);
+                        _function->scopeObjectPropertyDependencies.insert(m->property->coreIndex(), m->property->notifyIndex());
                         captureRequired = false;
                     }
                 }
                 if (m->kind == IR::Member::MemberOfQmlScopeObject || m->kind == IR::Member::MemberOfQmlContextObject) {
-                    getQmlContextProperty(m->base, (IR::Member::MemberKind)m->kind, m->property->coreIndex, s->target);
+                    getQmlContextProperty(m->base, (IR::Member::MemberKind)m->kind, m->property->coreIndex(), captureRequired, s->target);
                     return;
                 }
-                getQObjectProperty(m->base, m->property->coreIndex, captureRequired, isSingletonProperty, attachedPropertiesId, s->target);
+                getQObjectProperty(m->base, m->property->coreIndex(), captureRequired, isSingletonProperty, attachedPropertiesId, s->target);
 #endif // V4_BOOTSTRAP
                 return;
             } else if (m->kind == IR::Member::MemberOfIdObjectsArray) {
-                getQmlContextProperty(m->base, (IR::Member::MemberKind)m->kind, m->idIndex, s->target);
+                getQmlContextProperty(m->base, (IR::Member::MemberKind)m->kind, m->idIndex, /*captureRequired*/false, s->target);
                 return;
             } else if (m->base->asTemp() || m->base->asConst() || m->base->asArgLocal()) {
                 getProperty(m->base, *m->name, s->target);
@@ -180,7 +187,7 @@ void IRDecoder::visitMove(IR::Move *s)
 #ifndef V4_BOOTSTRAP
                 Q_ASSERT(member->kind != IR::Member::MemberOfIdObjectsArray);
                 if (member->kind == IR::Member::MemberOfQmlScopeObject || member->kind == IR::Member::MemberOfQmlContextObject) {
-                    callQmlContextProperty(member->base, (IR::Member::MemberKind)member->kind, member->property->coreIndex, c->args, s->target);
+                    callQmlContextProperty(member->base, (IR::Member::MemberKind)member->kind, member->property->coreIndex(), c->args, s->target);
                     return;
                 }
 #endif
@@ -209,10 +216,10 @@ void IRDecoder::visitMove(IR::Move *s)
                     Q_UNIMPLEMENTED();
 #else
                     if (m->kind == IR::Member::MemberOfQmlScopeObject || m->kind == IR::Member::MemberOfQmlContextObject) {
-                        setQmlContextProperty(s->source, m->base, (IR::Member::MemberKind)m->kind, m->property->coreIndex);
+                        setQmlContextProperty(s->source, m->base, (IR::Member::MemberKind)m->kind, m->property->coreIndex());
                         return;
                     }
-                    setQObjectProperty(s->source, m->base, m->property->coreIndex);
+                    setQObjectProperty(s->source, m->base, m->property->coreIndex());
 #endif
                     return;
                 } else {
@@ -256,7 +263,7 @@ void IRDecoder::visitExp(IR::Exp *s)
 #ifndef V4_BOOTSTRAP
             Q_ASSERT(member->kind != IR::Member::MemberOfIdObjectsArray);
             if (member->kind == IR::Member::MemberOfQmlScopeObject || member->kind == IR::Member::MemberOfQmlContextObject) {
-                callQmlContextProperty(member->base, (IR::Member::MemberKind)member->kind, member->property->coreIndex, c->args, 0);
+                callQmlContextProperty(member->base, (IR::Member::MemberKind)member->kind, member->property->coreIndex(), c->args, 0);
                 return;
             }
 #endif
@@ -288,7 +295,7 @@ void IRDecoder::callBuiltin(IR::Call *call, Expr *result)
             if (member->kind == IR::Member::MemberOfQmlScopeObject || member->kind == IR::Member::MemberOfQmlContextObject) {
                 callBuiltinTypeofQmlContextProperty(member->base,
                                                     IR::Member::MemberKind(member->kind),
-                                                    member->property->coreIndex, result);
+                                                    member->property->coreIndex(), result);
                 return;
             }
 #endif

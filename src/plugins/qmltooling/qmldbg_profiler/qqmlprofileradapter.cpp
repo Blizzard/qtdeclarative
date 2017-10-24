@@ -1,122 +1,165 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
 
 #include "qqmlprofileradapter.h"
+#include "qqmldebugpacket.h"
+
 #include <private/qqmldebugserviceinterfaces_p.h>
 
 QT_BEGIN_NAMESPACE
 
-QQmlProfilerAdapter::QQmlProfilerAdapter(QQmlProfilerService *service, QQmlEnginePrivate *engine) :
-    QQmlAbstractProfilerAdapter(service), next(0)
+QQmlProfilerAdapter::QQmlProfilerAdapter(QQmlProfilerService *service, QQmlEnginePrivate *engine)
 {
-    engine->enableProfiler();
-    connect(this, SIGNAL(profilingEnabled(quint64)), engine->profiler, SLOT(startProfiling(quint64)));
-    connect(this, SIGNAL(profilingEnabledWhileWaiting(quint64)),
-            engine->profiler, SLOT(startProfiling(quint64)), Qt::DirectConnection);
-    connect(this, SIGNAL(profilingDisabled()), engine->profiler, SLOT(stopProfiling()));
-    connect(this, SIGNAL(profilingDisabledWhileWaiting()),
-            engine->profiler, SLOT(stopProfiling()), Qt::DirectConnection);
-    connect(this, SIGNAL(dataRequested()), engine->profiler, SLOT(reportData()));
-    connect(this, SIGNAL(referenceTimeKnown(QElapsedTimer)),
-            engine->profiler, SLOT(setTimer(QElapsedTimer)));
-    connect(engine->profiler, SIGNAL(dataReady(QVector<QQmlProfilerData>)),
-            this, SLOT(receiveData(QVector<QQmlProfilerData>)));
+    engine->profiler = new QQmlProfiler;
+    init(service, engine->profiler);
+}
+
+QQmlProfilerAdapter::QQmlProfilerAdapter(QQmlProfilerService *service, QQmlTypeLoader *loader)
+{
+    QQmlProfiler *profiler = new QQmlProfiler;
+    loader->setProfiler(profiler);
+    init(service, profiler);
+}
+
+void QQmlProfilerAdapter::init(QQmlProfilerService *service, QQmlProfiler *profiler)
+{
+    next = 0;
+    setService(service);
+    connect(this, &QQmlProfilerAdapter::profilingEnabled,
+            profiler, &QQmlProfiler::startProfiling);
+    connect(this, &QQmlAbstractProfilerAdapter::profilingEnabledWhileWaiting,
+            profiler, &QQmlProfiler::startProfiling, Qt::DirectConnection);
+    connect(this, &QQmlAbstractProfilerAdapter::profilingDisabled,
+            profiler, &QQmlProfiler::stopProfiling);
+    connect(this, &QQmlAbstractProfilerAdapter::profilingDisabledWhileWaiting,
+            profiler, &QQmlProfiler::stopProfiling, Qt::DirectConnection);
+    connect(this, &QQmlAbstractProfilerAdapter::dataRequested,
+            profiler, &QQmlProfiler::reportData);
+    connect(this, &QQmlAbstractProfilerAdapter::referenceTimeKnown,
+            profiler, &QQmlProfiler::setTimer);
+    connect(profiler, &QQmlProfiler::dataReady,
+            this, &QQmlProfilerAdapter::receiveData);
 }
 
 // convert to QByteArrays that can be sent to the debug client
-// use of QDataStream can skew results
-//     (see tst_qqmldebugtrace::trace() benchmark)
-static void qQmlProfilerDataToByteArrays(const QQmlProfilerData *d, QList<QByteArray> &messages)
+static void qQmlProfilerDataToByteArrays(const QQmlProfilerData &d,
+                                         QQmlProfiler::LocationHash &locations,
+                                         QList<QByteArray> &messages,
+                                         bool trackLocations)
 {
-    QByteArray data;
-    Q_ASSERT_X(((d->messageType | d->detailType) & (1 << 31)) == 0, Q_FUNC_INFO,
-               "You can use at most 31 message types and 31 detail types.");
-    for (uint decodedMessageType = 0; (d->messageType >> decodedMessageType) != 0;
+    QQmlDebugPacket ds;
+    Q_ASSERT_X((d.messageType & (1 << 31)) == 0, Q_FUNC_INFO,
+               "You can use at most 31 message types.");
+    for (quint32 decodedMessageType = 0; (d.messageType >> decodedMessageType) != 0;
          ++decodedMessageType) {
-        if ((d->messageType & (1 << decodedMessageType)) == 0)
-            continue;
-
-        for (uint decodedDetailType = 0; (d->detailType >> decodedDetailType) != 0;
-             ++decodedDetailType) {
-            if ((d->detailType & (1 << decodedDetailType)) == 0)
-                continue;
-
-            //### using QDataStream is relatively expensive
-            QQmlDebugStream ds(&data, QIODevice::WriteOnly);
-            ds << d->time << decodedMessageType << decodedDetailType;
-
-            switch (decodedMessageType) {
-            case QQmlProfilerDefinitions::RangeStart:
-                if (decodedDetailType == (int)QQmlProfilerDefinitions::Binding)
-                    ds << QQmlProfilerDefinitions::QmlBinding;
-                break;
-            case QQmlProfilerDefinitions::RangeData:
-                ds << (d->detailString.isEmpty() ? d->detailUrl.toString() : d->detailString);
-                break;
-            case QQmlProfilerDefinitions::RangeLocation:
-                ds << (d->detailUrl.isEmpty() ? d->detailString : d->detailUrl.toString()) << d->x
-                   << d->y;
-                break;
-            case QQmlProfilerDefinitions::RangeEnd: break;
-            default:
-                Q_ASSERT_X(false, Q_FUNC_INFO, "Invalid message type.");
-                break;
-            }
-            messages << data;
-            data.clear();
+        if (decodedMessageType == QQmlProfilerDefinitions::RangeData
+                || (d.messageType & (1 << decodedMessageType)) == 0) {
+            continue; // RangeData is sent together with RangeLocation
         }
+
+        if (decodedMessageType == QQmlProfilerDefinitions::RangeEnd
+                || decodedMessageType == QQmlProfilerDefinitions::RangeStart) {
+            ds << d.time << decodedMessageType << static_cast<quint32>(d.detailType);
+            if (trackLocations && d.locationId != 0)
+                ds << static_cast<qint64>(d.locationId);
+        } else {
+            auto i = locations.find(d.locationId);
+            if (i != locations.end()) {
+                ds << d.time << decodedMessageType << static_cast<quint32>(d.detailType);
+                ds << (i->url.isEmpty() ? i->location.sourceFile : i->url.toString())
+                   << static_cast<qint32>(i->location.line)
+                   << static_cast<qint32>(i->location.column);
+                if (d.messageType & (1 << QQmlProfilerDefinitions::RangeData)) {
+                    // Send both, location and data ...
+                    if (trackLocations)
+                        ds << static_cast<qint64>(d.locationId);
+                    messages.append(ds.squeezedData());
+                    ds.clear();
+                    ds << d.time << int(QQmlProfilerDefinitions::RangeData)
+                       << static_cast<quint32>(d.detailType)
+                       << (i->location.sourceFile.isEmpty() ? i->url.toString() :
+                                                              i->location.sourceFile);
+                }
+                if (trackLocations) {
+                    ds << static_cast<qint64>(d.locationId);
+                    locations.erase(i); // ... so that we can erase here without missing anything.
+                }
+            } else {
+                // Skip RangeData and RangeLocation: We've already sent them
+                continue;
+            }
+        }
+        messages.append(ds.squeezedData());
+        ds.clear();
     }
 }
 
-qint64 QQmlProfilerAdapter::sendMessages(qint64 until, QList<QByteArray> &messages)
+qint64 QQmlProfilerAdapter::sendMessages(qint64 until, QList<QByteArray> &messages,
+                                         bool trackLocations)
 {
     while (next != data.length()) {
-        if (data[next].time > until)
-            return data[next].time;
-        qQmlProfilerDataToByteArrays(&(data[next++]), messages);
+        const QQmlProfilerData &nextData = data.at(next);
+        if (nextData.time > until || messages.length() > s_numMessagesPerBatch)
+            return nextData.time;
+        qQmlProfilerDataToByteArrays(nextData, locations, messages, trackLocations);
+        ++next;
     }
 
     next = 0;
     data.clear();
+    locations.clear();
     return -1;
 }
 
-void QQmlProfilerAdapter::receiveData(const QVector<QQmlProfilerData> &new_data)
+void QQmlProfilerAdapter::receiveData(const QVector<QQmlProfilerData> &new_data,
+                                      const QQmlProfiler::LocationHash &new_locations)
 {
     if (data.isEmpty())
         data = new_data;
     else
         data.append(new_data);
+
+    if (locations.isEmpty())
+        locations = new_locations;
+    else
+        locations.unite(new_locations);
+
     service->dataReady(this);
 }
 

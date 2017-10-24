@@ -7,7 +7,7 @@ include(../shared/util.pri)
 
 macx:CONFIG -= app_bundle
 
-QT += core-private gui-private qml-private quick-private  testlib
+QT += core-private qml-private quick-private  testlib
 
 TESTDATA = data/*
 
@@ -16,6 +16,5 @@ OTHER_FILES += \
     data/AnimationsWhileHidden.qml \
     data/Headless.qml \
     data/showHideAnimate.qml \
-    data/windoworder.qml
-
-DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0
+    data/windoworder.qml \
+    data/grabContentItemToImage.qml

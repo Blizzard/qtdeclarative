@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -284,6 +290,11 @@ void QQuickBasePositioner::itemChange(ItemChange change, const ItemChangeData &v
     QQuickItem::itemChange(change, value);
 }
 
+void QQuickBasePositioner::forceLayout()
+{
+    updatePolish();
+}
+
 void QQuickBasePositioner::prePositioning()
 {
     Q_D(QQuickBasePositioner);
@@ -395,6 +406,8 @@ void QQuickBasePositioner::prePositioning()
 
     //Set implicit size to the size of its children
     setImplicitSize(contentSize.width(), contentSize.height());
+
+    emit positioningComplete();
 }
 
 void QQuickBasePositioner::positionItem(qreal x, qreal y, PositionedItem *target)
@@ -866,7 +879,7 @@ void QQuickPositionerAttached::setIsLastItem(bool isLastItem)
     the item that is being added. See the \l ViewTransition documentation for more details
     and examples on using these transitions.
 
-    \note This transition is not applied to the items that already part of the positioner
+    \note This transition is not applied to the items that are already part of the positioner
     at the time of its creation. In this case, the \l populate transition is applied instead.
 
     \sa populate, ViewTransition, {Qt Quick Examples - Positioners}
@@ -904,6 +917,28 @@ void QQuickPositionerAttached::setIsLastItem(bool isLastItem)
 
   \sa Grid::spacing
 */
+/*!
+    \qmlmethod QtQuick::Column::forceLayout()
+    \since 5.9
+
+    Column typically positions its children once per frame. This means that
+    inside script blocks it is possible for the underlying children to have changed,
+    but the Column to have not yet been updated accordingly.
+
+    This method forces the Column to immediately respond to any outstanding
+    changes in its children.
+
+    \b Note: methods in general should only be called after the Component has completed.
+*/
+/*!
+    \qmlsignal QtQuick::Column::positioningComplete()
+    \since 5.9
+
+    This signal is emitted when positioning has been completed.
+
+    The corresponding handler is \c onPositioningComplete.
+*/
+
 QQuickColumn::QQuickColumn(QQuickItem *parent)
 : QQuickBasePositioner(Vertical, parent)
 {
@@ -951,7 +986,7 @@ void QQuickColumn::reportConflictingAnchors()
         }
     }
     if (d->anchorConflict) {
-        qmlInfo(this) << "Cannot specify top, bottom, verticalCenter, fill or centerIn anchors for items inside Column."
+        qmlWarning(this) << "Cannot specify top, bottom, verticalCenter, fill or centerIn anchors for items inside Column."
             << " Column will not function.";
     }
 }
@@ -1033,7 +1068,7 @@ void QQuickColumn::reportConflictingAnchors()
     the item that is being added. See the \l ViewTransition documentation for more details
     and examples on using these transitions.
 
-    \note This transition is not applied to the items that already part of the positioner
+    \note This transition is not applied to the items that are already part of the positioner
     at the time of its creation. In this case, the \l populate transition is applied instead.
 
     \sa populate, ViewTransition, {Qt Quick Examples - Positioners}
@@ -1070,6 +1105,27 @@ void QQuickColumn::reportConflictingAnchors()
   items. The default spacing is 0.
 
   \sa Grid::spacing
+*/
+/*!
+    \qmlmethod QtQuick::Row::forceLayout()
+    \since 5.9
+
+    Row typically positions its children once per frame. This means that
+    inside script blocks it is possible for the underlying children to have changed,
+    but the Row to have not yet been updated accordingly.
+
+    This method forces the Row to immediately respond to any outstanding
+    changes in its children.
+
+    \b Note: methods in general should only be called after the Component has completed.
+*/
+/*!
+    \qmlsignal QtQuick::Row::positioningComplete()
+    \since 5.9
+
+    This signal is emitted when positioning has been completed.
+
+    The corresponding handler is \c onPositioningComplete.
 */
 
 class QQuickRowPrivate : public QQuickBasePositionerPrivate
@@ -1218,7 +1274,7 @@ void QQuickRow::reportConflictingAnchors()
         }
     }
     if (d->anchorConflict)
-        qmlInfo(this) << "Cannot specify left, right, horizontalCenter, fill or centerIn anchors for items inside Row."
+        qmlWarning(this) << "Cannot specify left, right, horizontalCenter, fill or centerIn anchors for items inside Row."
             << " Row will not function.";
 }
 
@@ -1301,7 +1357,7 @@ void QQuickRow::reportConflictingAnchors()
     the item that is being added. See the \l ViewTransition documentation for more details
     and examples on using these transitions.
 
-    \note This transition is not applied to the items that already part of the positioner
+    \note This transition is not applied to the items that are already part of the positioner
     at the time of its creation. In this case, the \l populate transition is applied instead.
 
     \sa populate, ViewTransition, {Qt Quick Examples - Positioners}
@@ -1348,6 +1404,27 @@ void QQuickRow::reportConflictingAnchors()
   \inlineimage qml-grid-spacing.png
 
   \sa rows, columns
+*/
+/*!
+    \qmlmethod QtQuick::Grid::forceLayout()
+    \since 5.9
+
+    Grid typically positions its children once per frame. This means that
+    inside script blocks it is possible for the underlying children to have changed,
+    but the Grid to have not yet been updated accordingly.
+
+    This method forces the Grid to immediately respond to any outstanding
+    changes in its children.
+
+    \b Note: methods in general should only be called after the Component has completed.
+*/
+/*!
+    \qmlsignal QtQuick::Grid::positioningComplete()
+    \since 5.9
+
+    This signal is emitted when positioning has been completed.
+
+    The corresponding handler is \c onPositioningComplete.
 */
 
 class QQuickGridPrivate : public QQuickBasePositionerPrivate
@@ -1802,7 +1879,7 @@ void QQuickGrid::reportConflictingAnchors()
         }
     }
     if (d->anchorConflict)
-        qmlInfo(this) << "Cannot specify anchors for items inside Grid." << " Grid will not function.";
+        qmlWarning(this) << "Cannot specify anchors for items inside Grid." << " Grid will not function.";
 }
 
 /*!
@@ -1876,7 +1953,7 @@ void QQuickGrid::reportConflictingAnchors()
     the item that is being added. See the \l ViewTransition documentation for more details
     and examples on using these transitions.
 
-    \note This transition is not applied to the items that already part of the positioner
+    \note This transition is not applied to the items that are already part of the positioner
     at the time of its creation. In this case, the \l populate transition is applied instead.
 
     \sa populate, ViewTransition, {Qt Quick Examples - Positioners}
@@ -1913,6 +1990,28 @@ void QQuickGrid::reportConflictingAnchors()
   item, and defaults to 0.
 
   \sa Grid::spacing
+*/
+/*!
+    \qmlmethod QtQuick::Flow::forceLayout()
+    \since 5.9
+
+    Flow typically positions its children once per frame. This means that
+    inside script blocks it is possible for the underlying children to have changed,
+    but the Flow to have not yet been updated accordingly.
+
+    This method forces the Flow to immediately respond to any outstanding
+    changes in its children.
+
+
+    \b Note: methods in general should only be called after the Component has completed.
+*/
+/*!
+    \qmlsignal QtQuick::Flow::positioningComplete()
+    \since 5.9
+
+    This signal is emitted when positioning has been completed.
+
+    The corresponding handler is \c onPositioningComplete.
 */
 
 class QQuickFlowPrivate : public QQuickBasePositionerPrivate
@@ -2115,7 +2214,9 @@ void QQuickFlow::reportConflictingAnchors()
         }
     }
     if (d->anchorConflict)
-        qmlInfo(this) << "Cannot specify anchors for items inside Flow." << " Flow will not function.";
+        qmlWarning(this) << "Cannot specify anchors for items inside Flow." << " Flow will not function.";
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickpositioners_p.cpp"

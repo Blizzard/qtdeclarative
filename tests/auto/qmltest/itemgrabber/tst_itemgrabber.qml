@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2014 Jolla Ltd, author: <gunnar.sletta@jollamobile.com>
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 Jolla Ltd, author: <gunnar.sletta@jollamobile.com>
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -42,8 +37,9 @@ Item {
     TestCase {
         id: testCase
         name: "item-grabber"
-        when: imageOnDisk.ready && imageOnDiskSmall.ready && imageInCache.ready && imageInCacheSmall.ready
-        function test_endresult() {
+        when: imageOnDisk.ready && imageOnDiskSmall.ready
+
+        function test_endresult_disk() {
             var image = grabImage(root);
 
             // imageOnDisk at (0, 0) - (100x100)
@@ -57,6 +53,40 @@ Item {
             compare(imageOnDiskSmall.height, 50);
             verify(image.pixel(100, 0) === Qt.rgba(1, 0, 0, 1));
             verify(image.pixel(149, 49) === Qt.rgba(0, 0, 1, 1));
+        }
+
+        function test_endresult_cache_data() {
+            return [
+                { cache: true, sourceSize: Qt.size(-1, -1), fillMode: Image.Stretch },
+                { cache: true, sourceSize: Qt.size(-1, -1), fillMode: Image.PreserveAspectFit },
+                { cache: true, sourceSize: Qt.size(-1, -1), fillMode: Image.PreserveAspectCrop },
+                { cache: true, sourceSize: Qt.size(10, 10), fillMode: Image.Stretch },
+                { cache: true, sourceSize: Qt.size(10, 10), fillMode: Image.PreserveAspectFit },
+                { cache: true, sourceSize: Qt.size(10, 10), fillMode: Image.PreserveAspectCrop },
+                { cache: false, sourceSize: Qt.size(-1, -1), fillMode: Image.Stretch },
+                { cache: false, sourceSize: Qt.size(-1, -1), fillMode: Image.PreserveAspectFit },
+                { cache: false, sourceSize: Qt.size(-1, -1), fillMode: Image.PreserveAspectCrop },
+                { cache: false, sourceSize: Qt.size(10, 10), fillMode: Image.Stretch },
+                { cache: false, sourceSize: Qt.size(10, 10), fillMode: Image.PreserveAspectFit },
+                { cache: false, sourceSize: Qt.size(10, 10), fillMode: Image.PreserveAspectCrop },
+            ];
+        }
+
+        function test_endresult_cache(data) {
+            imageInCache.cache = data.cache;
+            imageInCache.sourceSize = data.sourceSize;
+            imageInCache.fillMode = data.fillMode;
+            imageInCacheSmall.cache = data.cache;
+            imageInCacheSmall.sourceSize = data.sourceSize;
+            imageInCacheSmall.fillMode = data.fillMode;
+
+            box.grabToImage(imageInCache.handleGrab);
+            box.grabToImage(imageInCacheSmall.handleGrab, Qt.size(50, 50));
+
+            tryCompare(imageInCache, "ready", true);
+            tryCompare(imageInCacheSmall, "ready", true);
+
+            var image = grabImage(root);
 
             // imageInCache at (0, 100) - 100x100
             compare(imageInCache.width, 100);
@@ -77,8 +107,6 @@ Item {
         onWindowShownChanged: {
             box.grabToImage(imageOnDisk.handleGrab);
             box.grabToImage(imageOnDiskSmall.handleGrab, Qt.size(50, 50));
-            box.grabToImage(imageInCache.handleGrab);
-            box.grabToImage(imageInCacheSmall.handleGrab, Qt.size(50, 50));
         }
 
     }

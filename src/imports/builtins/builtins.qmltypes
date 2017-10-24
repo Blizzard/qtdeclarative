@@ -150,6 +150,25 @@ Module {
             }
         }
         Enum {
+            name: "TextFlag"
+            values: {
+                "TextSingleLine": 256,
+                "TextDontClip": 512,
+                "TextExpandTabs": 1024,
+                "TextShowMnemonic": 2048,
+                "TextWordWrap": 4096,
+                "TextWrapAnywhere": 8192,
+                "TextDontPrint": 16384,
+                "TextIncludeTrailingSpaces": 134217728,
+                "TextHideMnemonic": 32768,
+                "TextJustificationForced": 65536,
+                "TextForceLeftToRight": 131072,
+                "TextForceRightToLeft": 262144,
+                "TextLongestVariant": 524288,
+                "TextBypassShaping": 1048576
+            }
+        }
+        Enum {
             name: "TextElideMode"
             values: {
                 "ElideLeft": 0,
@@ -198,9 +217,7 @@ Module {
                 "MacWindowToolBarButtonHint": 268435456,
                 "BypassGraphicsProxyWidget": 536870912,
                 "NoDropShadowWindowHint": 1073741824,
-                "WindowFullscreenButtonHint": -2147483648,
-                "WindowOkButtonHint": 524288,
-                "WindowCancelButtonHint": 1048576
+                "WindowFullscreenButtonHint": -2147483648
             }
         }
         Enum {
@@ -243,9 +260,7 @@ Module {
                 "MacWindowToolBarButtonHint": 268435456,
                 "BypassGraphicsProxyWidget": 536870912,
                 "NoDropShadowWindowHint": 1073741824,
-                "WindowFullscreenButtonHint": -2147483648,
-                "WindowOkButtonHint": 524288,
-                "WindowCancelButtonHint": 1048576
+                "WindowFullscreenButtonHint": -2147483648
             }
         }
         Enum {
@@ -411,7 +426,8 @@ Module {
                 "WA_X11DoNotAcceptFocus": 126,
                 "WA_MacNoShadow": 127,
                 "WA_AlwaysStackOnTop": 128,
-                "WA_AttributeCount": 129
+                "WA_TabletTracking": 129,
+                "WA_AttributeCount": 130
             }
         }
         Enum {
@@ -422,6 +438,7 @@ Module {
                 "AA_DontShowIconsInMenus": 2,
                 "AA_NativeWindows": 3,
                 "AA_DontCreateNativeWidgetSiblings": 4,
+                "AA_PluginApplication": 5,
                 "AA_MacPluginApplication": 5,
                 "AA_DontUseNativeMenuBar": 6,
                 "AA_MacDontSwapCtrlAndMeta": 7,
@@ -438,7 +455,13 @@ Module {
                 "AA_SetPalette": 19,
                 "AA_EnableHighDpiScaling": 20,
                 "AA_DisableHighDpiScaling": 21,
-                "AA_AttributeCount": 22
+                "AA_UseStyleSheetPropagationInWidgetStyles": 22,
+                "AA_DontUseNativeDialogs": 23,
+                "AA_SynthesizeMouseForUnhandledTabletEvents": 24,
+                "AA_CompressHighFrequencyEvents": 25,
+                "AA_DontCheckOpenGLContextThreadAffinity": 26,
+                "AA_DisableShaderDiskCache": 27,
+                "AA_AttributeCount": 28
             }
         }
         Enum {
@@ -1094,7 +1117,8 @@ Module {
                 "SystemLocaleLongDate": 5,
                 "DefaultLocaleShortDate": 6,
                 "DefaultLocaleLongDate": 7,
-                "RFC2822Date": 8
+                "RFC2822Date": 8,
+                "ISODateWithMs": 9
             }
         }
         Enum {
@@ -1274,8 +1298,10 @@ Module {
                 "ImTextBeforeCursor": 2048,
                 "ImTextAfterCursor": 4096,
                 "ImEnterKeyType": 8192,
+                "ImAnchorRectangle": 16384,
+                "ImInputItemClipRectangle": 32768,
                 "ImPlatformData": -2147483648,
-                "ImQueryInput": 186,
+                "ImQueryInput": 16570,
                 "ImQueryAll": -1
             }
         }
@@ -1297,8 +1323,10 @@ Module {
                 "ImTextBeforeCursor": 2048,
                 "ImTextAfterCursor": 4096,
                 "ImEnterKeyType": 8192,
+                "ImAnchorRectangle": 16384,
+                "ImInputItemClipRectangle": 32768,
                 "ImPlatformData": -2147483648,
-                "ImQueryInput": 186,
+                "ImQueryInput": 16570,
                 "ImQueryAll": -1
             }
         }
@@ -1579,6 +1607,7 @@ Module {
         Enum {
             name: "ScrollPhase"
             values: {
+                "NoScrollPhase": 0,
                 "ScrollBegin": 1,
                 "ScrollUpdate": 2,
                 "ScrollEnd": 3
@@ -1598,6 +1627,13 @@ Module {
             values: {
                 "MouseEventCreatedDoubleClick": 1,
                 "MouseEventFlagMask": 255
+            }
+        }
+        Enum {
+            name: "ChecksumType"
+            values: {
+                "ChecksumIso3309": 0,
+                "ChecksumItuV41": 1
             }
         }
     }

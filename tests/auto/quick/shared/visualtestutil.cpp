@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -66,3 +61,38 @@ void QQuickVisualTestUtil::dumpTree(QQuickItem *parent, int depth)
     }
 }
 
+// A custom compare function to avoid issues such as:
+// When running on native Nvidia graphics cards on linux, the
+// distance field glyph pixels have a measurable, but not visible
+// pixel error. This was GT-216 with the ubuntu "nvidia-319" driver package.
+// llvmpipe does not show the same issue.
+bool QQuickVisualTestUtil::compareImages(const QImage &ia, const QImage &ib)
+{
+    if (ia.size() != ib.size())
+        qDebug() << "images are of different size" << ia.size() << ib.size();
+    Q_ASSERT(ia.size() == ib.size());
+    Q_ASSERT(ia.format() == ib.format());
+
+    int w = ia.width();
+    int h = ia.height();
+    const int tolerance = 5;
+    for (int y=0; y<h; ++y) {
+        const uint *as= (const uint *) ia.constScanLine(y);
+        const uint *bs= (const uint *) ib.constScanLine(y);
+        for (int x=0; x<w; ++x) {
+            uint a = as[x];
+            uint b = bs[x];
+
+            // No tolerance for error in the alpha.
+            if ((a & 0xff000000) != (b & 0xff000000))
+                return false;
+            if (qAbs(qRed(a) - qRed(b)) > tolerance)
+                return false;
+            if (qAbs(qRed(a) - qRed(b)) > tolerance)
+                return false;
+            if (qAbs(qRed(a) - qRed(b)) > tolerance)
+                return false;
+        }
+    }
+    return true;
+}

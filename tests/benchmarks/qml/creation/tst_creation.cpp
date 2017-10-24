@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -67,6 +62,13 @@ private slots:
     void itemtests_qml_data();
     void itemtests_qml();
 
+    void bindings_cpp();
+    void bindings_cpp2();
+    void bindings_qml();
+
+    void bindings_parent_qml();
+
+    void anchors_creation();
     void anchors_heightChange();
 
 private:
@@ -194,10 +196,10 @@ void tst_creation::qobject_10tree_cpp()
 
 void tst_creation::qobject_qmltype()
 {
-    QQmlType *t = QQmlMetaType::qmlType("QtQuick/QtObject", 2, 0);
+    QQmlType t = QQmlMetaType::qmlType("QtQuick/QtObject", 2, 0);
 
     QBENCHMARK {
-        QObject *obj = t->create();
+        QObject *obj = t.create();
         delete obj;
     }
 }
@@ -219,12 +221,15 @@ inline void QQmlGraphics_setParent_noEvent(QObject *object, QObject *parent)
 
 void tst_creation::itemtree_notree_cpp()
 {
+    std::vector<QQuickItem *> kids;
+    kids.resize(30);
     QBENCHMARK {
         QQuickItem *item = new QQuickItem;
         for (int i = 0; i < 30; ++i) {
             QQuickItem *child = new QQuickItem;
-            Q_UNUSED(child);
+            kids[i] = child;
         }
+        qDeleteAll(kids);
         delete item;
     }
 }
@@ -256,12 +261,13 @@ void tst_creation::itemtree_cpp()
 
 void tst_creation::itemtree_data_cpp()
 {
+    QQmlEngine engine;
     QBENCHMARK {
         QQuickItem *item = new QQuickItem;
         for (int i = 0; i < 30; ++i) {
             QQuickItem *child = new QQuickItem;
             QQmlGraphics_setParent_noEvent(child,item);
-            QQmlListReference ref(item, "data");
+            QQmlListReference ref(item, "data", &engine);
             ref.append(child);
         }
         delete item;
@@ -327,6 +333,103 @@ void tst_creation::itemtests_qml()
 
     delete component.create();
     QBENCHMARK { delete component.create(); }
+}
+
+void tst_creation::bindings_cpp()
+{
+    QQuickItem item;
+    QMetaProperty widthProp = item.metaObject()->property(item.metaObject()->indexOfProperty("width"));
+    QMetaProperty heightProp = item.metaObject()->property(item.metaObject()->indexOfProperty("height"));
+    connect(&item, &QQuickItem::heightChanged, [&item, &widthProp, &heightProp](){
+        QVariant height = heightProp.read(&item);
+        widthProp.write(&item, height);
+    });
+
+    int height = 0;
+    QBENCHMARK {
+        item.setHeight(++height);
+    }
+}
+
+void tst_creation::bindings_cpp2()
+{
+    QQuickItem item;
+    int widthProp = item.metaObject()->indexOfProperty("width");
+    int heightProp = item.metaObject()->indexOfProperty("height");
+    connect(&item, &QQuickItem::heightChanged, [&item, widthProp, heightProp](){
+
+        qreal height = -1;
+        void *args[] = { &height, 0 };
+        QMetaObject::metacall(&item, QMetaObject::ReadProperty, heightProp, args);
+
+        int flags = 0;
+        int status = -1;
+        void *argv[] = { &height, 0, &status, &flags };
+        QMetaObject::metacall(&item, QMetaObject::WriteProperty, widthProp, argv);
+    });
+
+    int height = 0;
+    QBENCHMARK {
+        item.setHeight(++height);
+    }
+}
+
+void tst_creation::bindings_qml()
+{
+    QByteArray data = "import QtQuick 2.0\nItem { width: height }";
+
+    QQmlComponent component(&engine);
+    component.setData(data, QUrl());
+    if (!component.isReady()) {
+        qWarning() << "Unable to create component: " << component.errorString();
+        return;
+    }
+
+    QQuickItem *obj = dynamic_cast<QQuickItem *>(component.create());
+    QVERIFY(obj != nullptr);
+
+    int height = 0;
+    QBENCHMARK {
+        obj->setHeight(++height);
+    }
+
+    delete obj;
+}
+
+void tst_creation::bindings_parent_qml()
+{
+    QByteArray data = "import QtQuick 2.0\nItem { Item { width: parent.height }}";
+
+    QQmlComponent component(&engine);
+    component.setData(data, QUrl());
+    if (!component.isReady()) {
+        qWarning() << "Unable to create component: " << component.errorString();
+        return;
+    }
+
+    QQuickItem *obj = dynamic_cast<QQuickItem *>(component.create());
+    QVERIFY(obj != nullptr);
+
+    int height = 0;
+    QBENCHMARK {
+        obj->setHeight(++height);
+    }
+
+    delete obj;
+}
+
+void tst_creation::anchors_creation()
+{
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick 2.0\nItem { Item { anchors.bottom: parent.bottom } }", QUrl());
+
+    QObject *obj = component.create();
+    delete obj;
+
+    QBENCHMARK {
+        QObject *obj = component.create();
+        delete obj;
+    }
 }
 
 void tst_creation::anchors_heightChange()

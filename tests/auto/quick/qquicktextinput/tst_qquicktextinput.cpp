@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -110,6 +105,7 @@ private slots:
     void wrap();
     void selection();
     void persistentSelection();
+    void overwriteMode();
     void isRightToLeft_data();
     void isRightToLeft();
     void moveCursorSelection_data();
@@ -139,6 +135,7 @@ private slots:
 
     void signal_accepted();
     void signal_editingfinished();
+    void signal_textEdited();
 
     void passwordCharacter();
     void cursorDelegate_data();
@@ -149,7 +146,7 @@ private slots:
     void cursorRectangle();
     void navigation();
     void navigation_RTL();
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     void copyAndPaste();
     void copyAndPasteKeySequence();
     void canPasteEmpty();
@@ -193,6 +190,7 @@ private slots:
     void redo();
     void undo_keypressevents_data();
     void undo_keypressevents();
+    void clear();
 
     void backspaceSurrogatePairs();
 
@@ -204,6 +202,8 @@ private slots:
     void implicitSize();
     void implicitSizeBinding_data();
     void implicitSizeBinding();
+    void implicitResize_data();
+    void implicitResize();
 
     void negativeDimensions();
 
@@ -215,6 +215,9 @@ private slots:
     void clearInputMask();
     void keypress_inputMask_data();
     void keypress_inputMask();
+    void keypress_inputMethod_inputMask();
+    void keypress_inputMask_withValidator_data();
+    void keypress_inputMask_withValidator();
     void hasAcceptableInputMask_data();
     void hasAcceptableInputMask();
     void maskCharacter_data();
@@ -225,6 +228,8 @@ private slots:
 
     void ensureVisible();
     void padding();
+
+    void QTBUG_51115_readOnlyResetsSelection();
 
 private:
     void simulateKey(QWindow *, int key);
@@ -780,6 +785,48 @@ void tst_qquicktextinput::persistentSelection()
 
     input->setFocus(true);
     QCOMPARE(input->property("selected").toString(), QLatin1String("ell"));
+}
+
+void tst_qquicktextinput::overwriteMode()
+{
+    QString componentStr = "import QtQuick 2.0\nTextInput { focus: true; }";
+    QQmlComponent textInputComponent(&engine);
+    textInputComponent.setData(componentStr.toLatin1(), QUrl());
+    QQuickTextInput *textInput = qobject_cast<QQuickTextInput*>(textInputComponent.create());
+    QVERIFY(textInput != 0);
+
+    QSignalSpy spy(textInput, SIGNAL(overwriteModeChanged(bool)));
+
+    QQuickWindow window;
+    textInput->setParentItem(window.contentItem());
+    window.show();
+    window.requestActivate();
+    QTest::qWaitForWindowActive(&window);
+
+    QVERIFY(textInput->hasActiveFocus());
+
+    textInput->setOverwriteMode(true);
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(true, textInput->overwriteMode());
+    textInput->setOverwriteMode(false);
+    QCOMPARE(spy.count(), 2);
+    QCOMPARE(false, textInput->overwriteMode());
+
+    QVERIFY(!textInput->overwriteMode());
+    QString insertString = "Some first text";
+    for (int j = 0; j < insertString.length(); j++)
+        QTest::keyClick(&window, insertString.at(j).toLatin1());
+
+    QCOMPARE(textInput->text(), QString("Some first text"));
+
+    textInput->setOverwriteMode(true);
+    QCOMPARE(spy.count(), 3);
+    textInput->setCursorPosition(5);
+
+    insertString = "shiny";
+    for (int j = 0; j < insertString.length(); j++)
+        QTest::keyClick(&window, insertString.at(j).toLatin1());
+    QCOMPARE(textInput->text(), QString("Some shiny text"));
 }
 
 void tst_qquicktextinput::isRightToLeft_data()
@@ -2247,12 +2294,26 @@ void tst_qquicktextinput::inputMethods()
     QGuiApplication::sendEvent(input, &event);
     QCOMPARE(input->text(), QString("Our Goodbye world!"));
     QCOMPARE(input->displayText(), QString("Our Goodbye world!"));
-    QCOMPARE(input->cursorPosition(), 7);
+    QCOMPARE(input->cursorPosition(), 3);
 
+    input->setCursorPosition(7);
     QInputMethodEvent preeditEvent("PREEDIT", QList<QInputMethodEvent::Attribute>());
     QGuiApplication::sendEvent(input, &preeditEvent);
     QCOMPARE(input->text(), QString("Our Goodbye world!"));
     QCOMPARE(input->displayText(), QString("Our GooPREEDITdbye world!"));
+    QCOMPARE(input->preeditText(), QString("PREEDIT"));
+
+    QInputMethodEvent preeditEvent2("PREEDIT2", QList<QInputMethodEvent::Attribute>());
+    QGuiApplication::sendEvent(input, &preeditEvent2);
+    QCOMPARE(input->text(), QString("Our Goodbye world!"));
+    QCOMPARE(input->displayText(), QString("Our GooPREEDIT2dbye world!"));
+    QCOMPARE(input->preeditText(), QString("PREEDIT2"));
+
+    QInputMethodEvent preeditEvent3("", QList<QInputMethodEvent::Attribute>());
+    QGuiApplication::sendEvent(input, &preeditEvent3);
+    QCOMPARE(input->text(), QString("Our Goodbye world!"));
+    QCOMPARE(input->displayText(), QString("Our Goodbye world!"));
+    QCOMPARE(input->preeditText(), QString(""));
 
     // input should reset selection even if replacement parameters are out of bounds
     input->setText("text");
@@ -2385,6 +2446,57 @@ void tst_qquicktextinput::signal_editingfinished()
     QTRY_COMPARE(editingFinished2Spy.count(), 1);
 }
 
+void tst_qquicktextinput::signal_textEdited()
+{
+    QQuickWindow window;
+    window.show();
+    window.requestActivate();
+    QTest::qWaitForWindowActive(&window);
+
+    QQuickTextInput *input = new QQuickTextInput(window.contentItem());
+    QVERIFY(input);
+
+    QSignalSpy textChangedSpy(input, SIGNAL(textChanged()));
+    QVERIFY(textChangedSpy.isValid());
+
+    QSignalSpy textEditedSpy(input, SIGNAL(textEdited()));
+    QVERIFY(textEditedSpy.isValid());
+
+    input->forceActiveFocus();
+    QTRY_VERIFY(input->hasActiveFocus());
+
+    int textChanges = 0;
+    int textEdits = 0;
+
+    QTest::keyClick(&window, Qt::Key_A);
+    QCOMPARE(textChangedSpy.count(), ++textChanges);
+    QCOMPARE(textEditedSpy.count(), ++textEdits);
+
+    QTest::keyClick(&window, Qt::Key_B);
+    QCOMPARE(textChangedSpy.count(), ++textChanges);
+    QCOMPARE(textEditedSpy.count(), ++textEdits);
+
+    QTest::keyClick(&window, Qt::Key_C);
+    QCOMPARE(textChangedSpy.count(), ++textChanges);
+    QCOMPARE(textEditedSpy.count(), ++textEdits);
+
+    QTest::keyClick(&window, Qt::Key_Space);
+    QCOMPARE(textChangedSpy.count(), ++textChanges);
+    QCOMPARE(textEditedSpy.count(), ++textEdits);
+
+    QTest::keyClick(&window, Qt::Key_Backspace);
+    QCOMPARE(textChangedSpy.count(), ++textChanges);
+    QCOMPARE(textEditedSpy.count(), ++textEdits);
+
+    input->clear();
+    QCOMPARE(textChangedSpy.count(), ++textChanges);
+    QCOMPARE(textEditedSpy.count(), textEdits);
+
+    input->setText("TextInput");
+    QCOMPARE(textChangedSpy.count(), ++textChanges);
+    QCOMPARE(textEditedSpy.count(), textEdits);
+}
+
 /*
 TextInput element should only handle left/right keys until the cursor reaches
 the extent of the text, then they should ignore the keys.
@@ -2476,7 +2588,7 @@ void tst_qquicktextinput::navigation_RTL()
     QVERIFY(input->hasActiveFocus());
 }
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void tst_qquicktextinput::copyAndPaste()
 {
     if (!PlatformQuirks::isClipboardAvailable())
@@ -2574,7 +2686,7 @@ void tst_qquicktextinput::copyAndPaste()
 }
 #endif
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void tst_qquicktextinput::copyAndPasteKeySequence()
 {
     if (!PlatformQuirks::isClipboardAvailable())
@@ -2642,7 +2754,7 @@ void tst_qquicktextinput::copyAndPasteKeySequence()
 }
 #endif
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void tst_qquicktextinput::canPasteEmpty()
 {
     QGuiApplication::clipboard()->clear();
@@ -2658,7 +2770,7 @@ void tst_qquicktextinput::canPasteEmpty()
 }
 #endif
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void tst_qquicktextinput::canPaste()
 {
     QGuiApplication::clipboard()->setText("Some text");
@@ -2674,7 +2786,7 @@ void tst_qquicktextinput::canPaste()
 }
 #endif
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void tst_qquicktextinput::middleClickPaste()
 {
     if (!PlatformQuirks::isClipboardAvailable())
@@ -2996,7 +3108,7 @@ void tst_qquicktextinput::cursorRectangle_data()
             << false;
 }
 
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
 #define COMPARE_INPUT_METHOD_QUERY(type, input, property, method, result) \
     QCOMPARE((type) input->inputMethodQuery(property).method(), result);
 #else
@@ -5750,6 +5862,56 @@ void tst_qquicktextinput::undo_keypressevents()
     QVERIFY(textInput->text().isEmpty());
 }
 
+void tst_qquicktextinput::clear()
+{
+    QString componentStr = "import QtQuick 2.0\nTextInput { focus: true }";
+    QQmlComponent textInputComponent(&engine);
+    textInputComponent.setData(componentStr.toLatin1(), QUrl());
+    QQuickTextInput *textInput = qobject_cast<QQuickTextInput*>(textInputComponent.create());
+    QVERIFY(textInput != 0);
+
+    QQuickWindow window;
+    textInput->setParentItem(window.contentItem());
+    window.show();
+    window.requestActivate();
+    QTest::qWaitForWindowActive(&window);
+    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY(!textInput->canUndo());
+
+    QSignalSpy spy(textInput, SIGNAL(canUndoChanged()));
+
+    textInput->setText("I am Legend");
+    QCOMPARE(textInput->text(), QString("I am Legend"));
+    textInput->clear();
+    QVERIFY(textInput->text().isEmpty());
+
+    QCOMPARE(spy.count(), 1);
+
+    // checks that clears can be undone
+    textInput->undo();
+    QVERIFY(!textInput->canUndo());
+    QCOMPARE(spy.count(), 2);
+    QCOMPARE(textInput->text(), QString("I am Legend"));
+
+    textInput->setCursorPosition(4);
+    QInputMethodEvent preeditEvent("PREEDIT", QList<QInputMethodEvent::Attribute>());
+    QGuiApplication::sendEvent(textInput, &preeditEvent);
+    QCOMPARE(textInput->text(), QString("I am Legend"));
+    QCOMPARE(textInput->displayText(), QString("I amPREEDIT Legend"));
+    QCOMPARE(textInput->preeditText(), QString("PREEDIT"));
+
+    textInput->clear();
+    QVERIFY(textInput->text().isEmpty());
+
+    QCOMPARE(spy.count(), 3);
+
+    // checks that clears can be undone
+    textInput->undo();
+    QVERIFY(!textInput->canUndo());
+    QCOMPARE(spy.count(), 4);
+    QCOMPARE(textInput->text(), QString("I am Legend"));
+}
+
 void tst_qquicktextinput::backspaceSurrogatePairs()
 {
     // Test backspace, and delete remove both characters in a surrogate pair.
@@ -5906,6 +6068,39 @@ void tst_qquicktextinput::implicitSizeBinding()
     QCOMPARE(textObject->height(), textObject->implicitHeight());
 }
 
+void tst_qquicktextinput::implicitResize_data()
+{
+    QTest::addColumn<int>("alignment");
+    QTest::newRow("left") << int(Qt::AlignLeft);
+    QTest::newRow("center") << int(Qt::AlignHCenter);
+    QTest::newRow("right") << int(Qt::AlignRight);
+}
+
+void tst_qquicktextinput::implicitResize()
+{
+    QFETCH(int, alignment);
+
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick 2.0\nTextInput { }", QUrl::fromLocalFile(""));
+
+    QScopedPointer<QQuickTextInput> textInput(qobject_cast<QQuickTextInput *>(component.create()));
+    QVERIFY(!textInput.isNull());
+
+    QScopedPointer<QQuickTextInput> textField(qobject_cast<QQuickTextInput *>(component.create()));
+    QVERIFY(!textField.isNull());
+    QQuickTextInputPrivate::get(textField.data())->setImplicitResizeEnabled(false);
+
+    textInput->setWidth(200);
+    textField->setImplicitWidth(200);
+
+    textInput->setHAlign(QQuickTextInput::HAlignment(alignment));
+    textField->setHAlign(QQuickTextInput::HAlignment(alignment));
+
+    textInput->setText("Qt");
+    textField->setText("Qt");
+
+    QCOMPARE(textField->positionToRectangle(0), textInput->positionToRectangle(0));
+}
 
 void tst_qquicktextinput::negativeDimensions()
 {
@@ -5919,6 +6114,79 @@ void tst_qquicktextinput::negativeDimensions()
     QCOMPARE(input->height(), qreal(-1));
 }
 
+void tst_qquicktextinput::keypress_inputMask_withValidator_data()
+{
+    QTest::addColumn<QString>("mask");
+    QTest::addColumn<qreal>("validatorMinimum");
+    QTest::addColumn<qreal>("validatorMaximum");
+    QTest::addColumn<int>("decimals");
+    QTest::addColumn<QString>("validatorRegExp");
+    QTest::addColumn<KeyList>("keys");
+    QTest::addColumn<QString>("expectedText");
+    QTest::addColumn<QString>("expectedDisplayText");
+
+    {
+        KeyList keys;
+        // inserting '1212' then two backspaces
+        keys << Qt::Key_Home << "1212" << Qt::Key_Backspace << Qt::Key_Backspace;
+        QTest::newRow("backspaceWithInt") << QString("9999;_") << 1.0 << 9999.00 << 0 << QString()
+                                             << keys << QString("12") << QString("12__");
+    }
+    {
+        KeyList keys;
+        // inserting '12.12' then two backspaces
+        keys << Qt::Key_Home << "12.12" << Qt::Key_Backspace << Qt::Key_Backspace;
+        QTest::newRow("backspaceWithDouble") << QString("99.99;_") << 1.0 << 99.99 << 2 << QString()
+                                             << keys << QString("12.") << QString("12.__");
+    }
+    {
+        KeyList keys;
+        // inserting '1111.11' then two backspaces
+        keys << Qt::Key_Home << "1111.11" << Qt::Key_Backspace << Qt::Key_Backspace;
+        QTest::newRow("backspaceWithRegExp") << QString("9999.99;_") << 0.0 << 0.0 << 0
+                                             << QString("/^[-]?((\\.\\d+)|(\\d+(\\.\\d+)?))$/")
+                                             << keys << QString("1111.") << QString("1111.__");
+    }
+}
+
+void tst_qquicktextinput::keypress_inputMask_withValidator()
+{
+    QFETCH(QString, mask);
+    QFETCH(qreal, validatorMinimum);
+    QFETCH(qreal, validatorMaximum);
+    QFETCH(int, decimals);
+    QFETCH(QString, validatorRegExp);
+    QFETCH(KeyList, keys);
+    QFETCH(QString, expectedText);
+    QFETCH(QString, expectedDisplayText);
+
+    QString componentStr = "import QtQuick 2.0\nTextInput { focus: true; inputMask: \"" + mask + "\"\n";
+    if (!validatorRegExp.isEmpty())
+        componentStr += "validator: RegExpValidator { regExp: " + validatorRegExp + " }\n}";
+    else if (decimals > 0)
+        componentStr += QString("validator: DoubleValidator { bottom: %1; decimals: %2; top: %3 }\n}").
+                            arg(validatorMinimum).arg(decimals).arg(validatorMaximum);
+    else
+        componentStr += QString("validator: IntValidator { bottom: %1; top: %2 }\n}").
+                            arg((int)validatorMinimum).arg((int)validatorMaximum);
+
+    QQmlComponent textInputComponent(&engine);
+    textInputComponent.setData(componentStr.toLatin1(), QUrl());
+    QQuickTextInput *textInput = qobject_cast<QQuickTextInput*>(textInputComponent.create());
+    QVERIFY(textInput != 0);
+
+    QQuickWindow window;
+    textInput->setParentItem(window.contentItem());
+    window.show();
+    window.requestActivate();
+    QTest::qWaitForWindowActive(&window);
+    QVERIFY(textInput->hasActiveFocus());
+
+    simulateKeys(&window, keys);
+
+    QCOMPARE(textInput->text(), expectedText);
+    QCOMPARE(textInput->displayText(), expectedDisplayText);
+}
 
 void tst_qquicktextinput::setInputMask_data()
 {
@@ -6290,6 +6558,48 @@ void tst_qquicktextinput::keypress_inputMask()
     QCOMPARE(textInput->displayText(), expectedDisplayText);
 }
 
+void tst_qquicktextinput::keypress_inputMethod_inputMask()
+{
+    // Similar to the keypress_inputMask test, but this is done solely via
+    // input methods
+    QString componentStr = "import QtQuick 2.0\nTextInput { focus: true; inputMask: \"AA.AA.AA\" }";
+    QQmlComponent textInputComponent(&engine);
+    textInputComponent.setData(componentStr.toLatin1(), QUrl());
+    QQuickTextInput *textInput = qobject_cast<QQuickTextInput*>(textInputComponent.create());
+    QVERIFY(textInput != 0);
+
+    QQuickWindow window;
+    textInput->setParentItem(window.contentItem());
+    window.show();
+    window.requestActivate();
+    QTest::qWaitForWindowActive(&window);
+    QVERIFY(textInput->hasActiveFocus());
+
+    {
+        QList<QInputMethodEvent::Attribute> attributes;
+        QInputMethodEvent event("", attributes);
+        event.setCommitString("EE");
+        QGuiApplication::sendEvent(textInput, &event);
+    }
+    QCOMPARE(textInput->cursorPosition(), 3);
+    QCOMPARE(textInput->text(), QStringLiteral("EE.."));
+    {
+        QList<QInputMethodEvent::Attribute> attributes;
+        QInputMethodEvent event("", attributes);
+        event.setCommitString("EE");
+        QGuiApplication::sendEvent(textInput, &event);
+    }
+    QCOMPARE(textInput->cursorPosition(), 6);
+    QCOMPARE(textInput->text(), QStringLiteral("EE.EE."));
+    {
+        QList<QInputMethodEvent::Attribute> attributes;
+        QInputMethodEvent event("", attributes);
+        event.setCommitString("EE");
+        QGuiApplication::sendEvent(textInput, &event);
+    }
+    QCOMPARE(textInput->cursorPosition(), 8);
+    QCOMPARE(textInput->text(), QStringLiteral("EE.EE.EE"));
+}
 
 void tst_qquicktextinput::hasAcceptableInputMask_data()
 {
@@ -6675,6 +6985,17 @@ void tst_qquicktextinput::padding()
     QCOMPARE(obj->bottomPadding(), 0.0);
 
     delete root;
+}
+
+void tst_qquicktextinput::QTBUG_51115_readOnlyResetsSelection()
+{
+    QQuickView view;
+    view.setSource(testFileUrl("qtbug51115.qml"));
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    QQuickTextInput *obj = qobject_cast<QQuickTextInput*>(view.rootObject());
+
+    QCOMPARE(obj->selectedText(), QString());
 }
 
 QTEST_MAIN(tst_qquicktextinput)

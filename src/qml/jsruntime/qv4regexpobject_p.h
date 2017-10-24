@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -54,6 +60,7 @@
 #include "qv4managed_p.h"
 #include "qv4property_p.h"
 #include "qv4objectiterator_p.h"
+#include "qv4regexp_p.h"
 
 #include <QtCore/QString>
 #include <QtCore/QHash>
@@ -68,16 +75,15 @@ namespace QV4 {
 namespace Heap {
 
 struct RegExpObject : Object {
-    RegExpObject();
-    RegExpObject(QV4::RegExp *value, bool global);
-    RegExpObject(const QRegExp &re);
+    void init();
+    void init(QV4::RegExp *value);
+    void init(const QRegExp &re);
 
     Pointer<RegExp> value;
-    bool global;
 };
 
 struct RegExpCtor : FunctionObject {
-    RegExpCtor(QV4::ExecutionContext *scope);
+    void init(QV4::ExecutionContext *scope);
     Value lastMatch;
     Pointer<String> lastInput;
     int lastMatchStart;
@@ -90,7 +96,7 @@ struct RegExpCtor : FunctionObject {
 struct RegExpObject: Object {
     V4_OBJECT2(RegExpObject, Object)
     Q_MANAGED_TYPE(RegExpObject)
-    V4_INTERNALCLASS(regExpObjectClass)
+    V4_INTERNALCLASS(RegExpObject)
     V4_PROTOTYPE(regExpPrototype)
 
     // needs to be compatible with the flags in qv4jsir_p.h
@@ -111,7 +117,7 @@ struct RegExpObject: Object {
     };
 
     Heap::RegExp *value() const { return d()->value; }
-    bool global() const { return d()->global; }
+    bool global() const { return d()->value->global; }
 
     void initProperties();
 
@@ -134,8 +140,8 @@ struct RegExpCtor: FunctionObject
     int lastMatchStart() { return d()->lastMatchStart; }
     int lastMatchEnd() { return d()->lastMatchEnd; }
 
-    static ReturnedValue construct(const Managed *m, CallData *callData);
-    static ReturnedValue call(const Managed *that, CallData *callData);
+    static void construct(const Managed *m, Scope &scope, CallData *callData);
+    static void call(const Managed *that, Scope &scope, CallData *callData);
     static void markObjects(Heap::Base *that, ExecutionEngine *e);
 };
 
@@ -143,17 +149,17 @@ struct RegExpPrototype: RegExpObject
 {
     void init(ExecutionEngine *engine, Object *ctor);
 
-    static ReturnedValue method_exec(CallContext *ctx);
-    static ReturnedValue method_test(CallContext *ctx);
-    static ReturnedValue method_toString(CallContext *ctx);
-    static ReturnedValue method_compile(CallContext *ctx);
+    static void method_exec(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_test(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_toString(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_compile(const BuiltinFunction *, Scope &scope, CallData *callData);
 
     template <int index>
-    static ReturnedValue method_get_lastMatch_n(CallContext *ctx);
-    static ReturnedValue method_get_lastParen(CallContext *ctx);
-    static ReturnedValue method_get_input(CallContext *ctx);
-    static ReturnedValue method_get_leftContext(CallContext *ctx);
-    static ReturnedValue method_get_rightContext(CallContext *ctx);
+    static void method_get_lastMatch_n(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_get_lastParen(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_get_input(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_get_leftContext(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_get_rightContext(const BuiltinFunction *, Scope &scope, CallData *callData);
 };
 
 }

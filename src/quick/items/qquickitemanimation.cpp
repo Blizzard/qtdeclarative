@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -36,7 +42,9 @@
 #include "qquickstateoperations_p.h"
 
 #include <private/qqmlproperty_p.h>
+#if QT_CONFIG(quick_path)
 #include <private/qquickpath_p.h>
+#endif
 #include "private/qparallelanimationgroupjob_p.h"
 #include "private/qsequentialanimationgroupjob_p.h"
 
@@ -296,7 +304,7 @@ QAbstractAnimationJob* QQuickParentAnimation::transition(QQuickStateActions &act
                 bool ok;
                 const QTransform &transform = targetParent->itemTransform(d->via, &ok);
                 if (transform.type() >= QTransform::TxShear || !ok) {
-                    qmlInfo(this) << QQuickParentAnimation::tr("Unable to preserve appearance under complex transform");
+                    qmlWarning(this) << QQuickParentAnimation::tr("Unable to preserve appearance under complex transform");
                     ok = false;
                 }
 
@@ -307,21 +315,21 @@ QAbstractAnimationJob* QQuickParentAnimation::transition(QQuickStateActions &act
                     if (transform.m11() == transform.m22())
                         scale = transform.m11();
                     else {
-                        qmlInfo(this) << QQuickParentAnimation::tr("Unable to preserve appearance under non-uniform scale");
+                        qmlWarning(this) << QQuickParentAnimation::tr("Unable to preserve appearance under non-uniform scale");
                         ok = false;
                     }
                 } else if (ok && isRotate) {
                     if (transform.m11() == transform.m22())
                         scale = qSqrt(transform.m11()*transform.m11() + transform.m12()*transform.m12());
                     else {
-                        qmlInfo(this) << QQuickParentAnimation::tr("Unable to preserve appearance under non-uniform scale");
+                        qmlWarning(this) << QQuickParentAnimation::tr("Unable to preserve appearance under non-uniform scale");
                         ok = false;
                     }
 
                     if (scale != 0)
                         rotation = qAtan2(transform.m12()/scale, transform.m11()/scale) * 180/M_PI;
                     else {
-                        qmlInfo(this) << QQuickParentAnimation::tr("Unable to preserve appearance under scale of 0");
+                        qmlWarning(this) << QQuickParentAnimation::tr("Unable to preserve appearance under scale of 0");
                         ok = false;
                     }
                 }
@@ -333,9 +341,9 @@ QAbstractAnimationJob* QQuickParentAnimation::transition(QQuickStateActions &act
                     qreal w = target->width();
                     qreal h = target->height();
                     if (pc->widthIsSet() && i < actions.size() - 1)
-                        w = actions[++i].toValue.toReal();
+                        w = actions.at(++i).toValue.toReal();
                     if (pc->heightIsSet() && i < actions.size() - 1)
-                        h = actions[++i].toValue.toReal();
+                        h = actions.at(++i).toValue.toReal();
                     const QPointF &transformOrigin
                             = d->computeTransformOrigin(target->transformOrigin(), w,h);
                     qreal tempxt = transformOrigin.x();
@@ -466,7 +474,7 @@ int QQuickAnchorAnimation::duration() const
 void QQuickAnchorAnimation::setDuration(int duration)
 {
     if (duration < 0) {
-        qmlInfo(this) << tr("Cannot set a duration of < 0");
+        qmlWarning(this) << tr("Cannot set a duration of < 0");
         return;
     }
 
@@ -548,6 +556,8 @@ QAbstractAnimationJob* QQuickAnchorAnimation::transition(QQuickStateActions &act
     return initInstance(animator);
 }
 
+
+#if QT_CONFIG(quick_path)
 /*!
     \qmltype PathAnimation
     \instantiates QQuickPathAnimation
@@ -603,7 +613,7 @@ int QQuickPathAnimation::duration() const
 void QQuickPathAnimation::setDuration(int duration)
 {
     if (duration < 0) {
-        qmlInfo(this) << tr("Cannot set a duration of < 0");
+        qmlWarning(this) << tr("Cannot set a duration of < 0");
         return;
     }
 
@@ -836,12 +846,13 @@ QAbstractAnimationJob* QQuickPathAnimation::transition(QQuickStateActions &actio
         prevData = *d->activeAnimations[target]->pathUpdater();
     }
 
-    QList<QQuickItem*> keys = d->activeAnimations.keys();
-    foreach (QQuickItem *item, keys) {
-        QQuickPathAnimationAnimator *anim = d->activeAnimations.value(item);
+    for (auto it = d->activeAnimations.begin(); it != d->activeAnimations.end();) {
+        QQuickPathAnimationAnimator *anim = it.value();
         if (anim->state() == QAbstractAnimationJob::Stopped) {
             anim->clearTemplate();
-            d->activeAnimations.remove(item);
+            it = d->activeAnimations.erase(it);
+        } else {
+            ++it;
         }
     }
 
@@ -858,7 +869,7 @@ QAbstractAnimationJob* QQuickPathAnimation::transition(QQuickStateActions &actio
     data->reverse = direction == Backward ? true : false;
     data->fromSourced = false;
     data->fromDefined = (d->path && d->path->hasStartX() && d->path->hasStartY()) ? true : false;
-    data->toDefined = d->path ? d->path->hasEnd() : false;
+    data->toDefined = d->path ? true : false;
     int origModifiedSize = modified.count();
 
     for (int i = 0; i < actions.count(); ++i) {
@@ -1037,4 +1048,8 @@ QQuickPathAnimationAnimator::~QQuickPathAnimationAnimator()
     }
 }
 
+#endif // quick_path
+
 QT_END_NAMESPACE
+
+#include "moc_qquickitemanimation_p.cpp"

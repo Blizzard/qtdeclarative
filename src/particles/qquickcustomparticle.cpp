@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -34,6 +40,7 @@
 #include "qquickcustomparticle_p.h"
 #include <QtQuick/private/qquickshadereffectmesh_p.h>
 #include <QtQuick/private/qsgshadersourcebuilder_p.h>
+#include <QtQml/qqmlinfo.h>
 #include <cstdlib>
 
 QT_BEGIN_NAMESPACE
@@ -84,10 +91,13 @@ struct PlainVertices {
     \brief For specifying shaders to paint particles
     \ingroup qtquick-particles
 
+    \note The maximum number of custom particles is limited to 16383.
 */
 
 QQuickCustomParticle::QQuickCustomParticle(QQuickItem* parent)
     : QQuickParticlePainter(parent)
+    , m_common(this, [this](int mappedId){this->propertyChanged(mappedId);})
+    , m_myMetaObject(nullptr)
     , m_dirtyUniforms(true)
     , m_dirtyUniformValues(true)
     , m_dirtyTextureProviders(true)
@@ -107,7 +117,10 @@ QQuickCustomParticle::~QQuickCustomParticle()
 
 void QQuickCustomParticle::componentComplete()
 {
-    m_common.updateShader(this, Key::FragmentShader);
+    if (!m_myMetaObject)
+        m_myMetaObject = metaObject();
+
+    m_common.updateShader(this, m_myMetaObject, Key::FragmentShader);
     updateVertexShader();
     reset();
     QQuickParticlePainter::componentComplete();
@@ -131,7 +144,7 @@ void QQuickCustomParticle::setFragmentShader(const QByteArray &code)
     m_common.source.sourceCode[Key::FragmentShader] = code;
     m_dirtyProgram = true;
     if (isComponentComplete()) {
-        m_common.updateShader(this, Key::FragmentShader);
+        m_common.updateShader(this, m_myMetaObject, Key::FragmentShader);
         reset();
     }
     emit fragmentShaderChanged();
@@ -195,9 +208,8 @@ void QQuickCustomParticle::setVertexShader(const QByteArray &code)
 void QQuickCustomParticle::updateVertexShader()
 {
     m_common.disconnectPropertySignals(this, Key::VertexShader);
-    qDeleteAll(m_common.signalMappers[Key::VertexShader]);
     m_common.uniformData[Key::VertexShader].clear();
-    m_common.signalMappers[Key::VertexShader].clear();
+    m_common.clearSignalMappers(Key::VertexShader);
     m_common.attributes.clear();
     m_common.attributes.append("qt_ParticlePos");
     m_common.attributes.append("qt_ParticleTex");
@@ -218,9 +230,9 @@ void QQuickCustomParticle::updateVertexShader()
 
     const QByteArray &code = m_common.source.sourceCode[Key::VertexShader];
     if (!code.isEmpty())
-        m_common.lookThroughShaderCode(this, Key::VertexShader, code);
+        m_common.lookThroughShaderCode(this, m_myMetaObject, Key::VertexShader, code);
 
-    m_common.connectPropertySignals(this, Key::VertexShader);
+    m_common.connectPropertySignals(this, m_myMetaObject, Key::VertexShader);
 }
 
 void QQuickCustomParticle::reset()
@@ -231,7 +243,7 @@ void QQuickCustomParticle::reset()
 
 QSGNode *QQuickCustomParticle::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
-    QQuickShaderEffectNode *rootNode = static_cast<QQuickShaderEffectNode *>(oldNode);
+    QQuickOpenGLShaderEffectNode *rootNode = static_cast<QQuickOpenGLShaderEffectNode *>(oldNode);
     if (m_pleaseReset){
         delete rootNode;//Automatically deletes children
         rootNode = 0;
@@ -252,7 +264,7 @@ QSGNode *QQuickCustomParticle::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
     return rootNode;
 }
 
-QQuickShaderEffectNode *QQuickCustomParticle::prepareNextFrame(QQuickShaderEffectNode *rootNode)
+QQuickOpenGLShaderEffectNode *QQuickCustomParticle::prepareNextFrame(QQuickOpenGLShaderEffectNode *rootNode)
 {
     if (!rootNode)
         rootNode = buildCustomNodes();
@@ -263,7 +275,7 @@ QQuickShaderEffectNode *QQuickCustomParticle::prepareNextFrame(QQuickShaderEffec
     if (m_dirtyProgram) {
         const bool isES = QOpenGLContext::currentContext()->isOpenGLES();
 
-        QQuickShaderEffectMaterial *material = static_cast<QQuickShaderEffectMaterial *>(rootNode->material());
+        QQuickOpenGLShaderEffectMaterial *material = static_cast<QQuickOpenGLShaderEffectMaterial *>(rootNode->material());
         Q_ASSERT(material);
 
         Key s = m_common.source;
@@ -286,7 +298,7 @@ QQuickShaderEffectNode *QQuickCustomParticle::prepareNextFrame(QQuickShaderEffec
 
         material->setProgramSource(s);
         material->attributes = m_common.attributes;
-        foreach (QQuickShaderEffectNode* node, m_nodes)
+        foreach (QQuickOpenGLShaderEffectNode* node, m_nodes)
             node->markDirty(QSGNode::DirtyMaterial);
 
         m_dirtyProgram = false;
@@ -299,36 +311,36 @@ QQuickShaderEffectNode *QQuickCustomParticle::prepareNextFrame(QQuickShaderEffec
     return rootNode;
 }
 
-QQuickShaderEffectNode* QQuickCustomParticle::buildCustomNodes()
+QQuickOpenGLShaderEffectNode* QQuickCustomParticle::buildCustomNodes()
 {
-    typedef QHash<int, QQuickShaderEffectNode*>::const_iterator NodeHashConstIt;
+    typedef QHash<int, QQuickOpenGLShaderEffectNode*>::const_iterator NodeHashConstIt;
 
     if (!QOpenGLContext::currentContext())
         return 0;
 
-    if (QOpenGLContext::currentContext()->isOpenGLES() && m_count * 4 > 0xffff) {
-        printf("CustomParticle: Too many particles... \n");
+    if (m_count * 4 > 0xffff) {
+        // Index data is ushort.
+        qmlInfo(this) << "CustomParticle: Too many particles - maximum 16383 per CustomParticle";
         return 0;
     }
 
     if (m_count <= 0) {
-        printf("CustomParticle: Too few particles... \n");
+        qmlInfo(this) << "CustomParticle: Too few particles";
         return 0;
     }
 
-    if (m_groups.isEmpty())
+    if (groups().isEmpty())
         return 0;
 
-    QQuickShaderEffectNode *rootNode = 0;
-    QQuickShaderEffectMaterial *material = new QQuickShaderEffectMaterial;
+    QQuickOpenGLShaderEffectNode *rootNode = 0;
+    QQuickOpenGLShaderEffectMaterial *material = new QQuickOpenGLShaderEffectMaterial;
     m_dirtyProgram = true;
 
-    foreach (const QString &str, m_groups){
-        int gIdx = m_system->groupIds[str];
-        int count = m_system->groupData[gIdx]->size();
+    for (auto groupId : groupIds()) {
+        int count = m_system->groupData[groupId]->size();
 
-        QQuickShaderEffectNode* node = new QQuickShaderEffectNode();
-        m_nodes.insert(gIdx, node);
+        QQuickOpenGLShaderEffectNode* node = new QQuickOpenGLShaderEffectNode();
+        m_nodes.insert(groupId, node);
 
         node->setMaterial(material);
 
@@ -341,7 +353,7 @@ QQuickShaderEffectNode* QQuickCustomParticle::buildCustomNodes()
         node->setFlag(QSGNode::OwnsGeometry, true);
         PlainVertex *vertices = (PlainVertex *) g->vertexData();
         for (int p=0; p < count; ++p) {
-            commit(gIdx, p);
+            commit(groupId, p);
             vertices[0].tx = 0;
             vertices[0].ty = 0;
 
@@ -386,14 +398,14 @@ void QQuickCustomParticle::sourceDestroyed(QObject *object)
 void QQuickCustomParticle::propertyChanged(int mappedId)
 {
     bool textureProviderChanged;
-    m_common.propertyChanged(this, mappedId, &textureProviderChanged);
+    m_common.propertyChanged(this, m_myMetaObject, mappedId, &textureProviderChanged);
     m_dirtyTextureProviders |= textureProviderChanged;
     m_dirtyUniformValues = true;
     update();
 }
 
 
-void QQuickCustomParticle::buildData(QQuickShaderEffectNode *rootNode)
+void QQuickCustomParticle::buildData(QQuickOpenGLShaderEffectNode *rootNode)
 {
     if (!rootNode)
         return;
@@ -403,9 +415,9 @@ void QQuickCustomParticle::buildData(QQuickShaderEffectNode *rootNode)
                 m_common.uniformData[shaderType][i].value = qVariantFromValue(m_lastTime);
         }
     }
-    m_common.updateMaterial(rootNode, static_cast<QQuickShaderEffectMaterial *>(rootNode->material()),
+    m_common.updateMaterial(rootNode, static_cast<QQuickOpenGLShaderEffectMaterial *>(rootNode->material()),
                             m_dirtyUniforms, true, m_dirtyTextureProviders);
-    foreach (QQuickShaderEffectNode* node, m_nodes)
+    foreach (QQuickOpenGLShaderEffectNode* node, m_nodes)
         node->markDirty(QSGNode::DirtyMaterial);
     m_dirtyUniforms = m_dirtyUniformValues = m_dirtyTextureProviders = false;
 }
@@ -448,3 +460,5 @@ void QQuickCustomParticle::itemChange(ItemChange change, const ItemChangeData &v
 
 
 QT_END_NAMESPACE
+
+#include "moc_qquickcustomparticle_p.cpp"

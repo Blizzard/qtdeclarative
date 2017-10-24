@@ -25,11 +25,15 @@
 
 #include "config.h"
 #include "OSAllocator.h"
+#include "PageBlock.h"
 
 #if OS(WINRT)
 
 #include "windows.h"
 #include <wtf/Assertions.h>
+
+// Try to use JIT by default and fallback to non-JIT on first error
+static bool qt_winrt_use_jit = true;
 
 namespace WTF {
 
@@ -40,35 +44,81 @@ inline size_t getPageSize()
     return info.dwPageSize;
 }
 
-void* OSAllocator::reserveUncommitted(size_t bytes, Usage, bool, bool)
+static inline DWORD protection(bool writable, bool executable)
 {
-    static const size_t pageSize = getPageSize();
-    void* result = _aligned_malloc(bytes, pageSize);
-    if (!result)
-        CRASH();
-    memset(result, 0, bytes);
+    if (writable && executable)
+        qFatal("read/write executable areas are not allowed on WinRT");
+    return executable ?
+                (writable ? PAGE_EXECUTE_READWRITE : PAGE_EXECUTE_READ) :
+                (writable ? PAGE_READWRITE : PAGE_READONLY);
+}
+
+void* OSAllocator::reserveUncommitted(size_t bytes, Usage, bool writable, bool executable)
+{
+    void *result = VirtualAllocFromApp(0, bytes, MEM_RESERVE, protection(writable, executable));
     return result;
 }
 
-void* OSAllocator::reserveAndCommit(size_t bytes, Usage usage, bool writable, bool executable, bool)
+void* OSAllocator::reserveAndCommit(size_t bytes, Usage, bool writable, bool executable, bool includesGuardPages)
 {
-    return reserveUncommitted(bytes, usage, writable, executable);
+    void *result;
+    result = VirtualAllocFromApp(0, bytes, MEM_RESERVE | MEM_COMMIT,
+                                 protection(writable, executable));
+
+    if (includesGuardPages && qt_winrt_use_jit) {
+        size_t guardSize = pageSize();
+        DWORD oldProtect;
+        if (!VirtualProtectFromApp(result, guardSize, protection(false, false), &oldProtect) ||
+            !VirtualProtectFromApp(static_cast<char*>(result) + bytes - guardSize, guardSize,
+                                   protection(false, false), &oldProtect)) {
+            CRASH();
+        }
+    }
+    return result;
 }
 
-void OSAllocator::commit(void*, size_t, bool, bool)
+void OSAllocator::commit(void *bytes, size_t size, bool writable, bool executable)
 {
-    CRASH(); // Unimplemented
+    void *result = VirtualAllocFromApp(bytes, size, MEM_COMMIT,
+                                       protection(writable, executable));
+    if (!result)
+        CRASH();
 }
 
-void OSAllocator::decommit(void* address, size_t)
+void OSAllocator::decommit(void* address, size_t bytes)
 {
-    _aligned_free(address);
+    bool result = VirtualFree(address, bytes, MEM_DECOMMIT);
+    if (!result)
+        CRASH();
 }
 
-void OSAllocator::releaseDecommitted(void* address, size_t bytes)
+void OSAllocator::releaseDecommitted(void* address, size_t)
 {
-    decommit(address, bytes);
+    bool result = VirtualFree(address, 0, MEM_RELEASE);
+    if (!result)
+        CRASH();
 }
+
+bool OSAllocator::canAllocateExecutableMemory()
+{
+    if (qt_winrt_use_jit) {
+        // For WinRT we first check if code generation is enabled. If successful
+        // we allow to use JIT, otherwise fallback to the interpreter
+        const size_t pageSize = getPageSize();
+        void *all = VirtualAllocFromApp(0, pageSize, MEM_RESERVE | MEM_COMMIT,
+                                        protection(true, false));
+        DWORD oldProtect;
+        bool res = VirtualProtectFromApp(all, pageSize, PAGE_EXECUTE, &oldProtect);
+        VirtualFree(all, 0, MEM_RELEASE);
+        if (!res) {
+            qt_winrt_use_jit = false;
+            qWarning("Could not enable JIT, fallback to interpreter mode. "
+                     "Consider setting the code-generation capability");
+        }
+    }
+    return qt_winrt_use_jit;
+}
+
 
 } // namespace WTF
 

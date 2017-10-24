@@ -9,10 +9,8 @@ SUBDIRS += \
            qqmlcomponent \
            qqmlmetaproperty \
            librarymetrics_performance \
-#            script \ ### FIXME: doesn't build
+           script \
            js \
            creation
 
 qtHaveModule(opengl): SUBDIRS += painting qquickwindow
-
-include(../trusted-benchmarks.pri)

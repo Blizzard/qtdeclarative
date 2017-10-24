@@ -9,10 +9,7 @@ include (../../shared/util.pri)
 
 TESTDATA = data/*
 
-CONFIG += parallel_test
-
 QT += core qml testlib
-DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0
 
 DISTFILES += \
     data/modelindex.qml \

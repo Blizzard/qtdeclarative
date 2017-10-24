@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -45,6 +51,7 @@
 
 #include <QtCore/qfile.h>
 #include <QtCore/qdebug.h>
+#include <QtCore/qtimer.h>
 
 #include <private/qobject_p.h>
 
@@ -53,16 +60,18 @@ QT_BEGIN_NAMESPACE
 class QQmlBindPrivate : public QObjectPrivate
 {
 public:
-    QQmlBindPrivate() : componentComplete(true), obj(0) {}
+    QQmlBindPrivate() : obj(0), componentComplete(true), delayed(false), pendingEval(false) {}
     ~QQmlBindPrivate() { }
 
     QQmlNullableValue<bool> when;
-    bool componentComplete;
     QPointer<QObject> obj;
     QString propName;
     QQmlNullableValue<QVariant> value;
     QQmlProperty prop;
     QQmlAbstractBinding::Ptr prevBind;
+    bool componentComplete:1;
+    bool delayed:1;
+    bool pendingEval:1;
 
     void validate(QObject *binding) const;
 };
@@ -73,12 +82,12 @@ void QQmlBindPrivate::validate(QObject *binding) const
         return;
 
     if (!prop.isValid()) {
-        qmlInfo(binding) << "Property '" << propName << "' does not exist on " << QQmlMetaType::prettyTypeName(obj) << ".";
+        qmlWarning(binding) << "Property '" << propName << "' does not exist on " << QQmlMetaType::prettyTypeName(obj) << ".";
         return;
     }
 
     if (!prop.isWritable()) {
-        qmlInfo(binding) << "Property '" << propName << "' on " << QQmlMetaType::prettyTypeName(obj) << " is read-only.";
+        qmlWarning(binding) << "Property '" << propName << "' on " << QQmlMetaType::prettyTypeName(obj) << " is read-only.";
         return;
     }
 }
@@ -93,7 +102,7 @@ void QQmlBindPrivate::validate(QObject *binding) const
     In QML, property bindings result in a dependency between the properties of
     different objects.
 
-    \section1 Binding to an inaccessible property
+    \section1 Binding to an Inaccessible Property
 
     Sometimes it is necessary to bind an object's property to
     that of another object that isn't directly instantiated by QML, such as a
@@ -111,7 +120,7 @@ void QQmlBindPrivate::validate(QObject *binding) const
     When \c{text} changes, the C++ property \c{enteredText} will update
     automatically.
 
-    \section1 Conditional bindings
+    \section1 Conditional Bindings
 
     In some cases you may want to modify the value of a property when a certain
     condition is met but leave it unmodified otherwise. Often, it's not possible
@@ -275,7 +284,43 @@ void QQmlBind::setValue(const QVariant &v)
 {
     Q_D(QQmlBind);
     d->value = v;
-    eval();
+    prepareEval();
+}
+
+/*!
+    \qmlproperty bool QtQml::Binding::delayed
+    \since 5.8
+
+    This property holds whether the binding should be delayed.
+
+    A delayed binding will not immediately update the target, but rather wait
+    until the event queue has been cleared. This can be used as an optimization,
+    or to prevent intermediary values from being assigned.
+
+    \code
+    Binding {
+        target: contactName; property: 'text'
+        value: givenName + " " + familyName; when: list.ListView.isCurrentItem
+        delayed: true
+    }
+    \endcode
+*/
+bool QQmlBind::delayed() const
+{
+    Q_D(const QQmlBind);
+    return d->delayed;
+}
+
+void QQmlBind::setDelayed(bool delayed)
+{
+    Q_D(QQmlBind);
+    if (d->delayed == delayed)
+        return;
+
+    d->delayed = delayed;
+
+    if (!d->delayed)
+        eval();
 }
 
 void QQmlBind::setTarget(const QQmlProperty &p)
@@ -301,9 +346,22 @@ void QQmlBind::componentComplete()
     eval();
 }
 
+void QQmlBind::prepareEval()
+{
+    Q_D(QQmlBind);
+    if (d->delayed) {
+        if (!d->pendingEval)
+            QTimer::singleShot(0, this, &QQmlBind::eval);
+        d->pendingEval = true;
+    } else {
+        eval();
+    }
+}
+
 void QQmlBind::eval()
 {
     Q_D(QQmlBind);
+    d->pendingEval = false;
     if (!d->prop.isValid() || d->value.isNull || !d->componentComplete)
         return;
 
@@ -328,3 +386,5 @@ void QQmlBind::eval()
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qqmlbind_p.cpp"

@@ -1,5 +1,5 @@
 TEMPLATE = subdirs
-SUBDIRS = qml script
-contains(QT_CONFIG, private_tests) {
-    SUBDIRS += particles
+SUBDIRS = qml
+qtConfig(private_tests) {
+    qtConfig(opengl(es1|es2)?):SUBDIRS += particles
 }

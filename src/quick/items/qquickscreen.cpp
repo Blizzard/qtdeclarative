@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -78,6 +84,20 @@ QT_BEGIN_NAMESPACE
     \since 5.1
 
     The name of the screen.
+*/
+/*!
+    \qmlattachedproperty int Screen::virtualX
+    \readonly
+    \since 5.9
+
+    The x coordinate of the screen within the virtual desktop.
+*/
+/*!
+    \qmlattachedproperty int Screen::virtualY
+    \readonly
+    \since 5.9
+
+    The y coordinate of the screen within the virtual desktop.
 */
 /*!
     \qmlattachedproperty int Screen::width
@@ -201,9 +221,160 @@ QT_BEGIN_NAMESPACE
     By default it is set to the value of the QScreen that the window uses.
 */
 
+QQuickScreenInfo::QQuickScreenInfo(QObject *parent, QScreen *wrappedScreen)
+    : QObject(parent)
+    , m_screen(wrappedScreen)
+{
+}
+
+QString QQuickScreenInfo::name() const
+{
+    if (!m_screen)
+        return QString();
+    return m_screen->name();
+}
+
+int QQuickScreenInfo::width() const
+{
+    if (!m_screen)
+        return 0;
+    return m_screen->size().width();
+}
+
+int QQuickScreenInfo::height() const
+{
+    if (!m_screen)
+        return 0;
+    return m_screen->size().height();
+}
+
+int QQuickScreenInfo::desktopAvailableWidth() const
+{
+    if (!m_screen)
+        return 0;
+    return m_screen->availableVirtualSize().width();
+}
+
+int QQuickScreenInfo::desktopAvailableHeight() const
+{
+    if (!m_screen)
+        return 0;
+    return m_screen->availableVirtualSize().height();
+}
+
+qreal QQuickScreenInfo::logicalPixelDensity() const
+{
+    if (!m_screen)
+        return 0.0;
+    return m_screen->logicalDotsPerInch() / 25.4;
+}
+
+qreal QQuickScreenInfo::pixelDensity() const
+{
+    if (!m_screen)
+        return 0.0;
+    return m_screen->physicalDotsPerInch() / 25.4;
+}
+
+qreal QQuickScreenInfo::devicePixelRatio() const
+{
+    if (!m_screen)
+        return 1.0;
+    return m_screen->devicePixelRatio();
+}
+
+Qt::ScreenOrientation QQuickScreenInfo::primaryOrientation() const
+{
+    if (!m_screen)
+        return Qt::PrimaryOrientation;
+    return m_screen->primaryOrientation();
+}
+
+Qt::ScreenOrientation QQuickScreenInfo::orientation() const
+{
+    if (!m_screen)
+        return Qt::PrimaryOrientation;
+    return m_screen->orientation();
+}
+
+int QQuickScreenInfo::virtualX() const
+{
+    if (!m_screen)
+        return 0;
+    return m_screen->geometry().topLeft().x();
+}
+
+int QQuickScreenInfo::virtualY() const
+{
+    if (!m_screen)
+        return 0;
+    return m_screen->geometry().topLeft().y();
+}
+
+void QQuickScreenInfo::setWrappedScreen(QScreen *screen)
+{
+    if (screen == m_screen)
+        return;
+
+    QScreen *oldScreen = m_screen;
+    m_screen = screen;
+
+    if (oldScreen)
+        oldScreen->disconnect(this);
+
+    if (!screen) //Don't bother emitting signals, because the new values are garbage anyways
+        return;
+
+    if (!oldScreen || screen->geometry() != oldScreen->geometry()) {
+        emit virtualXChanged();
+        emit virtualYChanged();
+    }
+    if (!oldScreen || screen->size() != oldScreen->size()) {
+        emit widthChanged();
+        emit heightChanged();
+    }
+    if (!oldScreen || screen->name() != oldScreen->name())
+        emit nameChanged();
+    if (!oldScreen || screen->orientation() != oldScreen->orientation())
+        emit orientationChanged();
+    if (!oldScreen || screen->primaryOrientation() != oldScreen->primaryOrientation())
+        emit primaryOrientationChanged();
+    if (!oldScreen || screen->availableVirtualGeometry() != oldScreen->availableVirtualGeometry())
+        emit desktopGeometryChanged();
+    if (!oldScreen || screen->logicalDotsPerInch() != oldScreen->logicalDotsPerInch())
+        emit logicalPixelDensityChanged();
+    if (!oldScreen || screen->physicalDotsPerInch() != oldScreen->physicalDotsPerInch())
+        emit pixelDensityChanged();
+    if (!oldScreen || screen->devicePixelRatio() != oldScreen->devicePixelRatio())
+        emit devicePixelRatioChanged();
+
+    connect(screen, SIGNAL(geometryChanged(QRect)),
+            this, SIGNAL(widthChanged()));
+    connect(screen, SIGNAL(geometryChanged(QRect)),
+            this, SIGNAL(heightChanged()));
+    connect(screen, SIGNAL(geometryChanged(QRect)),
+            this, SIGNAL(virtualXChanged()));
+    connect(screen, SIGNAL(geometryChanged(QRect)),
+            this, SIGNAL(virtualYChanged()));
+    connect(screen, SIGNAL(orientationChanged(Qt::ScreenOrientation)),
+            this, SIGNAL(orientationChanged()));
+    connect(screen, SIGNAL(primaryOrientationChanged(Qt::ScreenOrientation)),
+            this, SIGNAL(primaryOrientationChanged()));
+    connect(screen, SIGNAL(virtualGeometryChanged(QRect)),
+            this, SIGNAL(desktopGeometryChanged()));
+    connect(screen, SIGNAL(logicalDotsPerInchChanged(qreal)),
+            this, SIGNAL(logicalPixelDensityChanged()));
+    connect(screen, SIGNAL(physicalDotsPerInchChanged(qreal)),
+            this, SIGNAL(pixelDensityChanged()));
+}
+
+QScreen *QQuickScreenInfo::wrappedScreen() const
+{
+    return m_screen;
+}
+
 QQuickScreenAttached::QQuickScreenAttached(QObject* attachee)
-    : QObject(attachee)
-    , m_screen(NULL)
+    : QQuickScreenInfo(attachee)
     , m_window(NULL)
     , m_updateMask(0)
     , m_updateMaskSet(false)
@@ -223,76 +394,6 @@ QQuickScreenAttached::QQuickScreenAttached(QObject* attachee)
 
     if (!m_screen)
         screenChanged(QGuiApplication::primaryScreen());
-}
-
-QString QQuickScreenAttached::name() const
-{
-    if (!m_screen)
-        return QString();
-    return m_screen->name();
-}
-
-int QQuickScreenAttached::width() const
-{
-    if (!m_screen)
-        return 0;
-    return m_screen->size().width();
-}
-
-int QQuickScreenAttached::height() const
-{
-    if (!m_screen)
-        return 0;
-    return m_screen->size().height();
-}
-
-int QQuickScreenAttached::desktopAvailableWidth() const
-{
-    if (!m_screen)
-        return 0;
-    return m_screen->availableVirtualSize().width();
-}
-
-int QQuickScreenAttached::desktopAvailableHeight() const
-{
-    if (!m_screen)
-        return 0;
-    return m_screen->availableVirtualSize().height();
-}
-
-qreal QQuickScreenAttached::logicalPixelDensity() const
-{
-    if (!m_screen)
-        return 0.0;
-    return m_screen->logicalDotsPerInch() / 25.4;
-}
-
-qreal QQuickScreenAttached::pixelDensity() const
-{
-    if (!m_screen)
-        return 0.0;
-    return m_screen->physicalDotsPerInch() / 25.4;
-}
-
-qreal QQuickScreenAttached::devicePixelRatio() const
-{
-    if (!m_screen)
-        return 1.0;
-    return m_screen->devicePixelRatio();
-}
-
-Qt::ScreenOrientation QQuickScreenAttached::primaryOrientation() const
-{
-    if (!m_screen)
-        return Qt::PrimaryOrientation;
-    return m_screen->primaryOrientation();
-}
-
-Qt::ScreenOrientation QQuickScreenAttached::orientation() const
-{
-    if (!m_screen)
-        return Qt::PrimaryOrientation;
-    return m_screen->orientation();
 }
 
 Qt::ScreenOrientations QQuickScreenAttached::orientationUpdateMask() const
@@ -335,56 +436,18 @@ void QQuickScreenAttached::screenChanged(QScreen *screen)
 {
     //qDebug() << "QQuickScreenAttached::screenChanged" << (screen ? screen->name() : QString::fromLatin1("null"));
     if (screen != m_screen) {
-        QScreen* oldScreen = m_screen;
-        m_screen = screen;
-
-        if (oldScreen)
-            oldScreen->disconnect(this);
-
-        if (!screen)
-            return; //Don't bother emitting signals, because the new values are garbage anyways
-
+        setWrappedScreen(screen);
+        if (!m_screen)
+            return;
         if (m_updateMaskSet) {
-            screen->setOrientationUpdateMask(m_updateMask);
-        } else if (m_updateMask != screen->orientationUpdateMask()) {
-            m_updateMask = screen->orientationUpdateMask();
+            m_screen->setOrientationUpdateMask(m_updateMask);
+        } else if (m_updateMask != m_screen->orientationUpdateMask()) {
+            m_updateMask = m_screen->orientationUpdateMask();
             emit orientationUpdateMaskChanged();
         }
-
-        if (!oldScreen || screen->size() != oldScreen->size()) {
-            emit widthChanged();
-            emit heightChanged();
-        }
-        if (!oldScreen || screen->name() != oldScreen->name())
-            emit nameChanged();
-        if (!oldScreen || screen->orientation() != oldScreen->orientation())
-            emit orientationChanged();
-        if (!oldScreen || screen->primaryOrientation() != oldScreen->primaryOrientation())
-            emit primaryOrientationChanged();
-        if (!oldScreen || screen->availableVirtualGeometry() != oldScreen->availableVirtualGeometry())
-            emit desktopGeometryChanged();
-        if (!oldScreen || screen->logicalDotsPerInch() != oldScreen->logicalDotsPerInch())
-            emit logicalPixelDensityChanged();
-        if (!oldScreen || screen->physicalDotsPerInch() != oldScreen->physicalDotsPerInch())
-            emit pixelDensityChanged();
-        if (!oldScreen || screen->devicePixelRatio() != oldScreen->devicePixelRatio())
-            emit devicePixelRatioChanged();
-
-        connect(screen, SIGNAL(geometryChanged(QRect)),
-                this, SIGNAL(widthChanged()));
-        connect(screen, SIGNAL(geometryChanged(QRect)),
-                this, SIGNAL(heightChanged()));
-        connect(screen, SIGNAL(orientationChanged(Qt::ScreenOrientation)),
-                this, SIGNAL(orientationChanged()));
-        connect(screen, SIGNAL(primaryOrientationChanged(Qt::ScreenOrientation)),
-                this, SIGNAL(primaryOrientationChanged()));
-        connect(screen, SIGNAL(virtualGeometryChanged(QRect)),
-                this, SIGNAL(desktopGeometryChanged()));
-        connect(screen, SIGNAL(logicalDotsPerInchChanged(qreal)),
-                this, SIGNAL(logicalPixelDensityChanged()));
-        connect(screen, SIGNAL(physicalDotsPerInchChanged(qreal)),
-                this, SIGNAL(pixelDensityChanged()));
     }
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickscreen_p.cpp"

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -43,7 +49,6 @@
 #include <private/qqmldebugstatesdelegate_p.h>
 #include <private/qqmlbinding_p.h>
 #include <private/qqmlcontext_p.h>
-#include <private/qquickprofiler_p.h>
 #include <private/qquickapplication_p.h>
 #include <QtQuick/private/qquickpropertychanges_p.h>
 #include <QtQuick/private/qquickstate_p.h>
@@ -57,23 +62,29 @@ static void initResources()
 
 QT_BEGIN_NAMESPACE
 
+#ifdef QT_NO_QML_DEBUGGER
+
+class QQmlQtQuick2DebugStatesDelegate : public QQmlDebugStatesDelegate {};
+
+#else
+
 class QQmlQtQuick2DebugStatesDelegate : public QQmlDebugStatesDelegate
 {
 public:
     QQmlQtQuick2DebugStatesDelegate();
-    virtual ~QQmlQtQuick2DebugStatesDelegate();
-    virtual void buildStatesList(bool cleanList, const QList<QPointer<QObject> > &instances);
-    virtual void updateBinding(QQmlContext *context,
-                               const QQmlProperty &property,
-                               const QVariant &expression, bool isLiteralValue,
-                               const QString &fileName, int line, int column,
-                               bool *isBaseState);
-    virtual bool setBindingForInvalidProperty(QObject *object,
-                                              const QString &propertyName,
-                                              const QVariant &expression,
-                                              bool isLiteralValue);
-    virtual void resetBindingForInvalidProperty(QObject *object,
-                                                const QString &propertyName);
+    ~QQmlQtQuick2DebugStatesDelegate();
+    void buildStatesList(bool cleanList, const QList<QPointer<QObject> > &instances) override;
+    void updateBinding(QQmlContext *context,
+                       const QQmlProperty &property,
+                       const QVariant &expression, bool isLiteralValue,
+                       const QString &fileName, int line, int column,
+                       bool *isBaseState) override;
+    bool setBindingForInvalidProperty(QObject *object,
+                                      const QString &propertyName,
+                                      const QVariant &expression,
+                                      bool isLiteralValue) override;
+    void resetBindingForInvalidProperty(QObject *object,
+                                        const QString &propertyName) override;
 
 private:
     void buildStatesList(QObject *obj);
@@ -119,10 +130,11 @@ void QQmlQtQuick2DebugStatesDelegate::updateBinding(QQmlContext *context,
                                                             const QString &fileName, int line, int column,
                                                             bool *inBaseState)
 {
+    Q_UNUSED(column);
     typedef QPointer<QQuickState> QuickStatePointer;
     QObject *object = property.object();
     QString propertyName = property.name();
-    foreach (const QuickStatePointer& statePointer, m_allStates) {
+    for (const QuickStatePointer& statePointer : qAsConst(m_allStates)) {
         if (QQuickState *state = statePointer.data()) {
             // here we assume that the revert list on itself defines the base state
             if (state->isStateActive() && state->containsPropertyInRevertList(object, propertyName)) {
@@ -130,9 +142,10 @@ void QQmlQtQuick2DebugStatesDelegate::updateBinding(QQmlContext *context,
 
                 QQmlBinding *newBinding = 0;
                 if (!isLiteralValue) {
-                    newBinding = new QQmlBinding(expression.toString(), object,
-                                                 QQmlContextData::get(context), fileName,
-                                                 line, column);
+                    newBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(property)->core,
+                                                     expression.toString(), object,
+                                                     QQmlContextData::get(context), fileName,
+                                                     line);
                     newBinding->setTarget(property);
                 }
 
@@ -168,6 +181,7 @@ void QQmlQtQuick2DebugStatesDelegate::resetBindingForInvalidProperty(QObject *ob
     }
 }
 
+#endif // QT_NO_QML_DEBUGGER
 
 void QQmlQtQuick2Module::defineModule()
 {
@@ -183,17 +197,13 @@ void QQmlQtQuick2Module::defineModule()
 
     QQuickValueTypes::registerValueTypes();
 
-#ifndef QT_NO_ACCESSIBILITY
+#if QT_CONFIG(accessibility)
     QAccessible::installFactory(&qQuickAccessibleFactory);
 #endif
 
     QQmlEngineDebugService *debugService = QQmlDebugConnector::service<QQmlEngineDebugService>();
     if (debugService)
         debugService->setStatesDelegate(new QQmlQtQuick2DebugStatesDelegate);
-
-    QQmlProfilerService *profilerService = QQmlDebugConnector::service<QQmlProfilerService>();
-    if (profilerService)
-        QQuickProfiler::initialize(profilerService);
 }
 
 void QQmlQtQuick2Module::undefineModule()

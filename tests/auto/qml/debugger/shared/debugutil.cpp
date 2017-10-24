@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -33,10 +28,12 @@
 
 #include "debugutil_p.h"
 
-#include <QEventLoop>
-#include <QTimer>
-#include <QFileInfo>
-#include <QDir>
+#include <private/qqmldebugconnection_p.h>
+
+#include <QtCore/qeventloop.h>
+#include <QtCore/qtimer.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qdir.h>
 
 bool QQmlDebugTest::waitForSignal(QObject *receiver, const char *member, int timeout) {
     QEventLoop loop;
@@ -49,6 +46,46 @@ bool QQmlDebugTest::waitForSignal(QObject *receiver, const char *member, int tim
     if (!timer.isActive())
         qWarning("waitForSignal %s timed out after %d ms", member, timeout);
     return timer.isActive();
+}
+
+QList<QQmlDebugClient *> QQmlDebugTest::createOtherClients(QQmlDebugConnection *connection)
+{
+    QList<QQmlDebugClient *> ret;
+    foreach (const QString &service, QQmlDebuggingEnabler::debuggerServices()) {
+        if (!connection->client(service))
+            ret << new QQmlDebugClient(service, connection);
+    }
+    foreach (const QString &service, QQmlDebuggingEnabler::inspectorServices()) {
+        if (!connection->client(service))
+            ret << new QQmlDebugClient(service, connection);
+    }
+    foreach (const QString &service, QQmlDebuggingEnabler::profilerServices()) {
+        if (!connection->client(service))
+            ret << new QQmlDebugClient(service, connection);
+    }
+    return ret;
+}
+
+QString QQmlDebugTest::clientStateString(const QQmlDebugClient *client)
+{
+    if (!client)
+        return QLatin1String("null");
+
+    switch (client->state()) {
+    case QQmlDebugClient::NotConnected: return QLatin1String("Not connected");
+    case QQmlDebugClient::Unavailable: return QLatin1String("Unavailable");
+    case QQmlDebugClient::Enabled: return QLatin1String("Enabled");
+    default: return QLatin1String("Invalid");
+    }
+
+}
+
+QString QQmlDebugTest::connectionStateString(const QQmlDebugConnection *connection)
+{
+    if (!connection)
+        return QLatin1String("null");
+
+    return connection->isConnected() ? QLatin1String("connected") : QLatin1String("not connected");
 }
 
 QQmlDebugTestClient::QQmlDebugTestClient(const QString &s, QQmlDebugConnection *c)
@@ -89,7 +126,7 @@ QQmlDebugProcess::QQmlDebugProcess(const QString &executable, QObject *parent)
 {
     m_process.setProcessChannelMode(QProcess::MergedChannels);
     m_timer.setSingleShot(true);
-    m_timer.setInterval(5000);
+    m_timer.setInterval(15000);
     connect(&m_process, SIGNAL(readyReadStandardOutput()), this, SLOT(processAppOutput()));
     connect(&m_process, SIGNAL(errorOccurred(QProcess::ProcessError)),
             this, SLOT(processError(QProcess::ProcessError)));
@@ -134,7 +171,7 @@ void QQmlDebugProcess::start(const QStringList &arguments)
 #endif
     m_mutex.lock();
     m_port = 0;
-    m_process.setEnvironment(m_environment);
+    m_process.setEnvironment(QProcess::systemEnvironment() + m_environment);
     m_process.start(m_executable, arguments);
     if (!m_process.waitForStarted()) {
         qWarning() << "QML Debug Client: Could not launch app " << m_executable
@@ -171,7 +208,10 @@ bool QQmlDebugProcess::waitForSessionStart()
     if (m_process.state() != QProcess::Running) {
         qWarning() << "Could not start up " << m_executable;
         return false;
+    } else if (m_started) {
+        return true;
     }
+
     m_eventLoop.exec();
 
     return m_started;
@@ -192,9 +232,9 @@ QProcess::ExitStatus QQmlDebugProcess::exitStatus() const
     return m_process.exitStatus();
 }
 
-void QQmlDebugProcess::setEnvironment(const QStringList &environment)
+void QQmlDebugProcess::addEnvironment(const QString &environment)
 {
-    m_environment = environment;
+    m_environment.append(environment);
 }
 
 QString QQmlDebugProcess::output() const

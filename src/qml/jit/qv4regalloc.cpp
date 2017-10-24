@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the V4VM module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -81,7 +87,7 @@ public:
     {}
 
 protected:
-    void addStmtNr(Stmt *s)
+    void addStmtNr(Stmt *s) Q_DECL_OVERRIDE Q_DECL_FINAL
     {
         addJustifiedNr(intervals->positionForStatement(s));
     }
@@ -109,7 +115,7 @@ public:
     }
 
 protected:
-    void visitTemp(Temp *e)
+    void visitTemp(Temp *e) Q_DECL_OVERRIDE Q_DECL_FINAL
     {
         switch (e->kind) {
         case Temp::PhysicalRegister: {
@@ -119,6 +125,7 @@ protected:
                 *out << ri->prettyName();
                 break;
             }
+            Q_FALLTHROUGH();
         }
         default:
             IRPrinterWithPositions::visitTemp(e);
@@ -174,11 +181,11 @@ public:
         _calls.reserve(function->statementCount() / 3);
         _hints.resize(function->tempCount);
 
-        foreach (BasicBlock *bb, function->basicBlocks()) {
+        for (BasicBlock *bb : function->basicBlocks()) {
             _currentBB = bb;
-            foreach (Stmt *s, bb->statements()) {
+            for (Stmt *s : bb->statements()) {
                 _currentStmt = s;
-                s->accept(this);
+                visit(s);
             }
         }
     }
@@ -266,32 +273,32 @@ public:
     }
 
 protected: // IRDecoder
-    virtual void callBuiltinInvalid(IR::Name *, IR::ExprList *, IR::Expr *) {}
-    virtual void callBuiltinTypeofQmlContextProperty(IR::Expr *, IR::Member::MemberKind, int, IR::Expr *) {}
-    virtual void callBuiltinTypeofMember(IR::Expr *, const QString &, IR::Expr *) {}
-    virtual void callBuiltinTypeofSubscript(IR::Expr *, IR::Expr *, IR::Expr *) {}
-    virtual void callBuiltinTypeofName(const QString &, IR::Expr *) {}
-    virtual void callBuiltinTypeofValue(IR::Expr *, IR::Expr *) {}
-    virtual void callBuiltinDeleteMember(IR::Expr *, const QString &, IR::Expr *) {}
-    virtual void callBuiltinDeleteSubscript(IR::Expr *, IR::Expr *, IR::Expr *) {}
-    virtual void callBuiltinDeleteName(const QString &, IR::Expr *) {}
-    virtual void callBuiltinDeleteValue(IR::Expr *) {}
-    virtual void callBuiltinThrow(IR::Expr *) {}
-    virtual void callBuiltinReThrow() {}
-    virtual void callBuiltinUnwindException(IR::Expr *) {}
-    virtual void callBuiltinPushCatchScope(const QString &) {};
-    virtual void callBuiltinForeachIteratorObject(IR::Expr *, IR::Expr *) {}
+    void callBuiltinInvalid(IR::Name *, IR::ExprList *, IR::Expr *) override {}
+    void callBuiltinTypeofQmlContextProperty(IR::Expr *, IR::Member::MemberKind, int, IR::Expr *) override {}
+    void callBuiltinTypeofMember(IR::Expr *, const QString &, IR::Expr *) override {}
+    void callBuiltinTypeofSubscript(IR::Expr *, IR::Expr *, IR::Expr *) override {}
+    void callBuiltinTypeofName(const QString &, IR::Expr *) override {}
+    void callBuiltinTypeofValue(IR::Expr *, IR::Expr *) override {}
+    void callBuiltinDeleteMember(IR::Expr *, const QString &, IR::Expr *) override {}
+    void callBuiltinDeleteSubscript(IR::Expr *, IR::Expr *, IR::Expr *) override {}
+    void callBuiltinDeleteName(const QString &, IR::Expr *) override {}
+    void callBuiltinDeleteValue(IR::Expr *) override {}
+    void callBuiltinThrow(IR::Expr *) override {}
+    void callBuiltinReThrow() override {}
+    void callBuiltinUnwindException(IR::Expr *) override {}
+    void callBuiltinPushCatchScope(const QString &) override {};
+    void callBuiltinForeachIteratorObject(IR::Expr *, IR::Expr *) override {}
     virtual void callBuiltinForeachNextProperty(IR::Temp *, IR::Temp *) {}
-    virtual void callBuiltinForeachNextPropertyname(IR::Expr *, IR::Expr *) {}
-    virtual void callBuiltinPushWithScope(IR::Expr *) {}
-    virtual void callBuiltinPopScope() {}
-    virtual void callBuiltinDeclareVar(bool , const QString &) {}
-    virtual void callBuiltinDefineArray(IR::Expr *, IR::ExprList *) {}
-    virtual void callBuiltinDefineObjectLiteral(IR::Expr *, int, IR::ExprList *, IR::ExprList *, bool) {}
-    virtual void callBuiltinSetupArgumentObject(IR::Expr *) {}
-    virtual void callBuiltinConvertThisToObject() {}
+    void callBuiltinForeachNextPropertyname(IR::Expr *, IR::Expr *) override {}
+    void callBuiltinPushWithScope(IR::Expr *) override {}
+    void callBuiltinPopScope() override {}
+    void callBuiltinDeclareVar(bool , const QString &) override {}
+    void callBuiltinDefineArray(IR::Expr *, IR::ExprList *) override {}
+    void callBuiltinDefineObjectLiteral(IR::Expr *, int, IR::ExprList *, IR::ExprList *, bool) override {}
+    void callBuiltinSetupArgumentObject(IR::Expr *) override {}
+    void callBuiltinConvertThisToObject() override {}
 
-    virtual void callValue(IR::Expr *value, IR::ExprList *args, IR::Expr *result)
+    void callValue(IR::Expr *value, IR::ExprList *args, IR::Expr *result) override
     {
         addDef(result);
         if (IR::Temp *tempValue = value->asTemp())
@@ -300,7 +307,8 @@ protected: // IRDecoder
         addCall();
     }
 
-    virtual void callQmlContextProperty(IR::Expr *base, IR::Member::MemberKind /*kind*/, int propertyIndex, IR::ExprList *args, IR::Expr *result)
+    void callQmlContextProperty(IR::Expr *base, IR::Member::MemberKind /*kind*/, int propertyIndex,
+                                        IR::ExprList *args, IR::Expr *result) override
     {
         Q_UNUSED(propertyIndex)
 
@@ -310,8 +318,8 @@ protected: // IRDecoder
         addCall();
     }
 
-    virtual void callProperty(IR::Expr *base, const QString &name, IR::ExprList *args,
-                              IR::Expr *result)
+    void callProperty(IR::Expr *base, const QString &name, IR::ExprList *args,
+                      IR::Expr *result) override
     {
         Q_UNUSED(name)
 
@@ -321,8 +329,8 @@ protected: // IRDecoder
         addCall();
     }
 
-    virtual void callSubscript(IR::Expr *base, IR::Expr *index, IR::ExprList *args,
-                               IR::Expr *result)
+    void callSubscript(IR::Expr *base, IR::Expr *index, IR::ExprList *args,
+                       IR::Expr *result) override
     {
         addDef(result);
         addUses(base->asTemp(), Use::CouldHaveRegister);
@@ -331,7 +339,7 @@ protected: // IRDecoder
         addCall();
     }
 
-    virtual void convertType(IR::Expr *source, IR::Expr *target)
+    void convertType(IR::Expr *source, IR::Expr *target) override
     {
         addDef(target);
 
@@ -404,14 +412,14 @@ protected: // IRDecoder
             addHint(target->asTemp(), sourceTemp);
     }
 
-    virtual void constructActivationProperty(IR::Name *, IR::ExprList *args, IR::Expr *result)
+    void constructActivationProperty(IR::Name *, IR::ExprList *args, IR::Expr *result) override
     {
         addDef(result);
         addUses(args, Use::CouldHaveRegister);
         addCall();
     }
 
-    virtual void constructProperty(IR::Expr *base, const QString &, IR::ExprList *args, IR::Expr *result)
+    void constructProperty(IR::Expr *base, const QString &, IR::ExprList *args, IR::Expr *result) override
     {
         addDef(result);
         addUses(base, Use::CouldHaveRegister);
@@ -419,7 +427,7 @@ protected: // IRDecoder
         addCall();
     }
 
-    virtual void constructValue(IR::Expr *value, IR::ExprList *args, IR::Expr *result)
+    void constructValue(IR::Expr *value, IR::ExprList *args, IR::Expr *result) override
     {
         addDef(result);
         addUses(value, Use::CouldHaveRegister);
@@ -427,24 +435,24 @@ protected: // IRDecoder
         addCall();
     }
 
-    virtual void loadThisObject(IR::Expr *temp)
+    void loadThisObject(IR::Expr *temp) override
     {
         addDef(temp);
     }
 
-    virtual void loadQmlContext(IR::Expr *temp)
-    {
-        addDef(temp);
-        addCall();
-    }
-
-    virtual void loadQmlImportedScripts(IR::Expr *temp)
+    void loadQmlContext(IR::Expr *temp) override
     {
         addDef(temp);
         addCall();
     }
 
-    virtual void loadQmlSingleton(const QString &/*name*/, Expr *temp)
+    void loadQmlImportedScripts(IR::Expr *temp) override
+    {
+        addDef(temp);
+        addCall();
+    }
+
+    void loadQmlSingleton(const QString &/*name*/, Expr *temp) override
     {
         Q_UNUSED(temp);
 
@@ -452,21 +460,21 @@ protected: // IRDecoder
         addCall();
     }
 
-    virtual void loadConst(IR::Const *sourceConst, Expr *targetTemp)
+    void loadConst(IR::Const *sourceConst, Expr *targetTemp) override
     {
         Q_UNUSED(sourceConst);
 
         addDef(targetTemp);
     }
 
-    virtual void loadString(const QString &str, Expr *targetTemp)
+    void loadString(const QString &str, Expr *targetTemp) override
     {
         Q_UNUSED(str);
 
         addDef(targetTemp);
     }
 
-    virtual void loadRegexp(IR::RegExp *sourceRegexp, Expr *targetTemp)
+    void loadRegexp(IR::RegExp *sourceRegexp, Expr *targetTemp) override
     {
         Q_UNUSED(sourceRegexp);
 
@@ -474,19 +482,19 @@ protected: // IRDecoder
         addCall();
     }
 
-    virtual void getActivationProperty(const IR::Name *, Expr *temp)
+    void getActivationProperty(const IR::Name *, Expr *temp) override
     {
         addDef(temp);
         addCall();
     }
 
-    virtual void setActivationProperty(IR::Expr *source, const QString &)
+    void setActivationProperty(IR::Expr *source, const QString &) override
     {
         addUses(source->asTemp(), Use::CouldHaveRegister);
         addCall();
     }
 
-    virtual void initClosure(IR::Closure *closure, Expr *target)
+    void initClosure(IR::Closure *closure, Expr *target) override
     {
         Q_UNUSED(closure);
 
@@ -494,49 +502,52 @@ protected: // IRDecoder
         addCall();
     }
 
-    virtual void getProperty(IR::Expr *base, const QString &, Expr *target)
+    void getProperty(IR::Expr *base, const QString &, Expr *target) override
     {
         addDef(target);
         addUses(base->asTemp(), Use::CouldHaveRegister);
         addCall();
     }
 
-    virtual void setProperty(IR::Expr *source, IR::Expr *targetBase, const QString &)
+    void setProperty(IR::Expr *source, IR::Expr *targetBase, const QString &) override
     {
         addUses(source->asTemp(), Use::CouldHaveRegister);
         addUses(targetBase->asTemp(), Use::CouldHaveRegister);
         addCall();
     }
 
-    virtual void setQmlContextProperty(IR::Expr *source, IR::Expr *targetBase, IR::Member::MemberKind /*kind*/, int /*propertyIndex*/)
+    void setQmlContextProperty(IR::Expr *source, IR::Expr *targetBase,
+                               IR::Member::MemberKind /*kind*/, int /*propertyIndex*/) override
     {
         addUses(source->asTemp(), Use::CouldHaveRegister);
         addUses(targetBase->asTemp(), Use::CouldHaveRegister);
         addCall();
     }
 
-    virtual void setQObjectProperty(IR::Expr *source, IR::Expr *targetBase, int /*propertyIndex*/)
+    void setQObjectProperty(IR::Expr *source, IR::Expr *targetBase, int /*propertyIndex*/) override
     {
         addUses(source->asTemp(), Use::CouldHaveRegister);
         addUses(targetBase->asTemp(), Use::CouldHaveRegister);
         addCall();
     }
 
-    virtual void getQmlContextProperty(IR::Expr *base, IR::Member::MemberKind /*kind*/, int /*index*/, IR::Expr *target)
+    void getQmlContextProperty(IR::Expr *base, IR::Member::MemberKind /*kind*/, int /*index*/,
+                               bool /*captureRequired*/, IR::Expr *target) override
     {
         addDef(target);
         addUses(base->asTemp(), Use::CouldHaveRegister);
         addCall();
     }
 
-    virtual void getQObjectProperty(IR::Expr *base, int /*propertyIndex*/, bool /*captureRequired*/, bool /*isSingleton*/, int /*attachedPropertiesId*/, IR::Expr *target)
+    void getQObjectProperty(IR::Expr *base, int /*propertyIndex*/, bool /*captureRequired*/,
+                            bool /*isSingleton*/, int /*attachedPropertiesId*/, IR::Expr *target) override
     {
         addDef(target);
         addUses(base->asTemp(), Use::CouldHaveRegister);
         addCall();
     }
 
-    virtual void getElement(IR::Expr *base, IR::Expr *index, Expr *target)
+    void getElement(IR::Expr *base, IR::Expr *index, Expr *target) override
     {
         addDef(target);
         addUses(base->asTemp(), Use::CouldHaveRegister);
@@ -544,7 +555,7 @@ protected: // IRDecoder
         addCall();
     }
 
-    virtual void setElement(IR::Expr *source, IR::Expr *targetBase, IR::Expr *targetIndex)
+    void setElement(IR::Expr *source, IR::Expr *targetBase, IR::Expr *targetIndex) override
     {
         addUses(source->asTemp(), Use::CouldHaveRegister);
         addUses(targetBase->asTemp(), Use::CouldHaveRegister);
@@ -552,7 +563,7 @@ protected: // IRDecoder
         addCall();
     }
 
-    virtual void copyValue(Expr *source, Expr *target)
+    void copyValue(Expr *source, Expr *target) override
     {
         addDef(target);
         Temp *sourceTemp = source->asTemp();
@@ -564,13 +575,13 @@ protected: // IRDecoder
             addHint(targetTemp, sourceTemp);
     }
 
-    virtual void swapValues(Expr *, Expr *)
+    void swapValues(Expr *, Expr *) override
     {
         // Inserted by the register allocator, so it cannot occur here.
         Q_UNREACHABLE();
     }
 
-    virtual void unop(AluOp oper, Expr *source, Expr *target)
+    void unop(AluOp oper, Expr *source, Expr *target) override
     {
         addDef(target);
 
@@ -606,7 +617,7 @@ protected: // IRDecoder
         }
     }
 
-    virtual void binop(AluOp oper, Expr *leftSource, Expr *rightSource, Expr *target)
+    void binop(AluOp oper, Expr *leftSource, Expr *rightSource, Expr *target) override
     {
         bool needsCall = true;
 
@@ -652,6 +663,7 @@ protected: // IRDecoder
                     addUses(rightSource->asTemp(), Use::MustHaveRegister);
                     break;
                 }
+                Q_FALLTHROUGH();
 #endif
             case OpBitAnd:
             case OpBitOr:
@@ -669,8 +681,8 @@ protected: // IRDecoder
         }
     }
 
-    virtual void visitJump(IR::Jump *) {}
-    virtual void visitCJump(IR::CJump *s)
+    void visitJump(IR::Jump *) override {}
+    void visitCJump(IR::CJump *s) override
     {
         if (Temp *t = s->cond->asTemp()) {
 #if 0 // TODO: change masm to generate code
@@ -690,14 +702,14 @@ protected: // IRDecoder
         }
     }
 
-    virtual void visitRet(IR::Ret *s)
+    void visitRet(IR::Ret *s) override
     { addUses(s->expr->asTemp(), Use::CouldHaveRegister); }
 
-    virtual void visitPhi(IR::Phi *s)
+    void visitPhi(IR::Phi *s) override
     {
         addDef(s->targetTemp, true);
-        for (int i = 0, ei = s->d->incoming.size(); i < ei; ++i) {
-            Expr *e = s->d->incoming.at(i);
+        for (int i = 0, ei = s->incoming.size(); i < ei; ++i) {
+            Expr *e = s->incoming.at(i);
             if (Temp *t = e->asTemp()) {
                 // The actual use of an incoming value in a phi node is right before the terminator
                 // of the other side of the incoming edge.
@@ -710,7 +722,7 @@ protected: // IRDecoder
     }
 
 protected:
-    virtual void callBuiltin(IR::Call *c, IR::Expr *result)
+    void callBuiltin(IR::Call *c, IR::Expr *result) override
     {
         addDef(result);
         addUses(c->base, Use::CouldHaveRegister);
@@ -803,41 +815,42 @@ using namespace QT_PREPEND_NAMESPACE(QV4::IR);
 using namespace QT_PREPEND_NAMESPACE(QV4);
 
 namespace {
-class ResolutionPhase: protected StmtVisitor, protected ExprVisitor {
+class ResolutionPhase
+{
     Q_DISABLE_COPY(ResolutionPhase)
 
     LifeTimeIntervals::Ptr _intervals;
-    QVector<LifeTimeInterval *> _unprocessed;
+    QVector<LifeTimeInterval *> _unprocessedReverseOrder;
     IR::Function *_function;
     const std::vector<int> &_assignedSpillSlots;
-    QHash<IR::Temp, const LifeTimeInterval *> _intervalForTemp;
+    std::vector<const LifeTimeInterval *> _liveIntervals;
     const QVector<const RegisterInfo *> &_intRegs;
     const QVector<const RegisterInfo *> &_fpRegs;
 
     Stmt *_currentStmt;
-    QVector<Move *> _loads;
-    QVector<Move *> _stores;
+    std::vector<Move *> _loads;
+    std::vector<Move *> _stores;
 
-    QHash<BasicBlock *, QList<const LifeTimeInterval *> > _liveAtStart;
-    QHash<BasicBlock *, QList<const LifeTimeInterval *> > _liveAtEnd;
+    std::vector<std::vector<const LifeTimeInterval *> > _liveAtStart;
+    std::vector<std::vector<const LifeTimeInterval *> > _liveAtEnd;
 
 public:
-    ResolutionPhase(const QVector<LifeTimeInterval *> &unprocessed,
+    ResolutionPhase(QVector<LifeTimeInterval *> &&unprocessedReversedOrder,
                     const LifeTimeIntervals::Ptr &intervals,
                     IR::Function *function,
                     const std::vector<int> &assignedSpillSlots,
                     const QVector<const RegisterInfo *> &intRegs,
                     const QVector<const RegisterInfo *> &fpRegs)
         : _intervals(intervals)
+        , _unprocessedReverseOrder(unprocessedReversedOrder)
         , _function(function)
         , _assignedSpillSlots(assignedSpillSlots)
         , _intRegs(intRegs)
         , _fpRegs(fpRegs)
         , _currentStmt(0)
     {
-        _unprocessed = unprocessed;
-        _liveAtStart.reserve(function->basicBlockCount());
-        _liveAtEnd.reserve(function->basicBlockCount());
+        _liveAtStart.resize(function->basicBlockCount());
+        _liveAtEnd.resize(function->basicBlockCount());
     }
 
     void run() {
@@ -867,7 +880,7 @@ private:
     {
         QVector<Stmt *> newStatements;
 
-        foreach (BasicBlock *bb, _function->basicBlocks()) {
+        for (BasicBlock *bb : _function->basicBlocks()) {
             _currentStmt = 0;
 
             QVector<Stmt *> statements = bb->statements();
@@ -876,7 +889,7 @@ private:
 
             cleanOldIntervals(_intervals->startPosition(bb));
             addNewIntervals(_intervals->startPosition(bb));
-            _liveAtStart[bb] = _intervalForTemp.values();
+            _liveAtStart[bb->index()] = _liveIntervals;
 
             for (int i = 0, ei = statements.size(); i != ei; ++i) {
                 _currentStmt = statements.at(i);
@@ -886,36 +899,36 @@ private:
                     addNewIntervals(usePosition(_currentStmt));
                 else
                     addNewIntervals(defPosition(_currentStmt));
-                _currentStmt->accept(this);
-                foreach (Move *load, _loads)
+                visit(_currentStmt);
+                for (Move *load : _loads)
                     newStatements.append(load);
                 if (_currentStmt->asPhi())
                     newStatements.prepend(_currentStmt);
                 else
                     newStatements.append(_currentStmt);
-                foreach (Move *store, _stores)
+                for (Move *store : _stores)
                     newStatements.append(store);
             }
 
             cleanOldIntervals(_intervals->endPosition(bb));
-            _liveAtEnd[bb] = _intervalForTemp.values();
+            _liveAtEnd[bb->index()] = _liveIntervals;
 
             if (DebugRegAlloc) {
                 QBuffer buf;
                 buf.open(QIODevice::WriteOnly);
                 QTextStream os(&buf);
                 os << "Intervals live at the start of L" << bb->index() << ":" << endl;
-                if (_liveAtStart[bb].isEmpty())
+                if (_liveAtStart[bb->index()].empty())
                     os << "\t(none)" << endl;
-                foreach (const LifeTimeInterval *i, _liveAtStart[bb]) {
+                for (const LifeTimeInterval *i : _liveAtStart.at(bb->index())) {
                     os << "\t";
                     i->dump(os);
                     os << endl;
                 }
                 os << "Intervals live at the end of L" << bb->index() << ":" << endl;
-                if (_liveAtEnd[bb].isEmpty())
+                if (_liveAtEnd[bb->index()].empty())
                     os << "\t(none)" << endl;
-                foreach (const LifeTimeInterval *i, _liveAtEnd[bb]) {
+                for (const LifeTimeInterval *i : _liveAtEnd.at(bb->index())) {
                     os << "\t";
                     i->dump(os);
                     os << endl;
@@ -928,9 +941,19 @@ private:
 
     }
 
+    const LifeTimeInterval *findLiveInterval(Temp *t) const
+    {
+        for (const LifeTimeInterval *lti : _liveIntervals) {
+            if (lti->temp() == *t)
+                return lti;
+        }
+
+        return nullptr;
+    }
+
     void maybeGenerateSpill(Temp *t)
     {
-        const LifeTimeInterval *i = _intervalForTemp[*t];
+        const LifeTimeInterval *i = findLiveInterval(t);
         if (i->reg() == LifeTimeInterval::InvalidRegister)
             return;
 
@@ -938,7 +961,7 @@ private:
         Q_ASSERT(pReg);
         int spillSlot = _assignedSpillSlots[i->temp().index];
         if (spillSlot != RegisterAllocator::InvalidSpillSlot)
-            _stores.append(generateSpill(spillSlot, i->temp().type, pReg->reg<int>()));
+            _stores.push_back(generateSpill(spillSlot, i->temp().type, pReg->reg<int>()));
     }
 
     void addNewIntervals(int position)
@@ -946,40 +969,49 @@ private:
         if (position == Stmt::InvalidId)
             return;
 
-        while (!_unprocessed.isEmpty()) {
-            const LifeTimeInterval *i = _unprocessed.constFirst();
+        while (!_unprocessedReverseOrder.isEmpty()) {
+            const LifeTimeInterval *i = _unprocessedReverseOrder.constLast();
             if (i->start() > position)
                 break;
 
             Q_ASSERT(!i->isFixedInterval());
-            _intervalForTemp[i->temp()] = i;
+            auto it = _liveIntervals.begin();
+            for (; it != _liveIntervals.end(); ++it) {
+                if ((*it)->temp() == i->temp()) {
+                    *it = i;
+                    break;
+                }
+            }
+            if (it == _liveIntervals.end())
+                _liveIntervals.push_back(i);
 //            qDebug() << "-- Activating interval for temp" << i->temp().index;
 
-            _unprocessed.removeFirst();
+            _unprocessedReverseOrder.removeLast();
         }
     }
 
     void cleanOldIntervals(int position)
     {
-        QMutableHashIterator<Temp, const LifeTimeInterval *> it(_intervalForTemp);
-        while (it.hasNext()) {
-            const LifeTimeInterval *i = it.next().value();
-            if (i->end() < position || i->isFixedInterval())
-                it.remove();
+        for (size_t it = 0; it != _liveIntervals.size(); ) {
+            const LifeTimeInterval *lti = _liveIntervals.at(it);
+            if (lti->end() < position || lti->isFixedInterval())
+                _liveIntervals.erase(_liveIntervals.begin() + it);
+            else
+                ++it;
         }
     }
 
     void resolve()
     {
-        foreach (BasicBlock *bb, _function->basicBlocks()) {
-            foreach (BasicBlock *bbOut, bb->out)
+        for (BasicBlock *bb : _function->basicBlocks()) {
+            for (BasicBlock *bbOut : bb->out)
                 resolveEdge(bb, bbOut);
         }
     }
 
     Phi *findDefPhi(const Temp &t, BasicBlock *bb) const
     {
-        foreach (Stmt *s, bb->statements()) {
+        for (Stmt *s : bb->statements()) {
             Phi *phi = s->asPhi();
             if (!phi)
                 return 0;
@@ -1012,21 +1044,21 @@ private:
         int successorStart = _intervals->startPosition(successor);
         Q_ASSERT(successorStart > 0);
 
-        foreach (const LifeTimeInterval *it, _liveAtStart[successor]) {
+        for (const LifeTimeInterval *it : _liveAtStart.at(successor->index())) {
             bool isPhiTarget = false;
             Expr *moveFrom = 0;
 
             if (it->start() == successorStart) {
                 if (Phi *phi = findDefPhi(it->temp(), successor)) {
                     isPhiTarget = true;
-                    Expr *opd = phi->d->incoming[successor->in.indexOf(predecessor)];
+                    Expr *opd = phi->incoming[successor->in.indexOf(predecessor)];
                     if (opd->asConst()) {
                         moveFrom = opd;
                     } else {
                         Temp *t = opd->asTemp();
                         Q_ASSERT(t);
 
-                        foreach (const LifeTimeInterval *it2, _liveAtEnd[predecessor]) {
+                        for (const LifeTimeInterval *it2 : _liveAtEnd.at(predecessor->index())) {
                             if (it2->temp() == *t
                                     && it2->reg() != LifeTimeInterval::InvalidRegister
                                     && it2->covers(predecessorEnd)) {
@@ -1041,7 +1073,7 @@ private:
                     }
                 }
             } else {
-                foreach (const LifeTimeInterval *predIt, _liveAtEnd[predecessor]) {
+                for (const LifeTimeInterval *predIt : _liveAtEnd.at(predecessor->index())) {
                     if (predIt->temp() == it->temp()) {
                         if (predIt->reg() != LifeTimeInterval::InvalidRegister
                                 && predIt->covers(predecessorEnd)) {
@@ -1065,12 +1097,12 @@ private:
                 if (_info->def(it->temp()) != successorStart && !it->isSplitFromInterval()) {
                     const int successorEnd = successor->terminator()->id();
                     const int idx = successor->in.indexOf(predecessor);
-                    foreach (const Use &use, _info->uses(it->temp())) {
+                    for (const Use &use : _info->uses(it->temp)) {
                         if (use.pos == static_cast<unsigned>(successorStart)) {
                             // only check the current edge, not all other possible ones. This is
                             // important for phi nodes: they have uses that are only valid when
                             // coming in over a specific edge.
-                            foreach (Stmt *s, successor->statements()) {
+                            for (Stmt *s : successor->statements()) {
                                 if (Phi *phi = s->asPhi()) {
                                     Q_ASSERT(it->temp().index != phi->targetTemp->index);
                                     Q_ASSERT(phi->d->incoming[idx]->asTemp() == 0
@@ -1108,6 +1140,8 @@ private:
             mapping.add(moveFrom, moveTo);
         }
 
+        if (DebugRegAlloc)
+            mapping.dump();
         mapping.order();
         if (DebugRegAlloc)
             mapping.dump();
@@ -1173,20 +1207,32 @@ private:
         return load;
     }
 
-protected:
-    virtual void visitTemp(Temp *t)
+private:
+    void visit(Expr *e)
+    {
+        switch (e->exprKind) {
+        case Expr::TempExpr:
+            visitTemp(e->asTemp());
+            break;
+        default:
+            EXPR_VISIT_ALL_KINDS(e);
+            break;
+        }
+    }
+
+    void visitTemp(Temp *t)
     {
         if (t->kind != Temp::VirtualRegister)
             return;
 
-        const LifeTimeInterval *i = _intervalForTemp[*t];
+        const LifeTimeInterval *i = findLiveInterval(t);
         Q_ASSERT(i->isValid());
 
         if (_currentStmt != 0 && i->start() == usePosition(_currentStmt)) {
             Q_ASSERT(i->isSplitFromInterval());
             const RegisterInfo *pReg = platformRegister(*i);
             Q_ASSERT(pReg);
-            _loads.append(generateUnspill(i->temp(), pReg->reg<int>()));
+            _loads.push_back(generateUnspill(i->temp(), pReg->reg<int>()));
         }
 
         if (i->reg() != LifeTimeInterval::InvalidRegister &&
@@ -1204,47 +1250,25 @@ protected:
         }
     }
 
-    virtual void visitArgLocal(ArgLocal *) {}
-    virtual void visitConst(Const *) {}
-    virtual void visitString(IR::String *) {}
-    virtual void visitRegExp(IR::RegExp *) {}
-    virtual void visitName(Name *) {}
-    virtual void visitClosure(Closure *) {}
-    virtual void visitConvert(Convert *e) { e->expr->accept(this); }
-    virtual void visitUnop(Unop *e) { e->expr->accept(this); }
-    virtual void visitBinop(Binop *e) { e->left->accept(this); e->right->accept(this); }
-    virtual void visitSubscript(Subscript *e) { e->base->accept(this); e->index->accept(this); }
-    virtual void visitMember(Member *e) { e->base->accept(this); }
-
-    virtual void visitCall(Call *e) {
-        e->base->accept(this);
-        for (ExprList *it = e->args; it; it = it->next)
-            it->expr->accept(this);
-    }
-
-    virtual void visitNew(New *e) {
-        e->base->accept(this);
-        for (ExprList *it = e->args; it; it = it->next)
-            it->expr->accept(this);
-    }
-
-    virtual void visitExp(Exp *s) { s->expr->accept(this); }
-
-    virtual void visitMove(Move *s)
+    void visit(Stmt *s)
     {
-        if (Temp *t = s->target->asTemp())
-            maybeGenerateSpill(t);
+        switch (s->stmtKind) {
+        case Stmt::MoveStmt: {
+            auto m = s->asMove();
+            if (Temp *t = m->target->asTemp())
+                maybeGenerateSpill(t);
 
-        s->source->accept(this);
-        s->target->accept(this);
-    }
-
-    virtual void visitJump(Jump *) {}
-    virtual void visitCJump(CJump *s) { s->cond->accept(this); }
-    virtual void visitRet(Ret *s) { s->expr->accept(this); }
-    virtual void visitPhi(Phi *s)
-    {
-        maybeGenerateSpill(s->targetTemp);
+            visit(m->source);
+            visit(m->target);
+        } break;
+        case Stmt::PhiStmt: {
+            auto p = s->asPhi();
+            maybeGenerateSpill(p->targetTemp);
+        } break;
+        default:
+            STMT_VISIT_ALL_KINDS(s);
+            break;
+        }
     }
 };
 } // anonymous namespace
@@ -1298,7 +1322,7 @@ void RegisterAllocator::run(IR::Function *function, const Optimizer &opt)
         qout << "Ranges:" << endl;
         QVector<LifeTimeInterval *> intervals = _unhandled;
         std::reverse(intervals.begin(), intervals.end());
-        foreach (const LifeTimeInterval *r, intervals) {
+        for (const LifeTimeInterval *r : qAsConst(intervals)) {
             r->dump(qout);
             qout << endl;
         }
@@ -1317,8 +1341,13 @@ void RegisterAllocator::run(IR::Function *function, const Optimizer &opt)
     if (DebugRegAlloc)
         dump(function);
 
-    std::sort(_handled.begin(), _handled.end(), LifeTimeInterval::lessThan);
-    ResolutionPhase(_handled, _lifeTimeIntervals, function, _assignedSpillSlots, _normalRegisters, _fpRegisters).run();
+    // sort the ranges in reverse order, so the ResolutionPhase can take from the end (and thereby
+    // prevent the copy overhead that taking from the beginning would give).
+    std::sort(_handled.begin(), _handled.end(),
+              [](const LifeTimeInterval *r1, const LifeTimeInterval *r2) -> bool {
+        return LifeTimeInterval::lessThan(r2, r1);
+    });
+    ResolutionPhase(std::move(_handled), _lifeTimeIntervals, function, _assignedSpillSlots, _normalRegisters, _fpRegisters).run();
 
     function->tempCount = *std::max_element(_assignedSpillSlots.begin(), _assignedSpillSlots.end()) + 1;
 
@@ -1393,7 +1422,7 @@ LifeTimeInterval *RegisterAllocator::cloneFixedInterval(int reg, bool isFP, cons
 void RegisterAllocator::prepareRanges()
 {
     LifeTimeInterval ltiWithCalls = createFixedInterval(int(_info->calls().size()));
-    foreach (int callPosition, _info->calls())
+    for (int callPosition : _info->calls())
         ltiWithCalls.addRange(callPosition, callPosition);
 
     const int regCount = _normalRegisters.size();
@@ -1485,11 +1514,11 @@ void RegisterAllocator::linearScan()
         }
     }
 
-    foreach (LifeTimeInterval *r, _active)
+    for (LifeTimeInterval *r : qAsConst(_active))
         if (!r->isFixedInterval())
             _handled.append(r);
     _active.clear();
-    foreach (LifeTimeInterval *r, _inactive)
+    for (LifeTimeInterval *r : qAsConst(_inactive))
         if (!r->isFixedInterval())
             _handled.append(r);
     _inactive.clear();
@@ -1504,7 +1533,7 @@ static inline int indexOfRangeCoveringPosition(const LifeTimeInterval::Ranges &r
     return -1;
 }
 
-static inline int intersectionPosition(const LifeTimeInterval::Range &one, const LifeTimeInterval::Range &two)
+static inline int intersectionPosition(const LifeTimeIntervalRange &one, const LifeTimeIntervalRange &two)
 {
     if (one.covers(two.start))
         return two.start;
@@ -1550,7 +1579,7 @@ static void longestAvailableReg(int *nextUses, int nextUseCount, int &reg, int &
 
 #define CALLOC_ON_STACK(ty, ptr, sz, val) \
     Q_ASSERT(sz > 0); \
-    ty *ptr = reinterpret_cast<ty *>(alloca(sizeof(ty) * (sz))); \
+    Q_ALLOCA_VAR(ty, ptr, sizeof(ty) * (sz)); \
     for (ty *it = ptr, *eit = ptr + (sz); it != eit; ++it) \
         *it = val;
 
@@ -1762,9 +1791,9 @@ int RegisterAllocator::nextIntersection(const LifeTimeInterval &current,
         return -1;
 
     for (int currentEnd = currentRanges.size(); currentIt < currentEnd; ++currentIt) {
-        const LifeTimeInterval::Range currentRange = currentRanges.at(currentIt);
+        const LifeTimeIntervalRange currentRange = currentRanges.at(currentIt);
         for (int anotherIt = anotherItStart, anotherEnd = anotherRanges.size(); anotherIt < anotherEnd; ++anotherIt) {
-            const LifeTimeInterval::Range anotherRange = anotherRanges.at(anotherIt);
+            const LifeTimeIntervalRange anotherRange = anotherRanges.at(anotherIt);
             if (anotherRange.start > currentRange.end)
                 break;
             int intersectPos = intersectionPosition(currentRange, anotherRange);
@@ -1917,7 +1946,7 @@ void RegisterAllocator::dump(IR::Function *function) const
     qout << "Ranges:" << endl;
     QVector<LifeTimeInterval *> handled = _handled;
     std::sort(handled.begin(), handled.end(), LifeTimeInterval::lessThanForTemp);
-    foreach (const LifeTimeInterval *r, handled) {
+    for (const LifeTimeInterval *r : qAsConst(handled)) {
         r->dump(qout);
         qout << endl;
     }
@@ -1933,10 +1962,10 @@ void RegisterAllocator::dump(IR::Function *function) const
 
 // References:
 //  [Wimmer1] C. Wimmer and M. Franz. Linear Scan Register Allocation on SSA Form. In Proceedings of
-//            CGO’10, ACM Press, 2010
+//            CGO'10, ACM Press, 2010
 //  [Wimmer2] C. Wimmer and H. Mossenbock. Optimized Interval Splitting in a Linear Scan Register
 //            Allocator. In Proceedings of the ACM/USENIX International Conference on Virtual
-//            Execution Environments, pages 132–141. ACM Press, 2005.
+//            Execution Environments, pages 132-141. ACM Press, 2005.
 //  [Traub]   Omri Traub, Glenn Holloway, and Michael D. Smith. Quality and Speed in Linear-scan
 //            Register Allocation. In Proceedings of the ACM SIGPLAN 1998 Conference on Programming
-//            Language Design and Implementation, pages 142–151, June 1998.
+//            Language Design and Implementation, pages 142-151, June 1998.

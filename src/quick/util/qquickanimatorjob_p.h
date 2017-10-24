@@ -1,31 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2016 Gunnar Sletta <gunnar@sletta.org>
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -62,7 +69,7 @@ class QQuickAbstractAnimation;
 
 class QQuickAnimatorController;
 class QQuickAnimatorProxyJobPrivate;
-class QQuickShaderEffectNode;
+class QQuickOpenGLShaderEffectNode;
 
 class QSGOpacityNode;
 
@@ -74,25 +81,20 @@ public:
     QQuickAnimatorProxyJob(QAbstractAnimationJob *job, QObject *item);
     ~QQuickAnimatorProxyJob();
 
-    int duration() const Q_DECL_OVERRIDE { return m_duration; }
+    int duration() const override { return m_duration; }
 
-    QAbstractAnimationJob *job() const { return m_job; }
-
-    void startedByController();
-    void controllerWasDeleted();
-    void markJobManagedByController() { m_jobManagedByController = true; }
+    const QSharedPointer<QAbstractAnimationJob> &job() const { return m_job; }
 
 protected:
-    void updateCurrentTime(int) Q_DECL_OVERRIDE;
-    void updateState(QAbstractAnimationJob::State newState, QAbstractAnimationJob::State oldState) Q_DECL_OVERRIDE;
-    void debugAnimation(QDebug d) const Q_DECL_OVERRIDE;
+    void updateCurrentTime(int) override;
+    void updateState(QAbstractAnimationJob::State newState, QAbstractAnimationJob::State oldState) override;
+    void debugAnimation(QDebug d) const override;
 
 public Q_SLOTS:
     void windowChanged(QQuickWindow *window);
     void sceneGraphInitialized();
 
 private:
-    void deleteJob();
     void syncBackCurrentValues();
     void readyToAnimate();
     void setWindow(QQuickWindow *window);
@@ -100,7 +102,7 @@ private:
 
     QPointer<QQuickAnimatorController> m_controller;
     QQuickAbstractAnimation *m_animation;
-    QAbstractAnimationJob *m_job;
+    QSharedPointer<QAbstractAnimationJob> m_job;
     int m_duration;
 
     enum InternalState {
@@ -111,7 +113,6 @@ private:
     };
 
     InternalState m_internalState;
-    bool m_jobManagedByController;
 };
 
 class Q_QUICK_PRIVATE_EXPORT QQuickAnimatorJob : public QAbstractAnimationJob
@@ -120,29 +121,45 @@ public:
     virtual void setTarget(QQuickItem *target);
     QQuickItem *target() const { return m_target; }
 
-    void setFrom(qreal scale) { m_from = scale; }
+    void setFrom(qreal from) { m_from = from; }
     qreal from() const { return m_from; }
 
     void setTo(qreal to) { m_to = to; }
     qreal to() const { return m_to; }
 
     void setDuration(int duration) { m_duration = duration; }
-    int duration() const Q_DECL_OVERRIDE { return m_duration; }
+    int duration() const override { return m_duration; }
 
     QEasingCurve easingCurve() const { return m_easing; }
     void setEasingCurve(const QEasingCurve &curve) { m_easing = curve; }
 
-    virtual void targetWasDeleted();
+    // Initialize is called on the GUI thread just before it is started
+    // and taken over on the render thread.
     virtual void initialize(QQuickAnimatorController *controller);
+
+    // Called on the render thread during SG shutdown.
+    virtual void invalidate() = 0;
+
+    // Called on the GUI thread after a complete render thread animation job
+    // has been completed to write back a given animator's result to the
+    // source item.
     virtual void writeBack() = 0;
-    virtual void nodeWasDestroyed() = 0;
-    virtual void afterNodeSync() { }
+
+    // Called before the SG sync on the render thread. The GUI thread is
+    // locked during this call.
+    virtual void preSync() { }
+
+    // Called after the SG sync on the render thread. The GUI thread is
+    // locked during this call.
+    virtual void postSync() { }
+
+    // Called after animations have ticked on the render thread. No locks are
+    // held at this time, so synchronization needs to be taken into account
+    // if applicable.
+    virtual void commit() { }
 
     bool isTransform() const { return m_isTransform; }
     bool isUniform() const { return m_isUniform; }
-
-    bool hasBeenRunning() const { return m_hasBeenRunning; }
-    void setHasBeenRunning(bool has) { m_hasBeenRunning = has; }
 
     qreal value() const;
 
@@ -150,7 +167,7 @@ public:
 
 protected:
     QQuickAnimatorJob();
-    void debugAnimation(QDebug d) const Q_DECL_OVERRIDE;
+    void debugAnimation(QDebug d) const override;
 
     qreal progress(int time) const;
 
@@ -167,7 +184,6 @@ protected:
 
     uint m_isTransform : 1;
     uint m_isUniform : 1;
-    uint m_hasBeenRunning : 1;
 };
 
 class QQuickTransformAnimatorJob : public QQuickAnimatorJob
@@ -191,7 +207,7 @@ public:
         }
 
         void sync();
-        void apply();
+        void commit();
 
         int ref;
         QQuickItem *item;
@@ -211,13 +227,16 @@ public:
     };
 
     ~QQuickTransformAnimatorJob();
-    Helper *transformHelper() const { return m_helper; }
+
+    void commit() override;
+    void preSync() override;
+
+    void setTarget(QQuickItem *item) override;
 
 protected:
     QQuickTransformAnimatorJob();
-    void initialize(QQuickAnimatorController *controller) Q_DECL_OVERRIDE;
-    void nodeWasDestroyed() Q_DECL_OVERRIDE;
-    void targetWasDeleted() Q_DECL_OVERRIDE;
+    void postSync() override;
+    void invalidate() override;
 
     Helper *m_helper;
 };
@@ -225,22 +244,22 @@ protected:
 class Q_QUICK_PRIVATE_EXPORT QQuickScaleAnimatorJob : public QQuickTransformAnimatorJob
 {
 public:
-    void updateCurrentTime(int time) Q_DECL_OVERRIDE;
-    void writeBack() Q_DECL_OVERRIDE;
+    void updateCurrentTime(int time) override;
+    void writeBack() override;
 };
 
 class Q_QUICK_PRIVATE_EXPORT QQuickXAnimatorJob : public QQuickTransformAnimatorJob
 {
 public:
-    void updateCurrentTime(int time) Q_DECL_OVERRIDE;
-    void writeBack() Q_DECL_OVERRIDE;
+    void updateCurrentTime(int time) override;
+    void writeBack() override;
 };
 
 class Q_QUICK_PRIVATE_EXPORT QQuickYAnimatorJob : public QQuickTransformAnimatorJob
 {
 public:
-    void updateCurrentTime(int time) Q_DECL_OVERRIDE;
-    void writeBack() Q_DECL_OVERRIDE;
+    void updateCurrentTime(int time) override;
+    void writeBack() override;
 };
 
 class Q_QUICK_PRIVATE_EXPORT QQuickRotationAnimatorJob : public QQuickTransformAnimatorJob
@@ -248,8 +267,8 @@ class Q_QUICK_PRIVATE_EXPORT QQuickRotationAnimatorJob : public QQuickTransformA
 public:
     QQuickRotationAnimatorJob();
 
-    void updateCurrentTime(int time) Q_DECL_OVERRIDE;
-    void writeBack() Q_DECL_OVERRIDE;
+    void updateCurrentTime(int time) override;
+    void writeBack() override;
 
     void setDirection(QQuickRotationAnimator::RotationDirection direction) { m_direction = direction; }
     QQuickRotationAnimator::RotationDirection direction() const { return m_direction; }
@@ -263,38 +282,40 @@ class Q_QUICK_PRIVATE_EXPORT QQuickOpacityAnimatorJob : public QQuickAnimatorJob
 public:
     QQuickOpacityAnimatorJob();
 
-    void initialize(QQuickAnimatorController *controller) Q_DECL_OVERRIDE;
-    void updateCurrentTime(int time) Q_DECL_OVERRIDE;
-    void writeBack() Q_DECL_OVERRIDE;
-    void nodeWasDestroyed() Q_DECL_OVERRIDE;
+    void invalidate() override;
+    void updateCurrentTime(int time) override;
+    void writeBack() override;
+    void postSync() override;
 
 private:
     QSGOpacityNode *m_opacityNode;
 };
-
+#if QT_CONFIG(opengl)
 class Q_QUICK_PRIVATE_EXPORT QQuickUniformAnimatorJob : public QQuickAnimatorJob
 {
 public:
     QQuickUniformAnimatorJob();
 
-    void setTarget(QQuickItem *target) Q_DECL_OVERRIDE;
+    void setTarget(QQuickItem *target) override;
 
     void setUniform(const QByteArray &uniform) { m_uniform = uniform; }
     QByteArray uniform() const { return m_uniform; }
 
-    void afterNodeSync() Q_DECL_OVERRIDE;
+    void postSync() override;
 
-    void updateCurrentTime(int time) Q_DECL_OVERRIDE;
-    void writeBack() Q_DECL_OVERRIDE;
-    void nodeWasDestroyed() Q_DECL_OVERRIDE;
+    void updateCurrentTime(int time) override;
+    void writeBack() override;
+
+    void invalidate() override;
 
 private:
     QByteArray m_uniform;
-    QQuickShaderEffectNode *m_node;
+    QQuickOpenGLShaderEffectNode *m_node;
 
     int m_uniformIndex : 8;
     int m_uniformType : 8;
 };
+#endif
 
 QT_END_NAMESPACE
 

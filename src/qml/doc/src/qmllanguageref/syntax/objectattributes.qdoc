@@ -191,7 +191,7 @@ which was then imported by the client), then a property of type
 
 \section3 Assigning Values to Property Attributes
 
-The value of a property of an object instance may specified in two separate ways:
+The value of a property of an object instance may be specified in two separate ways:
 \list
   \li a value assignment on initialization
   \li an imperative value assignment
@@ -630,7 +630,7 @@ a \l {MouseArea::}{clicked} signal that is emitted when the user clicks
 within the mouse area.
 
 An object can be notified through a \l{Signal handler attributes}
-{signal handler} whenever it a particular signal is emitted. A signal handler
+{signal handler} whenever a particular signal is emitted. A signal handler
 is declared with the syntax \e on<Signal> where \e <Signal> is the name of the
 signal, with the first letter capitalized. The signal handler must be declared
 within the definition of the object that emits the signal, and the handler
@@ -724,12 +724,13 @@ Rectangle {
     signal activated(real xPosition, real yPosition)
     signal deactivated
 
-    width: 100; height: 100
+    property int side: 100
+    width: side; height: side
 
     MouseArea {
         anchors.fill: parent
         onPressed: root.activated(mouse.x, mouse.y)
-        onRelased: root.deactivated()
+        onReleased: root.deactivated()
     }
 }
 \endqml
@@ -855,7 +856,7 @@ are otherwise unavailable to the object. In particular, they allow objects to
 access properties or signals that are specifically relevant to the individual
 object.
 
-A QML type implementation may choose to create an \e {attaching type} with
+A QML type implementation may choose to \l {Providing Attached Properties}{create an \e {attaching type} in C++} with
 particular properties and signals. Instances of this type can then be created
 and \e attached to specific objects at run time, allowing those objects to
 access the properties and signals of the attaching type. These are accessed by

@@ -282,6 +282,9 @@ int qmlRegisterRevision(const char *uri, int versionMajor, int versionMinor)
 
 template<typename T, int metaObjectRevision>
 int qmlRegisterUncreatableType(const char *uri, int versionMajor, int versionMinor, const char *qmlName, const QString& reason)
+
+template<typename T, typename E, int metaObjectRevision>
+int qmlRegisterExtendedUncreatableType(const char *uri, int versionMajor, int versionMinor, const char *qmlName, const QString& reason)
 \endcode
 
 For example, if \c BaseType is changed and now has a revision 1, you can
@@ -343,8 +346,8 @@ demonstrates a usage of extension objects.
 
 \section1 Defining QML-Specific Types and Attributes
 
-
-\section2 Providing Attached Objects for Data Annotations
+\section2 Providing Attached Properties
+\keyword Integrating QML and C++ - Attached Properties
 
 In the QML language syntax, there is a notion of \l{Attached properties and
 attached signal handlers}{\e {attached properties} and \e {attached signal
@@ -603,7 +606,7 @@ public:
     RandomNumberGenerator(QObject *parent)
         : QObject(parent), m_maxValue(100)
     {
-        qsrand(QDateTime::currentDateTime().toTime_t());
+        qsrand(QDateTime::currentMSecsSinceEpoch() / 1000);
         QObject::connect(&m_timer, SIGNAL(timeout()), SLOT(updateProperty()));
         m_timer.start(500);
     }
@@ -684,7 +687,7 @@ class MessageBoard : public QObject
     Q_PROPERTY(QQmlListProperty<Message> messages READ messages)
     Q_CLASSINFO("DefaultProperty", "messages")
 public:
-    QQmlListProperty<Message> messages() const;
+    QQmlListProperty<Message> messages();
 
 private:
     QList<Message *> messages;

@@ -1,6 +1,7 @@
 TEMPLATE = subdirs
 
 PUBLICTESTS += \
+    qdebugmessageservice \
     qqmlenginedebugservice \
     qqmldebugjs \
     qqmlinspector \
@@ -14,10 +15,11 @@ PUBLICTESTS += \
 PRIVATETESTS += \
     qqmldebugclient \
     qqmldebuglocal \
-    qqmldebugservice
+    qqmldebugservice \
+    qv4debugger
 
 SUBDIRS += $$PUBLICTESTS
 
-contains(QT_CONFIG, private_tests) {
+qtConfig(private_tests): \
     SUBDIRS += $$PRIVATETESTS
-}
+

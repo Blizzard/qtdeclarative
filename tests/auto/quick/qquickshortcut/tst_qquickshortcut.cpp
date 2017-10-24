@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -48,6 +43,10 @@ private slots:
     void sequence();
     void context_data();
     void context();
+    void matcher_data();
+    void matcher();
+    void multiple_data();
+    void multiple();
 };
 
 Q_DECLARE_METATYPE(Qt::Key)
@@ -347,6 +346,111 @@ void tst_QQuickShortcut::context()
     QCOMPARE(inactiveWindow->property("activatedShortcut").toString(), inactiveWindowActivatedShortcut);
     QVERIFY(activeWindow->property("ambiguousShortcut").toString() == ambiguousShortcut
             || inactiveWindow->property("ambiguousShortcut").toString() == ambiguousShortcut);
+}
+
+typedef bool (*ShortcutContextMatcher)(QObject *, Qt::ShortcutContext);
+extern ShortcutContextMatcher qt_quick_shortcut_context_matcher();
+extern void qt_quick_set_shortcut_context_matcher(ShortcutContextMatcher matcher);
+
+static ShortcutContextMatcher lastMatcher = nullptr;
+
+static bool trueMatcher(QObject *, Qt::ShortcutContext)
+{
+    lastMatcher = trueMatcher;
+    return true;
+}
+
+static bool falseMatcher(QObject *, Qt::ShortcutContext)
+{
+    lastMatcher = falseMatcher;
+    return false;
+}
+
+Q_DECLARE_METATYPE(ShortcutContextMatcher)
+
+void tst_QQuickShortcut::matcher_data()
+{
+    QTest::addColumn<ShortcutContextMatcher>("matcher");
+    QTest::addColumn<Qt::Key>("key");
+    QTest::addColumn<QVariant>("shortcut");
+    QTest::addColumn<QString>("activatedShortcut");
+
+    ShortcutContextMatcher tm = trueMatcher;
+    ShortcutContextMatcher fm = falseMatcher;
+
+    QTest::newRow("F1") << tm << Qt::Key_F1 << shortcutMap("F1", Qt::ApplicationShortcut) << "F1";
+    QTest::newRow("F2") << fm << Qt::Key_F2 << shortcutMap("F2", Qt::ApplicationShortcut) << "";
+}
+
+void tst_QQuickShortcut::matcher()
+{
+    QFETCH(ShortcutContextMatcher, matcher);
+    QFETCH(Qt::Key, key);
+    QFETCH(QVariant, shortcut);
+    QFETCH(QString, activatedShortcut);
+
+    ShortcutContextMatcher defaultMatcher = qt_quick_shortcut_context_matcher();
+    QVERIFY(defaultMatcher);
+
+    qt_quick_set_shortcut_context_matcher(matcher);
+    QVERIFY(qt_quick_shortcut_context_matcher() == matcher);
+
+    QQmlApplicationEngine engine(testFileUrl("shortcuts.qml"));
+    QQuickWindow *window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    window->setProperty("shortcuts", QVariantList() << shortcut);
+    QTest::keyClick(window, key);
+
+    QVERIFY(lastMatcher == matcher);
+    QCOMPARE(window->property("activatedShortcut").toString(), activatedShortcut);
+
+    qt_quick_set_shortcut_context_matcher(defaultMatcher);
+}
+
+void tst_QQuickShortcut::multiple_data()
+{
+    QTest::addColumn<QStringList>("sequences");
+    QTest::addColumn<Qt::Key>("key");
+    QTest::addColumn<Qt::KeyboardModifiers>("modifiers");
+    QTest::addColumn<bool>("enabled");
+    QTest::addColumn<bool>("activated");
+
+    // first
+    QTest::newRow("Ctrl+X,(Shift+Del)") << (QStringList() << "Ctrl+X" << "Shift+Del") << Qt::Key_X << Qt::KeyboardModifiers(Qt::ControlModifier) << true << true;
+    // second
+    QTest::newRow("(Ctrl+X),Shift+Del") << (QStringList() << "Ctrl+X" << "Shift+Del") << Qt::Key_Delete << Qt::KeyboardModifiers(Qt::ShiftModifier) << true << true;
+    // disabled
+    QTest::newRow("(Ctrl+X,Shift+Del)") << (QStringList() << "Ctrl+X" << "Shift+Del") << Qt::Key_X << Qt::KeyboardModifiers(Qt::ControlModifier) << false << false;
+}
+
+void tst_QQuickShortcut::multiple()
+{
+    QFETCH(QStringList, sequences);
+    QFETCH(Qt::Key, key);
+    QFETCH(Qt::KeyboardModifiers, modifiers);
+    QFETCH(bool, enabled);
+    QFETCH(bool, activated);
+
+    QQmlApplicationEngine engine;
+
+    engine.load(testFileUrl("multiple.qml"));
+    QQuickWindow *window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    QObject *shortcut = window->property("shortcut").value<QObject *>();
+    QVERIFY(shortcut);
+
+    shortcut->setProperty("enabled", enabled);
+    shortcut->setProperty("sequences", sequences);
+
+    QTest::keyPress(window, key, modifiers);
+
+    QCOMPARE(window->property("activated").toBool(), activated);
 }
 
 QTEST_MAIN(tst_QQuickShortcut)

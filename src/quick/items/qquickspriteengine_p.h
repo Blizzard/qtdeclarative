@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -44,6 +50,10 @@
 //
 // We mean it.
 //
+
+#include <private/qtquickglobal_p.h>
+
+QT_REQUIRE_CONFIG(quick_sprite);
 
 #include <QObject>
 #include <QVector>
@@ -183,7 +193,7 @@ class Q_QUICK_PRIVATE_EXPORT QQuickStochasticEngine : public QObject
     Q_PROPERTY(QQmlListProperty<QQuickStochasticState> states READ states)
 public:
     explicit QQuickStochasticEngine(QObject *parent = 0);
-    QQuickStochasticEngine(QList<QQuickStochasticState*> states, QObject *parent=0);
+    QQuickStochasticEngine(const QList<QQuickStochasticState*> &states, QObject *parent = 0);
     ~QQuickStochasticEngine();
 
     QQmlListProperty<QQuickStochasticState> states()
@@ -204,11 +214,11 @@ public:
     virtual void restart(int index=0);
     virtual void advance(int index=0);//Sends state to the next chosen state, unlike goal.
     void stop(int index=0);
-    int curState(int index=0) {return m_things[index];}
+    int curState(int index=0) const {return m_things[index];}
 
-    QQuickStochasticState* state(int idx){return m_states[idx];}
-    int stateIndex(QQuickStochasticState* s){return m_states.indexOf(s);}
-    int stateIndex(const QString& s) {
+    QQuickStochasticState* state(int idx) const {return m_states[idx];}
+    int stateIndex(QQuickStochasticState* s) const {return m_states.indexOf(s);}
+    int stateIndex(const QString& s) const {
         for (int i=0; i<m_states.count(); i++)
             if (m_states[i]->name() == s)
                 return i;
@@ -244,7 +254,7 @@ protected:
     QVector<int> m_goals;
     QVector<int> m_duration;
     QVector<int> m_startTimes;
-    QList<QPair<uint, QList<int> > > m_stateUpdates;//### This could be done faster - priority queue?
+    QVector<QPair<uint, QVector<int> > > m_stateUpdates;//### This could be done faster - priority queue?
 
     QTime m_advanceTime;
     uint m_timeOffset;
@@ -260,39 +270,39 @@ class Q_QUICK_PRIVATE_EXPORT QQuickSpriteEngine : public QQuickStochasticEngine
     Q_PROPERTY(QQmlListProperty<QQuickSprite> sprites READ sprites)
 public:
     explicit QQuickSpriteEngine(QObject *parent = 0);
-    QQuickSpriteEngine(QList<QQuickSprite*> sprites, QObject *parent=0);
+    QQuickSpriteEngine(const QList<QQuickSprite*> &sprites, QObject *parent = 0);
     ~QQuickSpriteEngine();
     QQmlListProperty<QQuickSprite> sprites()
     {
         return QQmlListProperty<QQuickSprite>(this, m_sprites);
     }
 
-    QQuickSprite* sprite(int sprite=0);
-    int spriteState(int sprite=0);
-    int spriteStart(int sprite=0);
-    int spriteFrames(int sprite=0);
-    int spriteDuration(int sprite=0);
-    int spriteX(int sprite=0);
-    int spriteY(int sprite=0);
-    int spriteWidth(int sprite=0);
-    int spriteHeight(int sprite=0);
-    int spriteCount();//Like state count
-    int maxFrames();
+    QQuickSprite* sprite(int sprite = 0) const;
+    int spriteState(int sprite = 0) const;
+    int spriteStart(int sprite = 0) const;
+    int spriteFrames(int sprite = 0) const;
+    int spriteDuration(int sprite = 0) const;
+    int spriteX(int sprite = 0) const;
+    int spriteY(int sprite = 0) const;
+    int spriteWidth(int sprite = 0) const;
+    int spriteHeight(int sprite = 0) const;
+    int spriteCount() const;//Like state count
+    int maxFrames() const;
 
     void restart(int index=0) Q_DECL_OVERRIDE;
     void advance(int index=0) Q_DECL_OVERRIDE;
 
     //Similar API to QQuickPixmap for async loading convenience
-    bool isNull() { return status() == QQuickPixmap::Null; }
-    bool isReady() { return status() == QQuickPixmap::Ready; }
-    bool isLoading() { return status() == QQuickPixmap::Loading; }
-    bool isError() { return status() == QQuickPixmap::Error; }
-    QQuickPixmap::Status status();//Composed status of all Sprites
+    bool isNull() const { return status() == QQuickPixmap::Null; }
+    bool isReady() const { return status() == QQuickPixmap::Ready; }
+    bool isLoading() const { return status() == QQuickPixmap::Loading; }
+    bool isError() const { return status() == QQuickPixmap::Error; }
+    QQuickPixmap::Status status() const; //Composed status of all Sprites
     void startAssemblingImage();
-    QImage assembledImage();
+    QImage assembledImage(int maxSize = 2048);
 
 private:
-    int pseudospriteProgress(int,int,int*rd=0);
+    int pseudospriteProgress(int, int, int *rd = 0) const;
     QList<QQuickSprite*> m_sprites;
     bool m_startedImageAssembly;
     bool m_loaded;

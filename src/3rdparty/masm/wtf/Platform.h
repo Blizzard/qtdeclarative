@@ -166,6 +166,11 @@
 #define WTF_CPU_X86_64 1
 #endif
 
+/* CPU(ARM64) - Apple */
+#if (defined(__arm64__) && defined(__APPLE__)) || defined(__aarch64__)
+#define WTF_CPU_ARM64 1
+#endif
+
 /* CPU(ARM) - ARM, any version*/
 #define WTF_ARM_ARCH_AT_LEAST(N) (CPU(ARM) && WTF_ARM_ARCH_VERSION >= N)
 
@@ -219,7 +224,8 @@
 
 #elif defined(__ARM_ARCH_7A__) \
     || defined(__ARM_ARCH_7R__) \
-    || defined(__ARM_ARCH_7S__)
+    || defined(__ARM_ARCH_7S__) \
+    || defined(__CORE_CORTEXA__) // GHS-specific
 #define WTF_ARM_ARCH_VERSION 7
 
 /* MSVC sets _M_ARM */
@@ -263,7 +269,8 @@
     || defined(__ARM_ARCH_7A__) \
     || defined(__ARM_ARCH_7M__) \
     || defined(__ARM_ARCH_7R__) \
-    || defined(__ARM_ARCH_7S__)
+    || defined(__ARM_ARCH_7S__) \
+    || defined(__CORE_CORTEXA__) // GHS-specific
 #define WTF_THUMB_ARCH_VERSION 4
 
 /* RVCT sets __TARGET_ARCH_THUMB */
@@ -348,6 +355,11 @@
     || (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)                 \
     || (defined(TARGET_IPHONE_SIMULATOR) && TARGET_IPHONE_SIMULATOR))
 #define WTF_OS_IOS 1
+#elif OS(DARWIN) && ((defined(TARGET_OS_EMBEDDED) && TARGET_OS_EMBEDDED) \
+    || (defined(TARGET_OS_APPLETV) && TARGET_OS_APPLETV)                 \
+    || (defined(TARGET_APPLETV_SIMULATOR) && TARGET_APPLETV_SIMULATOR))
+#define WTF_OS_IOS 1
+#define WTF_OS_TVOS 1
 #elif OS(DARWIN) && defined(TARGET_OS_MAC) && TARGET_OS_MAC
 #define WTF_OS_MAC_OS_X 1
 
@@ -373,6 +385,11 @@
 /* OS(HURD) - GNU/Hurd */
 #ifdef __GNU__
 #define WTF_OS_HURD 1
+#endif
+
+/* OS(INTEGRITY) - INTEGRITY */
+#ifdef __INTEGRITY
+#define WTF_OS_INTEGRITY 1
 #endif
 
 /* OS(LINUX) - Linux */
@@ -423,6 +440,7 @@
     || OS(DARWIN)           \
     || OS(FREEBSD)          \
     || OS(HURD)             \
+    || OS(INTEGRITY)        \
     || OS(LINUX)            \
     || OS(NETBSD)           \
     || OS(OPENBSD)          \
@@ -593,7 +611,9 @@
 
 #if OS(UNIX)
 #define HAVE_ERRNO_H 1
-#define HAVE_MMAP 1   
+#if !OS(INTEGRITY)
+#define HAVE_MMAP 1
+#endif
 #define HAVE_SIGNAL_H 1
 #define HAVE_STRINGS_H 1
 #define HAVE_SYS_PARAM_H 1
@@ -700,6 +720,7 @@
 #if (CPU(X86_64) && (OS(UNIX) || OS(WINDOWS))) \
     || (CPU(IA64) && !CPU(IA64_32)) \
     || CPU(ALPHA) \
+    || CPU(ARM64) \
     || CPU(SPARC64) \
     || CPU(S390X) \
     || CPU(PPC64)
@@ -720,7 +741,7 @@
 
 /* The JIT is enabled by default on all x86, x86-64, ARM & MIPS platforms. */
 #if !defined(ENABLE_JIT) \
-    && (CPU(X86) || CPU(X86_64) || CPU(ARM) || CPU(MIPS)) \
+    && (CPU(X86) || CPU(X86_64) || CPU(ARM) || CPU(MIPS) || CPU(ARM64)) \
     && (OS(DARWIN) || !COMPILER(GCC) || GCC_VERSION_AT_LEAST(4, 1, 0)) \
     && !OS(WINCE) \
     && !(OS(QNX) && !PLATFORM(QT)) /* We use JIT in QNX Qt */
@@ -735,7 +756,7 @@
 #define WTF_USE_UDIS86 1
 #endif
 
-#if !defined(ENABLE_DISASSEMBLER) && (USE(UDIS86) || USE(ARMV7_DISASSEMBLER) || USE(MIPS32_DISASSEMBLER))
+#if !defined(ENABLE_DISASSEMBLER) && (USE(UDIS86) || USE(ARMV7_DISASSEMBLER) || USE(ARM64_DISASSEMBLER) || USE(MIPS32_DISASSEMBLER))
 #define ENABLE_DISASSEMBLER 1
 #endif
 
@@ -869,7 +890,7 @@
 /* Pick which allocator to use; we only need an executable allocator if the assembler is compiled in.
    On x86-64 we use a single fixed mmap, on other platforms we mmap on demand. */
 #if ENABLE(ASSEMBLER)
-#if CPU(X86_64) && !OS(WINDOWS) || PLATFORM(IOS)
+#if CPU(X86_64) && !OS(WINDOWS) || PLATFORM(IOS) || CPU(ARM64)
 #define ENABLE_EXECUTABLE_ALLOCATOR_FIXED 1
 #else
 #define ENABLE_EXECUTABLE_ALLOCATOR_DEMAND 1
@@ -926,10 +947,6 @@
 
 #if PLATFORM(MAC) && HAVE(ACCESSIBILITY)
 #define WTF_USE_ACCESSIBILITY_CONTEXT_MENUS 1
-#endif
-
-#if CPU(ARM_THUMB2)
-#define ENABLE_BRANCH_COMPACTION 1
 #endif
 
 #if !defined(ENABLE_THREADING_LIBDISPATCH) && HAVE(DISPATCH_H)

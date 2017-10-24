@@ -1,32 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Copyright (C) 2015 BasysKom GmbH.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2016 BasysKom GmbH.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -166,8 +172,8 @@ public:
             int index = s.indexOf(QLatin1Char(','));
 
             bool xGood, yGood;
-            float xCoord = s.left(index).toFloat(&xGood);
-            float yCoord = s.mid(index+1).toFloat(&yGood);
+            float xCoord = s.leftRef(index).toFloat(&xGood);
+            float yCoord = s.midRef(index + 1).toFloat(&yGood);
 
             if (xGood && yGood) {
                 if (ok) *ok = true;
@@ -186,9 +192,9 @@ public:
             int index2 = s.indexOf(QLatin1Char(','), index+1);
 
             bool xGood, yGood, zGood;
-            float xCoord = s.left(index).toFloat(&xGood);
-            float yCoord = s.mid(index+1, index2-index-1).toFloat(&yGood);
-            float zCoord = s.mid(index2+1).toFloat(&zGood);
+            float xCoord = s.leftRef(index).toFloat(&xGood);
+            float yCoord = s.midRef(index + 1, index2 - index - 1).toFloat(&yGood);
+            float zCoord = s.midRef(index2 + 1).toFloat(&zGood);
 
             if (xGood && yGood && zGood) {
                 if (ok) *ok = true;
@@ -208,10 +214,10 @@ public:
             int index3 = s.indexOf(QLatin1Char(','), index2+1);
 
             bool xGood, yGood, zGood, wGood;
-            float xCoord = s.left(index).toFloat(&xGood);
-            float yCoord = s.mid(index+1, index2-index-1).toFloat(&yGood);
-            float zCoord = s.mid(index2+1, index3-index2-1).toFloat(&zGood);
-            float wCoord = s.mid(index3+1).toFloat(&wGood);
+            float xCoord = s.leftRef(index).toFloat(&xGood);
+            float yCoord = s.midRef(index + 1, index2 - index - 1).toFloat(&yGood);
+            float zCoord = s.midRef(index2 + 1, index3 - index2 - 1).toFloat(&zGood);
+            float wCoord = s.midRef(index3 + 1).toFloat(&wGood);
 
             if (xGood && yGood && zGood && wGood) {
                 if (ok) *ok = true;
@@ -231,10 +237,10 @@ public:
             int index3 = s.indexOf(QLatin1Char(','), index2+1);
 
             bool sGood, xGood, yGood, zGood;
-            qreal sCoord = s.left(index).toDouble(&sGood);
-            qreal xCoord = s.mid(index+1, index2-index-1).toDouble(&xGood);
-            qreal yCoord = s.mid(index2+1, index3-index2-1).toDouble(&yGood);
-            qreal zCoord = s.mid(index3+1).toDouble(&zGood);
+            qreal sCoord = s.leftRef(index).toDouble(&sGood);
+            qreal xCoord = s.midRef(index+1, index2-index-1).toDouble(&xGood);
+            qreal yCoord = s.midRef(index2+1, index3-index2-1).toDouble(&yGood);
+            qreal zCoord = s.midRef(index3+1).toDouble(&zGood);
 
             if (sGood && xGood && yGood && zGood) {
                 if (ok) *ok = true;
@@ -251,7 +257,7 @@ public:
         if (s.count(QLatin1Char(',')) == 15) {
             float matValues[16];
             bool vOK = true;
-            QString mutableStr = s;
+            QStringRef mutableStr(&s);
             for (int i = 0; vOK && i < 16; ++i) {
                 int cidx = mutableStr.indexOf(QLatin1Char(','));
                 matValues[i] = mutableStr.left(cidx).toDouble(&vOK);
@@ -295,6 +301,7 @@ public:
         QV4::ScopedValue vundl(scope, obj->get((s = v4->newString(QStringLiteral("underline")))));
         QV4::ScopedValue vweight(scope, obj->get((s = v4->newString(QStringLiteral("weight")))));
         QV4::ScopedValue vwspac(scope, obj->get((s = v4->newString(QStringLiteral("wordSpacing")))));
+        QV4::ScopedValue vhint(scope, obj->get((s = v4->newString(QStringLiteral("hintingPreference")))));
 
         // pull out the values, set ok to true if at least one valid field is given.
         if (vbold->isBoolean()) {
@@ -343,6 +350,10 @@ public:
         }
         if (vwspac->isNumber()) {
             retn.setWordSpacing(vwspac->asDouble());
+            if (ok) *ok = true;
+        }
+        if (vhint->isInt32()) {
+            retn.setHintingPreference(static_cast<QFont::HintingPreference>(vhint->integerValue()));
             if (ok) *ok = true;
         }
 
@@ -772,7 +783,7 @@ public:
         return new QQuickApplication(parent);
     }
 
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
     QInputMethod *inputMethod()
     {
         QInputMethod *im = qGuiApp->inputMethod();
@@ -799,6 +810,7 @@ public:
 #ifndef QT_NO_DESKTOPSERVICES
         return QDesktopServices::openUrl(url);
 #else
+        Q_UNUSED(url);
         return false;
 #endif
     }

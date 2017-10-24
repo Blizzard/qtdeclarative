@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -61,6 +67,8 @@ static char assets_string[] = "assets";
 #endif
 
 class QQmlFilePrivate;
+
+#if QT_CONFIG(qml_network)
 class QQmlFileNetworkReply : public QObject
 {
 Q_OBJECT
@@ -91,6 +99,7 @@ private:
     int m_redirectCount;
     QNetworkReply *m_reply;
 };
+#endif
 
 class QQmlFilePrivate
 {
@@ -108,10 +117,12 @@ public:
 
     Error error;
     QString errorString;
-
+#if QT_CONFIG(qml_network)
     QQmlFileNetworkReply *reply;
+#endif
 };
 
+#if QT_CONFIG(qml_network)
 int QQmlFileNetworkReply::finishedIndex = -1;
 int QQmlFileNetworkReply::downloadProgressIndex = -1;
 int QQmlFileNetworkReply::networkFinishedIndex = -1;
@@ -194,9 +205,13 @@ void QQmlFileNetworkReply::networkDownloadProgress(qint64 a, qint64 b)
 {
     emit downloadProgress(a, b);
 }
+#endif // qml_network
 
 QQmlFilePrivate::QQmlFilePrivate()
-: error(None), reply(0)
+: error(None)
+#if QT_CONFIG(qml_network)
+, reply(0)
+#endif
 {
 }
 
@@ -212,14 +227,15 @@ QQmlFile::QQmlFile(QQmlEngine *e, const QUrl &url)
 }
 
 QQmlFile::QQmlFile(QQmlEngine *e, const QString &url)
-: d(new QQmlFilePrivate)
+    : QQmlFile(e, QUrl(url))
 {
-    load(e, url);
 }
 
 QQmlFile::~QQmlFile()
 {
+#if QT_CONFIG(qml_network)
     delete d->reply;
+#endif
     delete d;
     d = 0;
 }
@@ -257,8 +273,10 @@ QQmlFile::Status QQmlFile::status() const
 {
     if (d->url.isEmpty() && d->urlString.isEmpty())
         return Null;
+#if QT_CONFIG(qml_network)
     else if (d->reply)
         return Loading;
+#endif
     else if (d->error != QQmlFilePrivate::None)
         return Error;
     else
@@ -315,7 +333,11 @@ void QQmlFile::load(QQmlEngine *engine, const QUrl &url)
             d->error = QQmlFilePrivate::NotFound;
         }
     } else {
+#if QT_CONFIG(qml_network)
         d->reply = new QQmlFileNetworkReply(engine, d, url);
+#else
+        d->error = QQmlFilePrivate::NotFound;
+#endif
     }
 }
 
@@ -342,10 +364,14 @@ void QQmlFile::load(QQmlEngine *engine, const QString &url)
             d->error = QQmlFilePrivate::NotFound;
         }
     } else {
+#if QT_CONFIG(qml_network)
         QUrl qurl(url);
         d->url = qurl;
         d->urlString = QString();
         d->reply = new QQmlFileNetworkReply(engine, d, qurl);
+#else
+        d->error = QQmlFilePrivate::NotFound;
+#endif
     }
 }
 
@@ -362,6 +388,7 @@ void QQmlFile::clear(QObject *)
     clear();
 }
 
+#if QT_CONFIG(qml_network)
 bool QQmlFile::connectFinished(QObject *object, const char *method)
 {
     if (!d || !d->reply) {
@@ -405,6 +432,7 @@ bool QQmlFile::connectDownloadProgress(QObject *object, int method)
     return QMetaObject::connect(d->reply, QQmlFileNetworkReply::downloadProgressIndex,
                                 object, method);
 }
+#endif
 
 /*!
 Returns true if QQmlFile will open \a url synchronously.
@@ -575,9 +603,15 @@ empty string.
 */
 QString QQmlFile::urlToLocalFileOrQrc(const QString& url)
 {
+    if (url.startsWith(QLatin1String("qrc://"), Qt::CaseInsensitive)) {
+        if (url.length() > 6)
+            return QLatin1Char(':') + url.midRef(6);
+        return QString();
+    }
+
     if (url.startsWith(QLatin1String("qrc:"), Qt::CaseInsensitive)) {
         if (url.length() > 4)
-            return QLatin1Char(':') + url.mid(4);
+            return QLatin1Char(':') + url.midRef(4);
         return QString();
     }
 

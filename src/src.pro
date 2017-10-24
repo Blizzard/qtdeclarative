@@ -1,14 +1,17 @@
 TEMPLATE = subdirs
 CONFIG += ordered
+include($$OUT_PWD/quick/qtquick-config.pri)
+QT_FOR_CONFIG += network quick-private
 SUBDIRS += \
     qml
 
-qtHaveModule(gui):contains(QT_CONFIG, opengl(es1|es2)?) {
+qtHaveModule(gui):qtConfig(animation) {
     SUBDIRS += \
         quick \
-        qmltest \
-        particles
+        qmltest
 
+    qtConfig(quick-particles): \
+        SUBDIRS += particles
     qtHaveModule(widgets): SUBDIRS += quickwidgets
 }
 
@@ -17,4 +20,4 @@ SUBDIRS += \
     imports \
     qmldevtools
 
-qmldevtools.CONFIG = host_build
+qtConfig(localserver):!contains(QT_CONFIG, no-qml-debug): SUBDIRS += qmldebug

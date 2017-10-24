@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -196,36 +202,40 @@ const TypedArrayOperations operations[Heap::TypedArray::NTypes] = {
 };
 
 
-Heap::TypedArrayCtor::TypedArrayCtor(QV4::ExecutionContext *scope, TypedArray::Type t)
-    : Heap::FunctionObject(scope, QLatin1String(operations[t].name))
-    , type(t)
+void Heap::TypedArrayCtor::init(QV4::ExecutionContext *scope, TypedArray::Type t)
 {
+    Heap::FunctionObject::init(scope, QLatin1String(operations[t].name));
+    type = t;
 }
 
-ReturnedValue TypedArrayCtor::construct(const Managed *m, CallData *callData)
+void TypedArrayCtor::construct(const Managed *m, Scope &scope, CallData *callData)
 {
-    Scope scope(static_cast<const Object *>(m)->engine());
     Scoped<TypedArrayCtor> that(scope, static_cast<const TypedArrayCtor *>(m));
 
     if (!callData->argc || !callData->args[0].isObject()) {
         // ECMA 6 22.2.1.1
         double l = callData->argc ? callData->args[0].toNumber() : 0;
-        if (scope.engine->hasException)
-            return Encode::undefined();
+        if (scope.engine->hasException) {
+            scope.result = Encode::undefined();
+            return;
+        }
         uint len = (uint)l;
         if (l != len)
             scope.engine->throwRangeError(QStringLiteral("Non integer length for typed array."));
         uint byteLength = len * operations[that->d()->type].bytesPerElement;
         Scoped<ArrayBuffer> buffer(scope, scope.engine->newArrayBuffer(byteLength));
-        if (scope.engine->hasException)
-            return Encode::undefined();
+        if (scope.engine->hasException) {
+            scope.result = Encode::undefined();
+            return;
+        }
 
         Scoped<TypedArray > array(scope, TypedArray::create(scope.engine, that->d()->type));
         array->d()->buffer = buffer->d();
         array->d()->byteLength = byteLength;
         array->d()->byteOffset = 0;
 
-        return array.asReturnedValue();
+        scope.result = array.asReturnedValue();
+        return;
     }
     Scoped<TypedArray> typedArray(scope, callData->argument(0));
     if (!!typedArray) {
@@ -237,8 +247,10 @@ ReturnedValue TypedArrayCtor::construct(const Managed *m, CallData *callData)
         uint destByteLength = byteLength*destElementSize/srcElementSize;
 
         Scoped<ArrayBuffer> newBuffer(scope, scope.engine->newArrayBuffer(destByteLength));
-        if (scope.engine->hasException)
-            return Encode::undefined();
+        if (scope.engine->hasException) {
+            scope.result = Encode::undefined();
+            return;
+        }
 
         Scoped<TypedArray > array(scope, TypedArray::create(scope.engine, that->d()->type));
         array->d()->buffer = newBuffer->d();
@@ -263,7 +275,8 @@ ReturnedValue TypedArrayCtor::construct(const Managed *m, CallData *callData)
             }
         }
 
-        return array.asReturnedValue();
+        scope.result =  array.asReturnedValue();
+        return;
     }
     Scoped<ArrayBuffer> buffer(scope, callData->argument(0));
     if (!!buffer) {
@@ -272,21 +285,29 @@ ReturnedValue TypedArrayCtor::construct(const Managed *m, CallData *callData)
         double dbyteOffset = callData->argc > 1 ? callData->args[1].toInteger() : 0;
         uint byteOffset = (uint)dbyteOffset;
         uint elementSize = operations[that->d()->type].bytesPerElement;
-        if (dbyteOffset < 0 || (byteOffset % elementSize) || dbyteOffset > buffer->byteLength())
-            return scope.engine->throwRangeError(QStringLiteral("new TypedArray: invalid byteOffset"));
+        if (dbyteOffset < 0 || (byteOffset % elementSize) || dbyteOffset > buffer->byteLength()) {
+            scope.result = scope.engine->throwRangeError(QStringLiteral("new TypedArray: invalid byteOffset"));
+            return;
+        }
 
         uint byteLength;
         if (callData->argc < 3 || callData->args[2].isUndefined()) {
             byteLength = buffer->byteLength() - byteOffset;
-            if (buffer->byteLength() < byteOffset || byteLength % elementSize)
-                return scope.engine->throwRangeError(QStringLiteral("new TypedArray: invalid length"));
+            if (buffer->byteLength() < byteOffset || byteLength % elementSize) {
+                scope.result = scope.engine->throwRangeError(QStringLiteral("new TypedArray: invalid length"));
+                return;
+            }
         } else {
             double l = qBound(0., callData->args[2].toInteger(), (double)UINT_MAX);
-            if (scope.engine->hasException)
-                return Encode::undefined();
+            if (scope.engine->hasException) {
+                scope.result = Encode::undefined();
+                return;
+            }
             l *= elementSize;
-            if (buffer->byteLength() - byteOffset < l)
-                return scope.engine->throwRangeError(QStringLiteral("new TypedArray: invalid length"));
+            if (buffer->byteLength() - byteOffset < l) {
+                scope.result = scope.engine->throwRangeError(QStringLiteral("new TypedArray: invalid length"));
+                return;
+            }
             byteLength = (uint)l;
         }
 
@@ -294,20 +315,25 @@ ReturnedValue TypedArrayCtor::construct(const Managed *m, CallData *callData)
         array->d()->buffer = buffer->d();
         array->d()->byteLength = byteLength;
         array->d()->byteOffset = byteOffset;
-        return array.asReturnedValue();
+        scope.result = array.asReturnedValue();
+        return;
     }
 
     // ECMA 6 22.2.1.3
 
     ScopedObject o(scope, callData->argument(0));
     uint l = (uint) qBound(0., ScopedValue(scope, o->get(scope.engine->id_length()))->toInteger(), (double)UINT_MAX);
-    if (scope.engine->hasException)
-        return scope.engine->throwTypeError();
+    if (scope.engine->hasException) {
+        scope.result = scope.engine->throwTypeError();
+        return;
+    }
 
     uint elementSize = operations[that->d()->type].bytesPerElement;
     Scoped<ArrayBuffer> newBuffer(scope, scope.engine->newArrayBuffer(l * elementSize));
-    if (scope.engine->hasException)
-        return Encode::undefined();
+    if (scope.engine->hasException) {
+        scope.result = Encode::undefined();
+        return;
+    }
 
     Scoped<TypedArray > array(scope, TypedArray::create(scope.engine, that->d()->type));
     array->d()->buffer = newBuffer->d();
@@ -320,30 +346,35 @@ ReturnedValue TypedArrayCtor::construct(const Managed *m, CallData *callData)
     while (idx < l) {
         val = o->getIndexed(idx);
         array->d()->type->write(scope.engine, b, 0, val);
-        if (scope.engine->hasException)
-            return Encode::undefined();
+        if (scope.engine->hasException) {
+            scope.result = Encode::undefined();
+            return;
+        }
         ++idx;
         b += elementSize;
     }
 
 
-    return array.asReturnedValue();
+    scope.result = array.asReturnedValue();
 }
 
-ReturnedValue TypedArrayCtor::call(const Managed *that, CallData *callData)
+void TypedArrayCtor::call(const Managed *that, Scope &scope, CallData *callData)
 {
-    return construct(that, callData);
+    construct(that, scope, callData);
 }
 
-Heap::TypedArray::TypedArray(Type t)
-    : type(operations + t),
-      arrayType(t)
+void Heap::TypedArray::init(Type t)
 {
+    Object::init();
+    type = operations + t;
+    arrayType = t;
 }
 
 Heap::TypedArray *TypedArray::create(ExecutionEngine *e, Heap::TypedArray::Type t)
 {
-    return e->memoryManager->allocObject<TypedArray>(e->emptyClass, e->typedArrayPrototype + t, t);
+    QV4::InternalClass *ic = e->internalClasses[EngineBase::Class_Empty]->changeVTable(staticVTable());
+    ic = ic->changePrototype(e->typedArrayPrototype[t].d());
+    return e->memoryManager->allocObject<TypedArray>(ic, e->typedArrayPrototype + t, t);
 }
 
 void TypedArray::markObjects(Heap::Base *that, ExecutionEngine *e)
@@ -409,79 +440,74 @@ void TypedArrayPrototype::init(ExecutionEngine *engine, TypedArrayCtor *ctor)
     defineDefaultProperty(QStringLiteral("subarray"), method_subarray, 0);
 }
 
-ReturnedValue TypedArrayPrototype::method_get_buffer(CallContext *ctx)
+void TypedArrayPrototype::method_get_buffer(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    Scope scope(ctx);
-    Scoped<TypedArray> v(scope, ctx->thisObject());
+    Scoped<TypedArray> v(scope, callData->thisObject);
     if (!v)
-        return scope.engine->throwTypeError();
+        THROW_TYPE_ERROR();
 
-    return Encode(v->d()->buffer->asReturnedValue());
+    scope.result = v->d()->buffer;
 }
 
-ReturnedValue TypedArrayPrototype::method_get_byteLength(CallContext *ctx)
+void TypedArrayPrototype::method_get_byteLength(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    Scope scope(ctx);
-    Scoped<TypedArray> v(scope, ctx->thisObject());
+    Scoped<TypedArray> v(scope, callData->thisObject);
     if (!v)
-        return scope.engine->throwTypeError();
+        THROW_TYPE_ERROR();
 
-    return Encode(v->d()->byteLength);
+    scope.result = Encode(v->d()->byteLength);
 }
 
-ReturnedValue TypedArrayPrototype::method_get_byteOffset(CallContext *ctx)
+void TypedArrayPrototype::method_get_byteOffset(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    Scope scope(ctx);
-    Scoped<TypedArray> v(scope, ctx->thisObject());
+    Scoped<TypedArray> v(scope, callData->thisObject);
     if (!v)
-        return scope.engine->throwTypeError();
+        THROW_TYPE_ERROR();
 
-    return Encode(v->d()->byteOffset);
+    scope.result = Encode(v->d()->byteOffset);
 }
 
-ReturnedValue TypedArrayPrototype::method_get_length(CallContext *ctx)
+void TypedArrayPrototype::method_get_length(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    Scope scope(ctx);
-    Scoped<TypedArray> v(scope, ctx->thisObject());
+    Scoped<TypedArray> v(scope, callData->thisObject);
     if (!v)
-        return scope.engine->throwTypeError();
+        THROW_TYPE_ERROR();
 
-    return Encode(v->d()->byteLength/v->d()->type->bytesPerElement);
+    scope.result = Encode(v->d()->byteLength/v->d()->type->bytesPerElement);
 }
 
-ReturnedValue TypedArrayPrototype::method_set(CallContext *ctx)
+void TypedArrayPrototype::method_set(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    Scope scope(ctx);
-    Scoped<TypedArray> a(scope, ctx->thisObject());
+    Scoped<TypedArray> a(scope, callData->thisObject);
     if (!a)
-        return scope.engine->throwTypeError();
+        THROW_TYPE_ERROR();
     Scoped<ArrayBuffer> buffer(scope, a->d()->buffer);
     if (!buffer)
         scope.engine->throwTypeError();
 
-    double doffset = ctx->argc() >= 2 ? ctx->args()[1].toInteger() : 0;
+    double doffset = callData->argc >= 2 ? callData->args[1].toInteger() : 0;
     if (scope.engine->hasException)
-        return Encode::undefined();
+        RETURN_UNDEFINED();
 
     if (doffset < 0 || doffset >= UINT_MAX)
-        return scope.engine->throwRangeError(QStringLiteral("TypedArray.set: out of range"));
+        RETURN_RESULT(scope.engine->throwRangeError(QStringLiteral("TypedArray.set: out of range")));
     uint offset = (uint)doffset;
     uint elementSize = a->d()->type->bytesPerElement;
 
-    Scoped<TypedArray> srcTypedArray(scope, ctx->args()[0]);
+    Scoped<TypedArray> srcTypedArray(scope, callData->args[0]);
     if (!srcTypedArray) {
         // src is a regular object
-        ScopedObject o(scope, ctx->args()[0].toObject(scope.engine));
+        ScopedObject o(scope, callData->args[0].toObject(scope.engine));
         if (scope.engine->hasException || !o)
-            return scope.engine->throwTypeError();
+            THROW_TYPE_ERROR();
 
         double len = ScopedValue(scope, o->get(scope.engine->id_length()))->toNumber();
         uint l = (uint)len;
         if (scope.engine->hasException || l != len)
-            return scope.engine->throwTypeError();
+            THROW_TYPE_ERROR();
 
         if (offset + l > a->length())
-            return scope.engine->throwRangeError(QStringLiteral("TypedArray.set: out of range"));
+            RETURN_RESULT(scope.engine->throwRangeError(QStringLiteral("TypedArray.set: out of range")));
 
         uint idx = 0;
         char *b = buffer->d()->data->data() + a->d()->byteOffset + offset*elementSize;
@@ -490,28 +516,28 @@ ReturnedValue TypedArrayPrototype::method_set(CallContext *ctx)
             val = o->getIndexed(idx);
             a->d()->type->write(scope.engine, b, 0, val);
             if (scope.engine->hasException)
-                return Encode::undefined();
+                RETURN_UNDEFINED();
             ++idx;
             b += elementSize;
         }
-        return Encode::undefined();
+        RETURN_UNDEFINED();
     }
 
     // src is a typed array
     Scoped<ArrayBuffer> srcBuffer(scope, srcTypedArray->d()->buffer);
     if (!srcBuffer)
-        return scope.engine->throwTypeError();
+        THROW_TYPE_ERROR();
 
     uint l = srcTypedArray->length();
     if (offset + l > a->length())
-        return scope.engine->throwRangeError(QStringLiteral("TypedArray.set: out of range"));
+        RETURN_RESULT(scope.engine->throwRangeError(QStringLiteral("TypedArray.set: out of range")));
 
     char *dest = buffer->d()->data->data() + a->d()->byteOffset + offset*elementSize;
     const char *src = srcBuffer->d()->data->data() + srcTypedArray->d()->byteOffset;
     if (srcTypedArray->d()->type == a->d()->type) {
         // same type of typed arrays, use memmove (as srcbuffer and buffer could be the same)
         memmove(dest, src, srcTypedArray->d()->byteLength);
-        return Encode::undefined();
+        RETURN_UNDEFINED();
     }
 
     char *srcCopy = 0;
@@ -535,28 +561,27 @@ ReturnedValue TypedArrayPrototype::method_set(CallContext *ctx)
     if (srcCopy)
         delete [] srcCopy;
 
-    return Encode::undefined();
+    RETURN_UNDEFINED();
 }
 
-ReturnedValue TypedArrayPrototype::method_subarray(CallContext *ctx)
+void TypedArrayPrototype::method_subarray(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    Scope scope(ctx);
-    Scoped<TypedArray> a(scope, ctx->thisObject());
+    Scoped<TypedArray> a(scope, callData->thisObject);
 
     if (!a)
-        return scope.engine->throwTypeError();
+        THROW_TYPE_ERROR();
 
     Scoped<ArrayBuffer> buffer(scope, a->d()->buffer);
     if (!buffer)
-        return scope.engine->throwTypeError();
+        THROW_TYPE_ERROR();
 
     int len = a->length();
-    double b = ctx->argc() > 0 ? ctx->args()[0].toInteger() : 0;
+    double b = callData->argc > 0 ? callData->args[0].toInteger() : 0;
     if (b < 0)
         b = len + b;
     uint begin = (uint)qBound(0., b, (double)len);
 
-    double e = ctx->argc() < 2 || ctx->args()[1].isUndefined() ? len : ctx->args()[1].toInteger();
+    double e = callData->argc < 2 || callData->args[1].isUndefined() ? len : callData->args[1].toInteger();
     if (e < 0)
         e = len + e;
     uint end = (uint)qBound(0., e, (double)len);
@@ -564,17 +589,17 @@ ReturnedValue TypedArrayPrototype::method_subarray(CallContext *ctx)
         end = begin;
 
     if (scope.engine->hasException)
-        return Encode::undefined();
+        RETURN_UNDEFINED();
 
     int newLen = end - begin;
 
     ScopedFunctionObject constructor(scope, a->get(scope.engine->id_constructor()));
     if (!constructor)
-        return scope.engine->throwTypeError();
+        THROW_TYPE_ERROR();
 
-    ScopedCallData callData(scope, 3);
-    callData->args[0] = buffer;
-    callData->args[1] = Encode(a->d()->byteOffset + begin*a->d()->type->bytesPerElement);
-    callData->args[2] = Encode(newLen);
-    return constructor->construct(callData);
+    ScopedCallData cData(scope, 3);
+    cData->args[0] = buffer;
+    cData->args[1] = Encode(a->d()->byteOffset + begin*a->d()->type->bytesPerElement);
+    cData->args[2] = Encode(newLen);
+    constructor->construct(scope, cData);
 }

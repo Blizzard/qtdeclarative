@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -291,6 +286,7 @@ void tst_QQuickPinchArea::pan()
     QPoint p1(80, 80);
     QPoint p2(100, 100);
     {
+        const int dragThreshold = QGuiApplication::styleHints()->startDragDistance();
         QTest::QTouchEventSequence pinchSequence = QTest::touchEvent(window, device);
         pinchSequence.press(0, p1, window).commit();
         QQuickTouchUtils::flush(window);
@@ -298,23 +294,63 @@ void tst_QQuickPinchArea::pan()
         // we have to reuse the same pinchSequence object.
         pinchSequence.stationary(0).press(1, p2, window).commit();
         QQuickTouchUtils::flush(window);
-        p1 += QPoint(10,10);
-        p2 += QPoint(10,10);
-        pinchSequence.move(0, p1,window).move(1, p2,window).commit();
-        QQuickTouchUtils::flush(window);
+        QVERIFY(!root->property("pinchActive").toBool());
+        QCOMPARE(root->property("scale").toReal(), -1.0);
 
-        QCOMPARE(root->property("scale").toReal(), 1.0);
+        p1 += QPoint(dragThreshold - 1, 0);
+        p2 += QPoint(dragThreshold - 1, 0);
+        pinchSequence.move(0, p1, window).move(1, p2, window).commit();
+        QQuickTouchUtils::flush(window);
+        // movement < dragThreshold: pinch not yet active
+        QVERIFY(!root->property("pinchActive").toBool());
+        QCOMPARE(root->property("scale").toReal(), -1.0);
+
+        // exactly the dragThreshold: pinch starts
+        p1 += QPoint(1, 0);
+        p2 += QPoint(1, 0);
+        pinchSequence.move(0, p1, window).move(1, p2, window).commit();
+        QQuickTouchUtils::flush(window);
         QVERIFY(root->property("pinchActive").toBool());
+        QCOMPARE(root->property("scale").toReal(), 1.0);
 
-        p1 += QPoint(10,10);
-        p2 += QPoint(10,10);
-        pinchSequence.move(0, p1,window).move(1, p2,window).commit();
+        // Calculation of the center point is tricky at first:
+        // center point of the two touch points in item coordinates:
+        // scene coordinates: (80, 80) + (dragThreshold, 0), (100, 100) + (dragThreshold, 0)
+        //                    = ((180+dT)/2, 180/2) = (90+dT, 90)
+        // item  coordinates: (scene) - (50, 50) = (40+dT, 40)
+        QCOMPARE(root->property("center").toPointF(), QPointF(40 + dragThreshold, 40));
+        // pan started, but no actual movement registered yet:
+        // blackrect starts at 50,50
+        QCOMPARE(blackRect->x(), 50.0);
+        QCOMPARE(blackRect->y(), 50.0);
+
+        p1 += QPoint(10, 0);
+        p2 += QPoint(10, 0);
+        pinchSequence.move(0, p1, window).move(1, p2, window).commit();
         QQuickTouchUtils::flush(window);
-    }
+        QCOMPARE(root->property("center").toPointF(), QPointF(40 + 10 + dragThreshold, 40));
+        QCOMPARE(blackRect->x(), 60.0);
+        QCOMPARE(blackRect->y(), 50.0);
 
-    QCOMPARE(root->property("center").toPointF(), QPointF(60, 60)); // blackrect is at 50,50
-    QCOMPARE(blackRect->x(), 60.0);
-    QCOMPARE(blackRect->y(), 60.0);
+        p1 += QPoint(0, 10);
+        p2 += QPoint(0, 10);
+        pinchSequence.move(0, p1, window).move(1, p2, window).commit();
+        QQuickTouchUtils::flush(window);
+        // next big surprise: the center is in item local coordinates and the item was just
+        // moved 10 to the right... which offsets the center point 10 to the left
+        QCOMPARE(root->property("center").toPointF(), QPointF(40 + 10 - 10 + dragThreshold, 40 + 10));
+        QCOMPARE(blackRect->x(), 60.0);
+        QCOMPARE(blackRect->y(), 60.0);
+
+        p1 += QPoint(10, 10);
+        p2 += QPoint(10, 10);
+        pinchSequence.move(0, p1, window).move(1, p2, window).commit();
+        QQuickTouchUtils::flush(window);
+        // now the item moved again, thus the center point of the touch is moved in total by (10, 10)
+        QCOMPARE(root->property("center").toPointF(), QPointF(50 + dragThreshold, 50));
+        QCOMPARE(blackRect->x(), 70.0);
+        QCOMPARE(blackRect->y(), 70.0);
+    }
 
     // pan x beyond bound
     p1 += QPoint(100,100);
@@ -323,7 +359,7 @@ void tst_QQuickPinchArea::pan()
     QQuickTouchUtils::flush(window);
 
     QCOMPARE(blackRect->x(), 140.0);
-    QCOMPARE(blackRect->y(), 160.0);
+    QCOMPARE(blackRect->y(), 170.0);
 
     QTest::touchEvent(window, device).release(0, p1, window).release(1, p2, window);
     QQuickTouchUtils::flush(window);
@@ -475,6 +511,7 @@ void tst_QQuickPinchArea::cancel()
         QCOMPARE(blackRect->scale(), 1.5);
 
         QTouchEvent cancelEvent(QEvent::TouchCancel);
+        cancelEvent.setDevice(device);
         QCoreApplication::sendEvent(window, &cancelEvent);
         QQuickTouchUtils::flush(window);
 

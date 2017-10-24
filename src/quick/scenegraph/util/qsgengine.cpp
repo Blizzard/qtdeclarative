@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -37,6 +43,11 @@
 #include <private/qsgcontext_p.h>
 #include <private/qsgrenderer_p.h>
 #include <private/qsgtexture_p.h>
+
+#if QT_CONFIG(opengl)
+# include <QtGui/QOpenGLContext>
+# include <private/qsgdefaultrendercontext_p.h>
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -73,11 +84,13 @@ QT_BEGIN_NAMESPACE
     will delete the GL texture when the texture object is deleted.
 
     \value TextureCanUseAtlas The image can be uploaded into a texture atlas.
+
+    \value TextureIsOpaque The texture object is opaque.
  */
 
 QSGEnginePrivate::QSGEnginePrivate()
     : sgContext(QSGContext::createDefaultContext())
-    , sgRenderContext(new QSGRenderContext(sgContext.data()))
+    , sgRenderContext(sgContext.data()->createRenderContext())
 {
 }
 
@@ -105,15 +118,19 @@ QSGEngine::~QSGEngine()
 void QSGEngine::initialize(QOpenGLContext *context)
 {
     Q_D(QSGEngine);
-    if (QOpenGLContext::currentContext() != context) {
+#if QT_CONFIG(opengl)
+    if (context && QOpenGLContext::currentContext() != context) {
         qWarning("WARNING: The context must be current before calling QSGEngine::initialize.");
         return;
     }
-
-    if (!d->sgRenderContext->isValid()) {
-        d->sgRenderContext->setAttachToGLContext(false);
+#endif
+    if (d->sgRenderContext && !d->sgRenderContext->isValid()) {
+        d->sgRenderContext->setAttachToGraphicsContext(false);
         d->sgRenderContext->initialize(context);
-        connect(context, &QOpenGLContext::aboutToBeDestroyed, this, &QSGEngine::invalidate);
+#if QT_CONFIG(opengl)
+        if (context)
+            connect(context, &QOpenGLContext::aboutToBeDestroyed, this, &QSGEngine::invalidate);
+#endif
     }
 }
 
@@ -192,4 +209,61 @@ QSGTexture *QSGEngine::createTextureFromId(uint id, const QSize &size, CreateTex
     return 0;
 }
 
+/*!
+    Returns the current renderer interface if there is one. Otherwise null is returned.
+
+    \sa QSGRenderNode, QSGRendererInterface
+    \since 5.8
+ */
+QSGRendererInterface *QSGEngine::rendererInterface() const
+{
+    Q_D(const QSGEngine);
+    return d->sgRenderContext->isValid()
+            ? d->sgRenderContext->sceneGraphContext()->rendererInterface(d->sgRenderContext.data())
+            : nullptr;
+}
+
+/*!
+    Creates a simple rectangle node. When the scenegraph is not initialized, the return value is null.
+
+    This is cross-backend alternative to constructing a QSGSimpleRectNode directly.
+
+    \since 5.8
+    \sa QSGRectangleNode
+ */
+QSGRectangleNode *QSGEngine::createRectangleNode() const
+{
+    Q_D(const QSGEngine);
+    return d->sgRenderContext->isValid() ? d->sgRenderContext->sceneGraphContext()->createRectangleNode() : nullptr;
+}
+
+/*!
+    Creates a simple image node. When the scenegraph is not initialized, the return value is null.
+
+    This is cross-backend alternative to constructing a QSGSimpleTextureNode directly.
+
+    \since 5.8
+    \sa QSGImageNode
+ */
+
+QSGImageNode *QSGEngine::createImageNode() const
+{
+    Q_D(const QSGEngine);
+    return d->sgRenderContext->isValid() ? d->sgRenderContext->sceneGraphContext()->createImageNode() : nullptr;
+}
+
+/*!
+    Creates a nine patch node. When the scenegraph is not initialized, the return value is null.
+
+    \since 5.8
+ */
+
+QSGNinePatchNode *QSGEngine::createNinePatchNode() const
+{
+    Q_D(const QSGEngine);
+    return d->sgRenderContext->isValid() ? d->sgRenderContext->sceneGraphContext()->createNinePatchNode() : nullptr;
+}
+
 QT_END_NAMESPACE
+
+#include "moc_qsgengine.cpp"

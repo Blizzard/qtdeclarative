@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -35,7 +41,7 @@
 #define QQMLDATAMODEL_P_P_H
 
 #include "qqmldelegatemodel_p.h"
-
+#include <private/qv4qobjectwrapper_p.h>
 
 #include <QtQml/qqmlcontext.h>
 #include <QtQml/qqmlincubator.h>
@@ -125,16 +131,16 @@ public:
     virtual void setValue(const QString &role, const QVariant &value) { Q_UNUSED(role); Q_UNUSED(value); }
     virtual bool resolveIndex(const QQmlAdaptorModel &, int) { return false; }
 
-    static QV4::ReturnedValue get_model(QV4::CallContext *ctx);
-    static QV4::ReturnedValue get_groups(QV4::CallContext *ctx);
-    static QV4::ReturnedValue set_groups(QV4::CallContext *ctx);
+    static void get_model(const QV4::BuiltinFunction *, QV4::Scope &scope, QV4::CallData *callData);
+    static void get_groups(const QV4::BuiltinFunction *, QV4::Scope &scope, QV4::CallData *callData);
+    static void set_groups(const QV4::BuiltinFunction *, QV4::Scope &scope, QV4::CallData *callData);
     static QV4::ReturnedValue get_member(QQmlDelegateModelItem *thisItem, uint flag, const QV4::Value &);
     static QV4::ReturnedValue set_member(QQmlDelegateModelItem *thisItem, uint flag, const QV4::Value &arg);
     static QV4::ReturnedValue get_index(QQmlDelegateModelItem *thisItem, uint flag, const QV4::Value &arg);
 
     QV4::ExecutionEngine *v4;
     QQmlDelegateModelItemMetaType * const metaType;
-    QQmlContextData *contextData;
+    QQmlContextDataRef contextData;
     QPointer<QObject> object;
     QPointer<QQmlDelegateModelAttached> attached;
     QQDMIncubationTask *incubationTask;
@@ -142,7 +148,6 @@ public:
     int scriptRef;
     int groups;
     int index;
-
 
 Q_SIGNALS:
     void modelIndexChanged();
@@ -154,8 +159,8 @@ protected:
 namespace QV4 {
 namespace Heap {
 struct QQmlDelegateModelItemObject : Object {
-    inline QQmlDelegateModelItemObject(QQmlDelegateModelItem *item);
-    ~QQmlDelegateModelItemObject();
+    inline void init(QQmlDelegateModelItem *item);
+    void destroy();
     QQmlDelegateModelItem *item;
 };
 
@@ -168,9 +173,10 @@ struct QQmlDelegateModelItemObject : QV4::Object
     V4_NEEDS_DESTROY
 };
 
-QV4::Heap::QQmlDelegateModelItemObject::QQmlDelegateModelItemObject(QQmlDelegateModelItem *item)
-    : item(item)
+void QV4::Heap::QQmlDelegateModelItemObject::init(QQmlDelegateModelItem *item)
 {
+    Object::init();
+    this->item = item;
 }
 
 
@@ -184,8 +190,8 @@ public:
         , incubating(0)
         , vdm(l) {}
 
-    virtual void statusChanged(Status);
-    virtual void setInitialState(QObject *);
+    void statusChanged(Status) override;
+    void setInitialState(QObject *) override;
 
     QQmlDelegateModelItem *incubating;
     QQmlDelegateModelPrivate *vdm;
@@ -254,6 +260,7 @@ public:
     void init();
     void connectModel(QQmlAdaptorModel *model);
 
+    void requestMoreIfNecessary();
     QObject *object(Compositor::Group group, int index, bool asynchronous);
     QQmlDelegateModel::ReleaseFlags release(QObject *object);
     QString stringValue(Compositor::Group group, int index, const QString &name);
@@ -287,7 +294,7 @@ public:
             const QVector<Compositor::Remove> &removes, const QVector<Compositor::Insert> &inserts);
     void itemsChanged(const QVector<Compositor::Change> &changes);
     void emitChanges();
-    void emitModelUpdated(const QQmlChangeSet &changeSet, bool reset);
+    void emitModelUpdated(const QQmlChangeSet &changeSet, bool reset) override;
 
     bool insert(Compositor::insert_iterator &before, const QV4::Value &object, int groups);
 
@@ -322,6 +329,7 @@ public:
     bool m_reset : 1;
     bool m_transaction : 1;
     bool m_incubatorCleanupScheduled : 1;
+    bool m_waitingToFetchMore : 1;
 
     union {
         struct {
@@ -331,8 +339,6 @@ public:
         };
         QQmlDelegateModelGroup *m_groups[Compositor::MaximumGroupCount];
     };
-
-    QList<QPersistentModelIndex> m_storedPersistentIndexes;
 };
 
 class QQmlPartsModel : public QQmlInstanceModel, public QQmlDelegateModelGroupEmitter
@@ -349,21 +355,21 @@ public:
     void updateFilterGroup();
     void updateFilterGroup(Compositor::Group group, const QQmlChangeSet &changeSet);
 
-    int count() const;
-    bool isValid() const;
-    QObject *object(int index, bool asynchronous=false);
-    ReleaseFlags release(QObject *item);
-    QString stringValue(int index, const QString &role);
+    int count() const override;
+    bool isValid() const override;
+    QObject *object(int index, bool asynchronous = false) override;
+    ReleaseFlags release(QObject *item) override;
+    QString stringValue(int index, const QString &role) override;
     QList<QByteArray> watchedRoles() const { return m_watchedRoles; }
-    void setWatchedRoles(const QList<QByteArray> &roles);
+    void setWatchedRoles(const QList<QByteArray> &roles) override;
 
-    int indexOf(QObject *item, QObject *objectContext) const;
+    int indexOf(QObject *item, QObject *objectContext) const override;
 
-    void emitModelUpdated(const QQmlChangeSet &changeSet, bool reset);
+    void emitModelUpdated(const QQmlChangeSet &changeSet, bool reset) override;
 
-    void createdPackage(int index, QQuickPackage *package);
-    void initPackage(int index, QQuickPackage *package);
-    void destroyingPackage(QQuickPackage *package);
+    void createdPackage(int index, QQuickPackage *package) override;
+    void initPackage(int index, QQuickPackage *package) override;
+    void destroyingPackage(QQuickPackage *package) override;
 
 Q_SIGNALS:
     void filterGroupChanged();
@@ -386,8 +392,8 @@ public:
     QQmlDelegateModelPartsMetaObject(QObject *parent)
     : QQmlOpenMetaObject(parent) {}
 
-    virtual void propertyCreated(int, QMetaPropertyBuilder &);
-    virtual QVariant initialValue(int);
+    void propertyCreated(int, QMetaPropertyBuilder &) override;
+    QVariant initialValue(int) override;
 };
 
 class QQmlDelegateModelParts : public QObject
@@ -407,8 +413,8 @@ public:
             QQmlDelegateModelItemMetaType *metaType, QMetaObject *metaObject);
     ~QQmlDelegateModelAttachedMetaObject();
 
-    void objectDestroyed(QObject *);
-    int metaCall(QObject *, QMetaObject::Call, int _id, void **);
+    void objectDestroyed(QObject *) override;
+    int metaCall(QObject *, QMetaObject::Call, int _id, void **) override;
 
 private:
     QQmlDelegateModelItemMetaType * const metaType;

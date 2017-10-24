@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -55,14 +61,13 @@ public:
 
 V4_DEFINE_EXTENSION(QQmlAdaptorModelEngineData, engineData)
 
-static QV4::ReturnedValue get_index(QV4::CallContext *ctx)
+static void get_index(const QV4::BuiltinFunction *, QV4::Scope &scope, QV4::CallData *callData)
 {
-    QV4::Scope scope(ctx);
-    QV4::Scoped<QQmlDelegateModelItemObject> o(scope, ctx->thisObject().as<QQmlDelegateModelItemObject>());
+    QV4::Scoped<QQmlDelegateModelItemObject> o(scope, callData->thisObject.as<QQmlDelegateModelItemObject>());
     if (!o)
-        return ctx->engine()->throwTypeError(QStringLiteral("Not a valid VisualData object"));
+        RETURN_RESULT(scope.engine->throwTypeError(QStringLiteral("Not a valid VisualData object")));
 
-    return QV4::Encode(o->d()->item->index);
+    RETURN_RESULT(QV4::Encode(o->d()->item->index));
 }
 
 template <typename T, typename M> static void setModelDataType(QMetaObjectBuilder *builder, M *metaType)
@@ -140,7 +145,7 @@ public:
         bool changed = roles.isEmpty() && !watchedRoles.isEmpty();
         if (!changed && !watchedRoles.isEmpty() && watchedRoleIds.isEmpty()) {
             QList<int> roleIds;
-            foreach (const QByteArray &r, watchedRoles) {
+            for (const QByteArray &r : watchedRoles) {
                 QHash<QByteArray, int>::const_iterator it = roleNames.find(r);
                 if (it != roleNames.end())
                     roleIds << it.value();
@@ -184,24 +189,23 @@ public:
         VDMModelDelegateDataType *dataType = const_cast<VDMModelDelegateDataType *>(this);
 
         dataType->watchedRoleIds.clear();
-        foreach (const QByteArray &oldRole, oldRoles)
+        for (const QByteArray &oldRole : oldRoles)
             dataType->watchedRoles.removeOne(oldRole);
         dataType->watchedRoles += newRoles;
     }
 
-    static QV4::ReturnedValue get_hasModelChildren(QV4::CallContext *ctx)
+    static void get_hasModelChildren(const QV4::BuiltinFunction *, QV4::Scope &scope, QV4::CallData *callData)
     {
-        QV4::Scope scope(ctx);
-        QV4::Scoped<QQmlDelegateModelItemObject> o(scope, ctx->thisObject().as<QQmlDelegateModelItemObject>());
+        QV4::Scoped<QQmlDelegateModelItemObject> o(scope, callData->thisObject.as<QQmlDelegateModelItemObject>());
         if (!o)
-            return ctx->engine()->throwTypeError(QStringLiteral("Not a valid VisualData object"));
+            RETURN_RESULT(scope.engine->throwTypeError(QStringLiteral("Not a valid VisualData object")));
 
         const QQmlAdaptorModel *const model = static_cast<QQmlDMCachedModelData *>(o->d()->item)->type->model;
         if (o->d()->item->index >= 0 && *model) {
             const QAbstractItemModel * const aim = model->aim();
-            return QV4::Encode(aim->hasChildren(aim->index(o->d()->item->index, 0, model->rootIndex)));
+            RETURN_RESULT(QV4::Encode(aim->hasChildren(aim->index(o->d()->item->index, 0, model->rootIndex))));
         } else {
-            return QV4::Encode(false);
+            RETURN_RESULT(QV4::Encode(false));
         }
     }
 
@@ -443,12 +447,12 @@ public:
     {
     }
 
-    int count(const QQmlAdaptorModel &model) const
+    int count(const QQmlAdaptorModel &model) const override
     {
         return model.aim()->rowCount(model.rootIndex);
     }
 
-    void cleanup(QQmlAdaptorModel &model, QQmlDelegateModel *vdm) const
+    void cleanup(QQmlAdaptorModel &model, QQmlDelegateModel *vdm) const override
     {
         QAbstractItemModel * const aim = model.aim();
         if (aim && vdm) {
@@ -464,8 +468,6 @@ public:
                                 vdm, SLOT(_q_rowsMoved(QModelIndex,int,int,QModelIndex,int)));
             QObject::disconnect(aim, SIGNAL(modelReset()),
                                 vdm, SLOT(_q_modelReset()));
-            QObject::disconnect(aim, SIGNAL(layoutAboutToBeChanged(QList<QPersistentModelIndex>,QAbstractItemModel::LayoutChangeHint)),
-                                vdm, SLOT(_q_layoutAboutToBeChanged(QList<QPersistentModelIndex>,QAbstractItemModel::LayoutChangeHint)));
             QObject::disconnect(aim, SIGNAL(layoutChanged(QList<QPersistentModelIndex>,QAbstractItemModel::LayoutChangeHint)),
                                 vdm, SLOT(_q_layoutChanged(QList<QPersistentModelIndex>,QAbstractItemModel::LayoutChangeHint)));
         }
@@ -473,7 +475,7 @@ public:
         const_cast<VDMAbstractItemModelDataType *>(this)->release();
     }
 
-    QVariant value(const QQmlAdaptorModel &model, int index, const QString &role) const
+    QVariant value(const QQmlAdaptorModel &model, int index, const QString &role) const override
     {
         QHash<QByteArray, int>::const_iterator it = roleNames.find(role.toUtf8());
         if (it != roleNames.end()) {
@@ -485,26 +487,26 @@ public:
         }
     }
 
-    QVariant parentModelIndex(const QQmlAdaptorModel &model) const
+    QVariant parentModelIndex(const QQmlAdaptorModel &model) const override
     {
         return model
                 ? QVariant::fromValue(model.aim()->parent(model.rootIndex))
                 : QVariant();
     }
 
-    QVariant modelIndex(const QQmlAdaptorModel &model, int index) const
+    QVariant modelIndex(const QQmlAdaptorModel &model, int index) const override
     {
         return model
                 ? QVariant::fromValue(model.aim()->index(index, 0, model.rootIndex))
                 : QVariant();
     }
 
-    bool canFetchMore(const QQmlAdaptorModel &model) const
+    bool canFetchMore(const QQmlAdaptorModel &model) const override
     {
         return model && model.aim()->canFetchMore(model.rootIndex);
     }
 
-    void fetchMore(QQmlAdaptorModel &model) const
+    void fetchMore(QQmlAdaptorModel &model) const override
     {
         if (model)
             model.aim()->fetchMore(model.rootIndex);
@@ -513,16 +515,15 @@ public:
     QQmlDelegateModelItem *createItem(
             QQmlAdaptorModel &model,
             QQmlDelegateModelItemMetaType *metaType,
-            QQmlEngine *engine,
-            int index) const
+            int index) const Q_DECL_OVERRIDE
     {
         VDMAbstractItemModelDataType *dataType = const_cast<VDMAbstractItemModelDataType *>(this);
         if (!metaObject)
-            dataType->initializeMetaType(model, engine);
+            dataType->initializeMetaType(model);
         return new QQmlDMAbstractItemModelData(metaType, dataType, index);
     }
 
-    void initializeMetaType(QQmlAdaptorModel &model, QQmlEngine *engine)
+    void initializeMetaType(QQmlAdaptorModel &model)
     {
         QMetaObjectBuilder builder;
         setModelDataType<QQmlDMAbstractItemModelData>(&builder, this);
@@ -547,7 +548,7 @@ public:
 
         metaObject = builder.toMetaObject();
         *static_cast<QMetaObject *>(this) = *metaObject;
-        propertyCache = new QQmlPropertyCache(QV8Engine::getV4(engine), metaObject);
+        propertyCache = new QQmlPropertyCache(metaObject);
     }
 };
 
@@ -579,27 +580,25 @@ public:
         }
     }
 
-    static QV4::ReturnedValue get_modelData(QV4::CallContext *ctx)
+    static void get_modelData(const QV4::BuiltinFunction *, QV4::Scope &scope, QV4::CallData *callData)
     {
-        QV4::Scope scope(ctx);
-        QV4::Scoped<QQmlDelegateModelItemObject> o(scope, ctx->thisObject().as<QQmlDelegateModelItemObject>());
+        QV4::Scoped<QQmlDelegateModelItemObject> o(scope, callData->thisObject.as<QQmlDelegateModelItemObject>());
         if (!o)
-            return ctx->engine()->throwTypeError(QStringLiteral("Not a valid VisualData object"));
+            RETURN_RESULT(scope.engine->throwTypeError(QStringLiteral("Not a valid VisualData object")));
 
-        return scope.engine->fromVariant(static_cast<QQmlDMListAccessorData *>(o->d()->item)->cachedData);
+        RETURN_RESULT(scope.engine->fromVariant(static_cast<QQmlDMListAccessorData *>(o->d()->item)->cachedData));
     }
 
-    static QV4::ReturnedValue set_modelData(QV4::CallContext *ctx)
+    static void set_modelData(const QV4::BuiltinFunction *, QV4::Scope &scope, QV4::CallData *callData)
     {
-        QV4::Scope scope(ctx);
-        QV4::Scoped<QQmlDelegateModelItemObject> o(scope, ctx->thisObject().as<QQmlDelegateModelItemObject>());
+        QV4::Scoped<QQmlDelegateModelItemObject> o(scope, callData->thisObject.as<QQmlDelegateModelItemObject>());
         if (!o)
-            return ctx->engine()->throwTypeError(QStringLiteral("Not a valid VisualData object"));
-        if (!ctx->argc())
-            return ctx->engine()->throwTypeError();
+            RETURN_RESULT(scope.engine->throwTypeError(QStringLiteral("Not a valid VisualData object")));
+        if (!callData->argc)
+            RETURN_RESULT(scope.engine->throwTypeError());
 
-        static_cast<QQmlDMListAccessorData *>(o->d()->item)->setModelData(scope.engine->toVariant(ctx->args()[0], QVariant::Invalid));
-        return QV4::Encode::undefined();
+        static_cast<QQmlDMListAccessorData *>(o->d()->item)->setModelData(scope.engine->toVariant(callData->args[0], QVariant::Invalid));
+        RETURN_RESULT(QV4::Encode::undefined());
     }
 
     QV4::ReturnedValue get()
@@ -646,12 +645,12 @@ class VDMListDelegateDataType : public QQmlAdaptorModel::Accessors
 public:
     inline VDMListDelegateDataType() {}
 
-    int count(const QQmlAdaptorModel &model) const
+    int count(const QQmlAdaptorModel &model) const override
     {
         return model.list.count();
     }
 
-    QVariant value(const QQmlAdaptorModel &model, int index, const QString &role) const
+    QVariant value(const QQmlAdaptorModel &model, int index, const QString &role) const override
     {
         return role == QLatin1String("modelData")
                 ? model.list.at(index)
@@ -661,8 +660,7 @@ public:
     QQmlDelegateModelItem *createItem(
             QQmlAdaptorModel &model,
             QQmlDelegateModelItemMetaType *metaType,
-            QQmlEngine *,
-            int index) const
+            int index) const Q_DECL_OVERRIDE
     {
         return new QQmlDMListAccessorData(
                 metaType,
@@ -731,12 +729,12 @@ public:
         free(metaObject);
     }
 
-    int count(const QQmlAdaptorModel &model) const
+    int count(const QQmlAdaptorModel &model) const override
     {
         return model.list.count();
     }
 
-    QVariant value(const QQmlAdaptorModel &model, int index, const QString &role) const
+    QVariant value(const QQmlAdaptorModel &model, int index, const QString &role) const override
     {
         if (QObject *object = model.list.at(index).value<QObject *>())
             return object->property(role.toUtf8());
@@ -746,8 +744,7 @@ public:
     QQmlDelegateModelItem *createItem(
             QQmlAdaptorModel &model,
             QQmlDelegateModelItemMetaType *metaType,
-            QQmlEngine *,
-            int index) const
+            int index) const Q_DECL_OVERRIDE
     {
         VDMObjectDelegateDataType *dataType = const_cast<VDMObjectDelegateDataType *>(this);
         if (!metaObject)
@@ -764,7 +761,7 @@ public:
         metaObject = builder.toMetaObject();
     }
 
-    void cleanup(QQmlAdaptorModel &, QQmlDelegateModel *) const
+    void cleanup(QQmlAdaptorModel &, QQmlDelegateModel *) const override
     {
         const_cast<VDMObjectDelegateDataType *>(this)->release();
     }
@@ -922,8 +919,6 @@ void QQmlAdaptorModel::setModel(const QVariant &variant, QQmlDelegateModel *vdm,
                               vdm, QQmlDelegateModel, SLOT(_q_rowsMoved(QModelIndex,int,int,QModelIndex,int)));
             qmlobject_connect(model, QAbstractItemModel, SIGNAL(modelReset()),
                               vdm, QQmlDelegateModel, SLOT(_q_modelReset()));
-            qmlobject_connect(model, QAbstractItemModel, SIGNAL(layoutAboutToBeChanged(QList<QPersistentModelIndex>,QAbstractItemModel::LayoutChangeHint)),
-                              vdm, QQmlDelegateModel, SLOT(_q_layoutAboutToBeChanged(QList<QPersistentModelIndex>,QAbstractItemModel::LayoutChangeHint)));
             qmlobject_connect(model, QAbstractItemModel, SIGNAL(layoutChanged(QList<QPersistentModelIndex>,QAbstractItemModel::LayoutChangeHint)),
                               vdm, QQmlDelegateModel, SLOT(_q_layoutChanged(QList<QPersistentModelIndex>,QAbstractItemModel::LayoutChangeHint)));
         } else {

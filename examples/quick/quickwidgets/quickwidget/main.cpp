@@ -39,8 +39,10 @@
 ****************************************************************************/
 
 #include <QQuickWidget>
+#include <QQuickItem>
 #include <QQmlError>
 #include <QtWidgets>
+#include "fbitem.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -50,8 +52,10 @@ public:
 private slots:
     void quickWidgetStatusChanged(QQuickWidget::Status);
     void sceneGraphError(QQuickWindow::SceneGraphError error, const QString &message);
-    void grabToFile();
-    void renderToFile();
+    void grabFramebuffer();
+    void renderToPixmap();
+    void grabToImage();
+    void createQuickWidgetsInTabs(QMdiArea *mdiArea);
 
 private:
     QQuickWidget *m_quickWidget;
@@ -74,7 +78,7 @@ MainWindow::MainWindow()
     QLCDNumber *lcd = new QLCDNumber;
     lcd->display(1337);
     lcd->setMinimumSize(250,100);
-    centralWidget ->addSubWindow(lcd);
+    centralWidget->addSubWindow(lcd);
 
     QUrl source("qrc:quickwidget/rotatingsquare.qml");
 
@@ -86,21 +90,51 @@ MainWindow::MainWindow()
     m_quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView );
     m_quickWidget->setSource(source);
 
-    centralWidget ->addSubWindow(m_quickWidget);
+    centralWidget->addSubWindow(m_quickWidget);
 
     setCentralWidget(centralWidget);
 
     QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
-    fileMenu->addAction(tr("Grab to imFage"), this, &MainWindow::grabToFile);
-    fileMenu->addAction(tr("Render to pixmap"), this, &MainWindow::renderToFile);
+    fileMenu->addAction(tr("Grab framebuffer"), this, &MainWindow::grabFramebuffer);
+    fileMenu->addAction(tr("Render to pixmap"), this, &MainWindow::renderToPixmap);
+    fileMenu->addAction(tr("Grab via grabToImage"), this, &MainWindow::grabToImage);
     fileMenu->addAction(tr("Quit"), qApp, &QCoreApplication::quit);
+
+    QMenu *windowMenu = menuBar()->addMenu(tr("&Window"));
+    windowMenu->addAction(tr("Add tab widget"), this,
+                          [this, centralWidget] { createQuickWidgetsInTabs(centralWidget); });
+}
+
+void MainWindow::createQuickWidgetsInTabs(QMdiArea *mdiArea)
+{
+    QTabWidget *tabWidget = new QTabWidget;
+
+    const QSize size(400, 400);
+
+    QQuickWidget *w = new QQuickWidget;
+    w->resize(size);
+    w->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    w->setSource(QUrl("qrc:quickwidget/rotatingsquaretab.qml"));
+
+    tabWidget->addTab(w, tr("Plain Quick content"));
+
+    w = new QQuickWidget;
+    w->resize(size);
+    w->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    w->setSource(QUrl("qrc:quickwidget/customgl.qml"));
+
+    tabWidget->addTab(w, tr("Custom OpenGL drawing"));
+
+    mdiArea->addSubWindow(tabWidget);
+    tabWidget->show();
 }
 
 void MainWindow::quickWidgetStatusChanged(QQuickWidget::Status status)
 {
     if (status == QQuickWidget::Error) {
         QStringList errors;
-        foreach (const QQmlError &error, m_quickWidget->errors())
+        const auto widgetErrors = m_quickWidget->errors();
+        for (const QQmlError &error : widgetErrors)
             errors.append(error.toString());
         statusBar()->showMessage(errors.join(QStringLiteral(", ")));
     }
@@ -113,8 +147,7 @@ void MainWindow::sceneGraphError(QQuickWindow::SceneGraphError, const QString &m
 
 template<class T> void saveToFile(QWidget *parent, T *saveable)
 {
-    QString t;
-    QFileDialog fd(parent, t, QString());
+    QFileDialog fd(parent);
     fd.setAcceptMode(QFileDialog::AcceptSave);
     fd.setDefaultSuffix("png");
     fd.selectFile("test.png");
@@ -122,22 +155,36 @@ template<class T> void saveToFile(QWidget *parent, T *saveable)
         saveable->save(fd.selectedFiles().first());
 }
 
-void MainWindow::grabToFile()
+void MainWindow::grabFramebuffer()
 {
     QImage image = m_quickWidget->grabFramebuffer();
     saveToFile(this, &image);
 }
 
-void MainWindow::renderToFile()
+void MainWindow::renderToPixmap()
 {
     QPixmap pixmap(m_quickWidget->size());
     m_quickWidget->render(&pixmap);
     saveToFile(this, &pixmap);
 }
 
+void MainWindow::grabToImage()
+{
+    QFileDialog fd(this);
+    fd.setAcceptMode(QFileDialog::AcceptSave);
+    fd.setDefaultSuffix("png");
+    fd.selectFile("test_grabToImage.png");
+    if (fd.exec() == QDialog::Accepted) {
+        QMetaObject::invokeMethod(m_quickWidget->rootObject(), "performLayerBasedGrab",
+                                  Q_ARG(QVariant, fd.selectedFiles().first()));
+    }
+}
+
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
+
+    qmlRegisterType<FbItem>("QuickWidgetExample", 1, 0, "FbItem");
 
     MainWindow mainWindow;
     mainWindow.show();

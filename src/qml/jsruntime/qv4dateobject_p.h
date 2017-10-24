@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -46,7 +52,7 @@
 
 #include "qv4object_p.h"
 #include "qv4functionobject_p.h"
-#include <QtCore/qnumeric.h>
+#include <QtCore/private/qnumeric_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -57,22 +63,26 @@ namespace QV4 {
 namespace Heap {
 
 struct DateObject : Object {
-    DateObject()
+    void init()
     {
-        date = qSNaN();
+        Object::init();
+        date = qt_qnan();
     }
 
-    DateObject(const Value &date)
+    void init(const Value &date)
     {
+        Object::init();
         this->date = date.toNumber();
     }
-    DateObject(const QDateTime &date);
+    void init(const QDateTime &date);
+    void init(const QTime &time);
+
     double date;
 };
 
 
 struct DateCtor : FunctionObject {
-    DateCtor(QV4::ExecutionContext *scope);
+    void init(QV4::ExecutionContext *scope);
 };
 
 }
@@ -91,72 +101,74 @@ struct DateObject: Object {
 
 template<>
 inline const DateObject *Value::as() const {
-    return isManaged() && m() && m()->vtable()->type == Managed::Type_DateObject ? static_cast<const DateObject *>(this) : 0;
+    return isManaged() && m()->vtable()->type == Managed::Type_DateObject ? static_cast<const DateObject *>(this) : 0;
 }
 
 struct DateCtor: FunctionObject
 {
     V4_OBJECT2(DateCtor, FunctionObject)
 
-    static ReturnedValue construct(const Managed *, CallData *callData);
-    static ReturnedValue call(const Managed *that, CallData *);
+    static void construct(const Managed *, Scope &scope, CallData *callData);
+    static void call(const Managed *that, Scope &scope, CallData *);
 };
 
 struct DatePrototype: DateObject
 {
+    V4_PROTOTYPE(objectPrototype)
+
     void init(ExecutionEngine *engine, Object *ctor);
 
-    static double getThisDate(ExecutionContext *ctx);
+    static double getThisDate(Scope &scope, CallData *callData);
 
-    static ReturnedValue method_parse(CallContext *ctx);
-    static ReturnedValue method_UTC(CallContext *ctx);
-    static ReturnedValue method_now(CallContext *ctx);
+    static void method_parse(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_UTC(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_now(const BuiltinFunction *, Scope &scope, CallData *callData);
 
-    static ReturnedValue method_toString(CallContext *ctx);
-    static ReturnedValue method_toDateString(CallContext *ctx);
-    static ReturnedValue method_toTimeString(CallContext *ctx);
-    static ReturnedValue method_toLocaleString(CallContext *ctx);
-    static ReturnedValue method_toLocaleDateString(CallContext *ctx);
-    static ReturnedValue method_toLocaleTimeString(CallContext *ctx);
-    static ReturnedValue method_valueOf(CallContext *ctx);
-    static ReturnedValue method_getTime(CallContext *ctx);
-    static ReturnedValue method_getYear(CallContext *ctx);
-    static ReturnedValue method_getFullYear(CallContext *ctx);
-    static ReturnedValue method_getUTCFullYear(CallContext *ctx);
-    static ReturnedValue method_getMonth(CallContext *ctx);
-    static ReturnedValue method_getUTCMonth(CallContext *ctx);
-    static ReturnedValue method_getDate(CallContext *ctx);
-    static ReturnedValue method_getUTCDate(CallContext *ctx);
-    static ReturnedValue method_getDay(CallContext *ctx);
-    static ReturnedValue method_getUTCDay(CallContext *ctx);
-    static ReturnedValue method_getHours(CallContext *ctx);
-    static ReturnedValue method_getUTCHours(CallContext *ctx);
-    static ReturnedValue method_getMinutes(CallContext *ctx);
-    static ReturnedValue method_getUTCMinutes(CallContext *ctx);
-    static ReturnedValue method_getSeconds(CallContext *ctx);
-    static ReturnedValue method_getUTCSeconds(CallContext *ctx);
-    static ReturnedValue method_getMilliseconds(CallContext *ctx);
-    static ReturnedValue method_getUTCMilliseconds(CallContext *ctx);
-    static ReturnedValue method_getTimezoneOffset(CallContext *ctx);
-    static ReturnedValue method_setTime(CallContext *ctx);
-    static ReturnedValue method_setMilliseconds(CallContext *ctx);
-    static ReturnedValue method_setUTCMilliseconds(CallContext *ctx);
-    static ReturnedValue method_setSeconds(CallContext *ctx);
-    static ReturnedValue method_setUTCSeconds(CallContext *ctx);
-    static ReturnedValue method_setMinutes(CallContext *ctx);
-    static ReturnedValue method_setUTCMinutes(CallContext *ctx);
-    static ReturnedValue method_setHours(CallContext *ctx);
-    static ReturnedValue method_setUTCHours(CallContext *ctx);
-    static ReturnedValue method_setDate(CallContext *ctx);
-    static ReturnedValue method_setUTCDate(CallContext *ctx);
-    static ReturnedValue method_setMonth(CallContext *ctx);
-    static ReturnedValue method_setUTCMonth(CallContext *ctx);
-    static ReturnedValue method_setYear(CallContext *ctx);
-    static ReturnedValue method_setFullYear(CallContext *ctx);
-    static ReturnedValue method_setUTCFullYear(CallContext *ctx);
-    static ReturnedValue method_toUTCString(CallContext *ctx);
-    static ReturnedValue method_toISOString(CallContext *ctx);
-    static ReturnedValue method_toJSON(CallContext *ctx);
+    static void method_toString(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_toDateString(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_toTimeString(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_toLocaleString(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_toLocaleDateString(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_toLocaleTimeString(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_valueOf(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getTime(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getYear(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getFullYear(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getUTCFullYear(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getMonth(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getUTCMonth(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getDate(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getUTCDate(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getDay(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getUTCDay(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getHours(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getUTCHours(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getMinutes(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getUTCMinutes(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getSeconds(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getUTCSeconds(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getMilliseconds(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getUTCMilliseconds(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_getTimezoneOffset(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setTime(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setMilliseconds(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setUTCMilliseconds(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setSeconds(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setUTCSeconds(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setMinutes(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setUTCMinutes(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setHours(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setUTCHours(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setDate(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setUTCDate(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setMonth(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setUTCMonth(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setYear(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setFullYear(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_setUTCFullYear(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_toUTCString(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_toISOString(const BuiltinFunction *, Scope &scope, CallData *callData);
+    static void method_toJSON(const BuiltinFunction *, Scope &scope, CallData *callData);
 
     static void timezoneUpdated();
 };

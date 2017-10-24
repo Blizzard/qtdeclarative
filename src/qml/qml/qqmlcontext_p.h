@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -60,6 +66,7 @@
 #include <private/qflagpointer_p.h>
 #include <private/qqmlguard_p.h>
 
+#include <private/qv4compileddata_p.h>
 #include <private/qv4identifier_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -71,6 +78,8 @@ class QQmlExpression;
 class QQmlExpressionPrivate;
 class QQmlJavaScriptExpression;
 class QQmlContextData;
+class QQmlGuardedContextData;
+class QQmlIncubatorPrivate;
 
 class QQmlContextPrivate : public QObjectPrivate
 {
@@ -98,7 +107,7 @@ public:
 };
 
 class QQmlComponentAttached;
-class QQmlGuardedContextData;
+
 class Q_QML_PRIVATE_EXPORT QQmlContextData
 {
 public:
@@ -106,7 +115,6 @@ public:
     QQmlContextData(QQmlContext *);
     void emitDestruction();
     void clearContext();
-    void destroy();
     void invalidate();
 
     inline bool isValid() const {
@@ -114,10 +122,10 @@ public:
     }
 
     // My parent context and engine
-    QQmlContextData *parent;
+    QQmlContextData *parent = nullptr;
     QQmlEngine *engine;
 
-    void setParent(QQmlContextData *, bool parentTakesOwnership = false);
+    void setParent(QQmlContextData *);
     void refreshExpressions();
 
     void addObject(QObject *);
@@ -128,25 +136,31 @@ public:
     // If internal is false publicContext owns this.
     QQmlContext *asQQmlContext();
     QQmlContextPrivate *asQQmlContextPrivate();
+    quint32 refCount = 0;
     quint32 isInternal:1;
-    quint32 ownedByParent:1; // unrelated to isInternal; parent context deletes children if true.
     quint32 isJSContext:1;
     quint32 isPragmaLibraryContext:1;
     quint32 unresolvedNames:1; // True if expressions in this context failed to resolve a toplevel name
     quint32 hasEmittedDestruction:1;
     quint32 isRootObjectInCreation:1;
-    quint32 dummy:25;
+    quint32 dummy:26;
     QQmlContext *publicContext;
 
-    // VME data that is constructing this context if any
-    void *activeVMEData;
+    // The incubator that is constructing this context if any
+    QQmlIncubatorPrivate *incubator;
 
     // Compilation unit for contexts that belong to a compiled type.
     QQmlRefPointer<QV4::CompiledData::CompilationUnit> typeCompilationUnit;
 
-    mutable QHash<int, int> objectIndexToId;
+    // object index in CompiledData::Unit to component that created this context
+    int componentObjectIndex;
+
+    void initFromTypeCompilationUnit(const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &unit, int subComponentIndex);
+
+    // flag indicates whether the context owns the cache (after mutation) or not.
     mutable QV4::IdentifierHash<int> propertyNameCache;
-    QV4::IdentifierHash<int> &propertyNames() const;
+    const QV4::IdentifierHash<int> &propertyNames() const;
+    QV4::IdentifierHash<int> &detachedPropertyNames();
 
     // Context object
     QObject *contextObject;
@@ -161,10 +175,10 @@ public:
     QString urlString() const;
 
     // List of imports that apply to this context
-    QQmlTypeNameCache *imports;
+    QQmlRefPointer<QQmlTypeNameCache> imports;
 
     // My children
-    QQmlContextData *childContexts;
+    QQmlContextData *childContexts = 0;
 
     // My peers in parent's childContexts list
     QQmlContextData  *nextChild;
@@ -177,14 +191,14 @@ public:
     QQmlData *contextObjects;
 
     // Doubly-linked list of context guards (XXX merge with contextObjects)
-    QQmlGuardedContextData *contextGuards;
+    QQmlGuardedContextData *contextGuards = 0;
 
     // id guards
     struct ContextGuard : public QQmlGuard<QObject>
     {
         inline ContextGuard();
         inline ContextGuard &operator=(QObject *obj);
-        inline void objectDestroyed(QObject *);
+        inline void objectDestroyed(QObject *) override;
 
         inline bool wasSet() const;
 
@@ -194,10 +208,9 @@ public:
     ContextGuard *idValues;
     int idValueCount;
     void setIdProperty(int, QObject *);
-    void setIdPropertyData(const QHash<int, int> &);
 
     // Linked contexts. this owns linkedContext.
-    QQmlContextData *linkedContext;
+    QQmlContextDataRef linkedContext;
 
     // Linked list of uses of the Component attached property in this
     // context
@@ -211,57 +224,53 @@ public:
     }
 
 private:
+    friend class QQmlContextDataRef;
+    friend class QQmlContext; // needs to do manual refcounting :/
     void refreshExpressionsRecursive(bool isGlobal);
     void refreshExpressionsRecursive(QQmlJavaScriptExpression *);
-    ~QQmlContextData() {}
+    ~QQmlContextData();
+    void destroy();
 };
+
 
 class QQmlGuardedContextData
 {
 public:
-    inline QQmlGuardedContextData();
-    inline QQmlGuardedContextData(QQmlContextData *);
-    inline ~QQmlGuardedContextData();
+    inline QQmlGuardedContextData() = default;
+    inline QQmlGuardedContextData(QQmlContextData *data)
+    { setContextData(data); }
+    inline ~QQmlGuardedContextData()
+    { clear(); }
 
-    inline QQmlContextData *contextData();
+    inline QQmlContextData *contextData() const
+    { return m_contextData; }
     inline void setContextData(QQmlContextData *);
 
     inline bool isNull() const { return !m_contextData; }
 
     inline operator QQmlContextData*() const { return m_contextData; }
     inline QQmlContextData* operator->() const { return m_contextData; }
-    inline QQmlGuardedContextData &operator=(QQmlContextData *d);
+    inline QQmlGuardedContextData &operator=(QQmlContextData *d) {
+        setContextData(d); return *this;
+    }
 
 private:
-    QQmlGuardedContextData &operator=(const QQmlGuardedContextData &);
-    QQmlGuardedContextData(const QQmlGuardedContextData &);
+    QQmlGuardedContextData &operator=(const QQmlGuardedContextData &) = delete;
+    QQmlGuardedContextData(const QQmlGuardedContextData &) = delete;
     friend class QQmlContextData;
 
     inline void clear();
 
-    QQmlContextData *m_contextData;
-    QQmlGuardedContextData  *m_next;
-    QQmlGuardedContextData **m_prev;
+    QQmlContextData *m_contextData = 0;
+    QQmlGuardedContextData  *m_next = 0;
+    QQmlGuardedContextData **m_prev = 0;
 };
 
-QQmlGuardedContextData::QQmlGuardedContextData()
-: m_contextData(0), m_next(0), m_prev(0)
-{
-}
-
-QQmlGuardedContextData::QQmlGuardedContextData(QQmlContextData *data)
-: m_contextData(0), m_next(0), m_prev(0)
-{
-    setContextData(data);
-}
-
-QQmlGuardedContextData::~QQmlGuardedContextData()
-{
-    clear();
-}
 
 void QQmlGuardedContextData::setContextData(QQmlContextData *contextData)
-{
+ {
+    if (m_contextData == contextData)
+        return;
     clear();
 
     if (contextData) {
@@ -271,11 +280,6 @@ void QQmlGuardedContextData::setContextData(QQmlContextData *contextData)
         m_prev = &contextData->contextGuards;
         contextData->contextGuards = this;
     }
-}
-
-QQmlContextData *QQmlGuardedContextData::contextData()
-{
-    return m_contextData;
 }
 
 void QQmlGuardedContextData::clear()
@@ -289,10 +293,65 @@ void QQmlGuardedContextData::clear()
     }
 }
 
-QQmlGuardedContextData &
-QQmlGuardedContextData::operator=(QQmlContextData *d)
+QQmlContextDataRef::QQmlContextDataRef()
+    : m_contextData(0)
+{
+}
+
+QQmlContextDataRef::QQmlContextDataRef(const QQmlContextDataRef &other)
+    : m_contextData(other.m_contextData)
+{
+    if (m_contextData)
+        ++m_contextData->refCount;
+}
+
+QQmlContextDataRef::QQmlContextDataRef(QQmlContextData *data)
+    : m_contextData(data)
+{
+    if (m_contextData)
+        ++m_contextData->refCount;
+}
+
+QQmlContextDataRef::~QQmlContextDataRef()
+{
+    clear();
+}
+
+void QQmlContextDataRef::setContextData(QQmlContextData *contextData)
+{
+    if (m_contextData == contextData)
+        return;
+    clear();
+
+    if (contextData) {
+        m_contextData = contextData;
+        ++m_contextData->refCount;
+    }
+}
+
+QQmlContextData *QQmlContextDataRef::contextData() const
+{
+    return m_contextData;
+}
+
+void QQmlContextDataRef::clear()
+{
+    if (m_contextData && !--m_contextData->refCount)
+        m_contextData->destroy();
+    m_contextData = 0;
+}
+
+QQmlContextDataRef &
+QQmlContextDataRef::operator=(QQmlContextData *d)
 {
     setContextData(d);
+    return *this;
+}
+
+QQmlContextDataRef &
+QQmlContextDataRef::operator=(const QQmlContextDataRef &other)
+{
+    setContextData(other.m_contextData);
     return *this;
 }
 

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -156,13 +162,13 @@ bool QQuickParticleAffector::shouldAffect(QQuickParticleData* d)
 {
     if (!d)
         return false;
-    if (activeGroup(d->group)){
-        if ((m_onceOff && m_onceOffed.contains(qMakePair(d->group, d->index)))
-                || !d->stillAlive())
+    if (activeGroup(d->groupId)){
+        if ((m_onceOff && m_onceOffed.contains(qMakePair(d->groupId, d->index)))
+                || !d->stillAlive(m_system))
             return false;
         //Need to have previous location for affected anyways
         if (width() == 0 || height() == 0
-                || m_shape->contains(QRectF(m_offset.x(), m_offset.y(), width(), height()), QPointF(d->curX(), d->curY()))){
+                || m_shape->contains(QRectF(m_offset.x(), m_offset.y(), width(), height()), QPointF(d->curX(m_system), d->curY(m_system)))){
             if (m_whenCollidingWith.isEmpty() || isColliding(d)){
                 return true;
             }
@@ -176,9 +182,9 @@ void QQuickParticleAffector::postAffect(QQuickParticleData* d)
 {
     m_system->needsReset << d;
     if (m_onceOff)
-        m_onceOffed << qMakePair(d->group, d->index);
+        m_onceOffed << qMakePair(d->groupId, d->index);
     if (isAffectedConnected())
-        emit affected(d->curX(), d->curY());
+        emit affected(d->curX(m_system), d->curY(m_system));
 }
 
 const qreal QQuickParticleAffector::simulationDelta = 0.020;
@@ -194,7 +200,7 @@ void QQuickParticleAffector::affectSystem(qreal dt)
     if (m_onceOff)
         dt = 1.0;
     foreach (QQuickParticleGroupData* gd, m_system->groupData) {
-        if (activeGroup(m_system->groupData.key(gd))) {
+        if (activeGroup(gd->index)) {
             foreach (QQuickParticleData* d, gd->data) {
                 if (shouldAffect(d)) {
                     bool affected = false;
@@ -204,7 +210,7 @@ void QQuickParticleAffector::affectSystem(qreal dt)
                         m_system->timeInt -= myDt * 1000.0;
                         while (myDt > simulationDelta) {
                             m_system->timeInt += simulationDelta * 1000.0;
-                            if (d->alive())//Only affect during the parts it was alive for
+                            if (d->alive(m_system))//Only affect during the parts it was alive for
                                 affected = affectParticle(d, simulationDelta) || affected;
                             myDt -= simulationDelta;
                         }
@@ -228,8 +234,8 @@ bool QQuickParticleAffector::affectParticle(QQuickParticleData *, qreal )
 void QQuickParticleAffector::reset(QQuickParticleData* pd)
 {//TODO: This, among other ones, should be restructured so they don't all need to remember to call the superclass
     if (m_onceOff)
-        if (activeGroup(pd->group))
-            m_onceOffed.remove(qMakePair(pd->group, pd->index));
+        if (activeGroup(pd->groupId))
+            m_onceOffed.remove(qMakePair(pd->groupId, pd->index));
 }
 
 void QQuickParticleAffector::updateOffsets()
@@ -238,18 +244,18 @@ void QQuickParticleAffector::updateOffsets()
         m_offset = m_system->mapFromItem(this, QPointF(0, 0));
 }
 
-bool QQuickParticleAffector::isColliding(QQuickParticleData *d)
+bool QQuickParticleAffector::isColliding(QQuickParticleData *d) const
 {
-    qreal myCurX = d->curX();
-    qreal myCurY = d->curY();
-    qreal myCurSize = d->curSize()/2;
+    qreal myCurX = d->curX(m_system);
+    qreal myCurY = d->curY(m_system);
+    qreal myCurSize = d->curSize(m_system) / 2;
     foreach (const QString &group, m_whenCollidingWith){
         foreach (QQuickParticleData* other, m_system->groupData[m_system->groupIds[group]]->data){
-            if (!other->stillAlive())
+            if (!other->stillAlive(m_system))
                 continue;
-            qreal otherCurX = other->curX();
-            qreal otherCurY = other->curY();
-            qreal otherCurSize = other->curSize()/2;
+            qreal otherCurX = other->curX(m_system);
+            qreal otherCurY = other->curY(m_system);
+            qreal otherCurSize = other->curSize(m_system) / 2;
             if ((myCurX + myCurSize > otherCurX - otherCurSize
                  && myCurX - myCurSize < otherCurX + otherCurSize)
                  && (myCurY + myCurSize > otherCurY - otherCurSize
@@ -261,3 +267,5 @@ bool QQuickParticleAffector::isColliding(QQuickParticleData *d)
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickparticleaffector_p.cpp"

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -49,7 +55,6 @@
 #include <QtCore/qshareddata.h>
 #include <private/qtqmlglobal_p.h>
 #include <private/qqmlproperty_p.h>
-#include <private/qpointervaluepair_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -71,13 +76,13 @@ public:
     // Should return the encoded property index for the binding.  Should return this value
     // even if the binding is not enabled or added to an object.
     // Encoding is:  coreIndex | (valueTypeIndex << 16)
-    int targetPropertyIndex() const { return m_targetIndex; }
+    QQmlPropertyIndex targetPropertyIndex() const { return m_targetIndex; }
 
     // Should return the object for the binding.  Should return this object even if the
     // binding is not enabled or added to the object.
     QObject *targetObject() const { return m_target.data(); }
 
-    virtual void setEnabled(bool e, QQmlPropertyPrivate::WriteFlags f = QQmlPropertyPrivate::DontRemoveBinding) = 0;
+    virtual void setEnabled(bool e, QQmlPropertyData::WriteFlags f = QQmlPropertyData::DontRemoveBinding) = 0;
 
     void addToObject();
     void removeFromObject();
@@ -86,6 +91,8 @@ public:
 
     inline QQmlAbstractBinding *nextBinding() const;
 
+    inline bool canUseAccessor() const
+    { return m_nextBinding.flag2(); }
 
     struct RefCount {
         RefCount() : refCount(0) {}
@@ -106,9 +113,16 @@ protected:
 
     inline void setNextBinding(QQmlAbstractBinding *);
 
-    int m_targetIndex;
+    QQmlPropertyIndex m_targetIndex;
+
+    // Pointer is the target object to which the binding binds
+    // flag1 is the updating flag
+    // flag2 is the enabled flag
     QFlagPointer<QObject> m_target;
+
     // Pointer to the next binding in the linked list of bindings.
+    // flag1 is used for addedToObject
+    // flag2 indicates if an accessor is can be used (i.e. there is no interceptor on the target)
     QFlagPointer<QQmlAbstractBinding> m_nextBinding;
 };
 

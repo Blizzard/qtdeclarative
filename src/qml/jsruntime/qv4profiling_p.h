@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -51,6 +57,40 @@
 
 #include <QElapsedTimer>
 
+#ifdef QT_NO_QML_DEBUGGER
+
+#define Q_V4_PROFILE_ALLOC(engine, size, type) (!engine)
+#define Q_V4_PROFILE_DEALLOC(engine, size, type) (!engine)
+#define Q_V4_PROFILE(engine, function) (function->code(engine, function->codeData))
+
+QT_BEGIN_NAMESPACE
+
+namespace QV4 {
+namespace Profiling {
+class Profiler {};
+}
+}
+
+QT_END_NAMESPACE
+
+#else
+
+#define Q_V4_PROFILE_ALLOC(engine, size, type)\
+    (engine->profiler() &&\
+            (engine->profiler()->featuresEnabled & (1 << Profiling::FeatureMemoryAllocation)) ?\
+        engine->profiler()->trackAlloc(size, type) : false)
+
+#define Q_V4_PROFILE_DEALLOC(engine, size, type) \
+    (engine->profiler() &&\
+            (engine->profiler()->featuresEnabled & (1 << Profiling::FeatureMemoryAllocation)) ?\
+        engine->profiler()->trackDealloc(size, type) : false)
+
+#define Q_V4_PROFILE(engine, function)\
+    (Q_UNLIKELY(engine->profiler()) &&\
+            (engine->profiler()->featuresEnabled & (1 << Profiling::FeatureFunctionCall)) ?\
+        Profiling::FunctionCallProfiler::profileCall(engine->profiler(), engine, function) :\
+        function->code(engine, function->codeData))
+
 QT_BEGIN_NAMESPACE
 
 namespace QV4 {
@@ -71,11 +111,27 @@ enum MemoryType {
 struct FunctionCallProperties {
     qint64 start;
     qint64 end;
+    quintptr id;
+};
+
+struct FunctionLocation {
+    FunctionLocation(const QString &name = QString(), const QString &file = QString(),
+                     int line = -1, int column = -1) :
+        name(name), file(file), line(line), column(column)
+    {}
+
+    bool isValid()
+    {
+        return !name.isEmpty();
+    }
+
     QString name;
     QString file;
     int line;
     int column;
 };
+
+typedef QHash<quintptr, QV4::Profiling::FunctionLocation> FunctionLocationHash;
 
 struct MemoryAllocationProperties {
     qint64 timestamp;
@@ -102,17 +158,22 @@ public:
 
     FunctionCall &operator=(const FunctionCall &other) {
         if (&other != this) {
-            if (m_function)
-                m_function->compilationUnit->release();
+            other.m_function->compilationUnit->addref();
+            m_function->compilationUnit->release();
             m_function = other.m_function;
             m_start = other.m_start;
             m_end = other.m_end;
-            m_function->compilationUnit->addref();
         }
         return *this;
     }
 
-    FunctionCallProperties resolve() const;
+    Function *function() const
+    {
+        return m_function;
+    }
+
+    FunctionLocation resolveLocation() const;
+    FunctionCallProperties properties() const;
 
 private:
     friend bool operator<(const FunctionCall &call1, const FunctionCall &call2);
@@ -122,52 +183,75 @@ private:
     qint64 m_end;
 };
 
-#define Q_V4_PROFILE_ALLOC(engine, size, type)\
-    (engine->profiler &&\
-            (engine->profiler->featuresEnabled & (1 << Profiling::FeatureMemoryAllocation)) ?\
-        engine->profiler->trackAlloc(size, type) : size)
-
-#define Q_V4_PROFILE_DEALLOC(engine, pointer, size, type) \
-    (engine->profiler &&\
-            (engine->profiler->featuresEnabled & (1 << Profiling::FeatureMemoryAllocation)) ?\
-        engine->profiler->trackDealloc(pointer, size, type) : pointer)
-
-#define Q_V4_PROFILE(engine, function)\
-    (engine->profiler &&\
-            (engine->profiler->featuresEnabled & (1 << Profiling::FeatureFunctionCall)) ?\
-        Profiling::FunctionCallProfiler::profileCall(engine->profiler, engine, function) :\
-        function->code(engine, function->codeData))
-
 class Q_QML_EXPORT Profiler : public QObject {
     Q_OBJECT
-    Q_DISABLE_COPY(Profiler)
 public:
+    struct SentMarker {
+        SentMarker() : m_function(nullptr) {}
+
+        SentMarker(const SentMarker &other) : m_function(other.m_function)
+        {
+            if (m_function)
+                m_function->compilationUnit->addref();
+        }
+
+        ~SentMarker()
+        {
+            if (m_function)
+                m_function->compilationUnit->release();
+        }
+
+        SentMarker &operator=(const SentMarker &other)
+        {
+            if (&other != this) {
+                if (m_function)
+                    m_function->compilationUnit->release();
+                m_function = other.m_function;
+                m_function->compilationUnit->addref();
+            }
+            return *this;
+        }
+
+        void setFunction(Function *function)
+        {
+            Q_ASSERT(m_function == nullptr);
+            m_function = function;
+            m_function->compilationUnit->addref();
+        }
+
+        bool isValid() const
+        { return m_function != nullptr; }
+
+    private:
+        Function *m_function;
+    };
+
     Profiler(QV4::ExecutionEngine *engine);
 
-    size_t trackAlloc(size_t size, MemoryType type)
+    bool trackAlloc(size_t size, MemoryType type)
     {
         MemoryAllocationProperties allocation = {m_timer.nsecsElapsed(), (qint64)size, type};
         m_memory_data.append(allocation);
-        return size;
+        return true;
     }
 
-    void *trackDealloc(void *pointer, size_t size, MemoryType type)
+    bool trackDealloc(size_t size, MemoryType type)
     {
         MemoryAllocationProperties allocation = {m_timer.nsecsElapsed(), -(qint64)size, type};
         m_memory_data.append(allocation);
-        return pointer;
+        return true;
     }
 
     quint64 featuresEnabled;
 
-public slots:
     void stopProfiling();
     void startProfiling(quint64 features);
-    void reportData();
+    void reportData(bool trackLocations);
     void setTimer(const QElapsedTimer &timer) { m_timer = timer; }
 
 signals:
-    void dataReady(const QVector<QV4::Profiling::FunctionCallProperties> &,
+    void dataReady(const QV4::Profiling::FunctionLocationHash &,
+                   const QVector<QV4::Profiling::FunctionCallProperties> &,
                    const QVector<QV4::Profiling::MemoryAllocationProperties> &);
 
 private:
@@ -175,6 +259,7 @@ private:
     QElapsedTimer m_timer;
     QVector<FunctionCall> m_data;
     QVector<MemoryAllocationProperties> m_memory_data;
+    QHash<quintptr, SentMarker> m_sentLocations;
 
     friend class FunctionCallProfiler;
 };
@@ -212,9 +297,14 @@ public:
 Q_DECLARE_TYPEINFO(QV4::Profiling::MemoryAllocationProperties, Q_MOVABLE_TYPE);
 Q_DECLARE_TYPEINFO(QV4::Profiling::FunctionCallProperties, Q_MOVABLE_TYPE);
 Q_DECLARE_TYPEINFO(QV4::Profiling::FunctionCall, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QV4::Profiling::FunctionLocation, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QV4::Profiling::Profiler::SentMarker, Q_MOVABLE_TYPE);
 
 QT_END_NAMESPACE
+Q_DECLARE_METATYPE(QV4::Profiling::FunctionLocationHash)
 Q_DECLARE_METATYPE(QVector<QV4::Profiling::FunctionCallProperties>)
 Q_DECLARE_METATYPE(QVector<QV4::Profiling::MemoryAllocationProperties>)
+
+#endif // QT_NO_QML_DEBUGGER
 
 #endif // QV4PROFILING_H

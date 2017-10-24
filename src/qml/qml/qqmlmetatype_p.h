@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -64,24 +70,36 @@ class QQmlTypeModule;
 class QHashedString;
 class QHashedStringRef;
 class QMutex;
+class QQmlPropertyCache;
+class QQmlCompiledData;
 
 namespace QV4 { struct String; }
 
 class Q_QML_PRIVATE_EXPORT QQmlMetaType
 {
 public:
-    static QList<QString> qmlTypeNames();
-    static QList<QQmlType*> qmlTypes();
-    static QList<QQmlType*> qmlSingletonTypes();
-    static QList<QQmlType*> qmlAllTypes();
+    static QQmlType registerCompositeSingletonType(const QQmlPrivate::RegisterCompositeSingletonType &type);
+    static QQmlType registerCompositeType(const QQmlPrivate::RegisterCompositeType &type);
 
-    static QQmlType *qmlType(const QString &qualifiedName, int, int);
-    static QQmlType *qmlType(const QHashedStringRef &name, const QHashedStringRef &module, int, int);
-    static QQmlType *qmlType(const QMetaObject *);
-    static QQmlType *qmlType(const QMetaObject *metaObject, const QHashedStringRef &module, int version_major, int version_minor);
-    static QQmlType *qmlType(int);
-    static QQmlType *qmlType(const QUrl &url, bool includeNonFileImports = false);
-    static QQmlType *qmlTypeFromIndex(int);
+    static void registerInternalCompositeType(QV4::CompiledData::CompilationUnit *compilationUnit);
+    static void unregisterInternalCompositeType(QV4::CompiledData::CompilationUnit *compilationUnit);
+
+    static QList<QString> qmlTypeNames();
+    static QList<QQmlType> qmlTypes();
+    static QList<QQmlType> qmlSingletonTypes();
+    static QList<QQmlType> qmlAllTypes();
+
+    static QQmlType qmlType(const QString &qualifiedName, int, int);
+    static QQmlType qmlType(const QHashedStringRef &name, const QHashedStringRef &module, int, int);
+    static QQmlType qmlType(const QMetaObject *);
+    static QQmlType qmlType(const QMetaObject *metaObject, const QHashedStringRef &module, int version_major, int version_minor);
+    static QQmlType qmlType(int);
+    static QQmlType qmlType(const QUrl &url, bool includeNonFileImports = false);
+
+    static QQmlPropertyCache *propertyCache(const QMetaObject *metaObject);
+    static QQmlPropertyCache *propertyCache(const QQmlType &type, int minorVersion);
+
+    static void freeUnusedTypesAndCaches();
 
     static QMetaProperty defaultProperty(const QMetaObject *);
     static QMetaProperty defaultProperty(QObject *);
@@ -132,11 +150,24 @@ class QHashedCStringRef;
 class Q_QML_PRIVATE_EXPORT QQmlType
 {
 public:
-    QByteArray typeName() const;
-    const QString &qmlTypeName() const;
-    const QString &elementName() const;
+    QQmlType();
+    QQmlType(const QQmlType &other);
+    QQmlType &operator =(const QQmlType &other);
+    explicit QQmlType(QQmlTypePrivate *priv);
+    ~QQmlType();
 
-    const QHashedString &module() const;
+    bool operator ==(const QQmlType &other) const {
+        return d == other.d;
+    }
+
+    bool isValid() const { return d != 0; }
+    const QQmlTypePrivate *key() const { return d; }
+
+    QByteArray typeName() const;
+    QString qmlTypeName() const;
+    QString elementName() const;
+
+    QHashedString module() const;
     int majorVersion() const;
     int minorVersion() const;
 
@@ -210,12 +241,11 @@ public:
     int enumValue(QQmlEnginePrivate *engine, const QHashedStringRef &, bool *ok) const;
     int enumValue(QQmlEnginePrivate *engine, const QHashedCStringRef &, bool *ok) const;
     int enumValue(QQmlEnginePrivate *engine, const QV4::String *, bool *ok) const;
-private:
-    QQmlType *superType() const;
-    QQmlType *resolveCompositeBaseType(QQmlEnginePrivate *engine) const;
-    int resolveCompositeEnumValue(QQmlEnginePrivate *engine, const QString &name, bool *ok) const;
-    friend class QQmlTypePrivate;
-    friend struct QQmlMetaTypeData;
+
+    QQmlTypePrivate *priv() const { return d; }
+    static void refHandle(QQmlTypePrivate *priv);
+    static void derefHandle(QQmlTypePrivate *priv);
+    static int refCount(QQmlTypePrivate *priv);
 
     enum RegistrationType {
         CppType = 0,
@@ -224,24 +254,37 @@ private:
         CompositeType = 3,
         CompositeSingletonType = 4
     };
+
+private:
+    QQmlType superType() const;
+    QQmlType resolveCompositeBaseType(QQmlEnginePrivate *engine) const;
+    int resolveCompositeEnumValue(QQmlEnginePrivate *engine, const QString &name, bool *ok) const;
+    friend class QQmlTypePrivate;
+
     friend QString registrationTypeString(RegistrationType);
     friend bool checkRegistration(RegistrationType, QQmlMetaTypeData *, const char *, const QString &, int);
-    friend int registerType(const QQmlPrivate::RegisterType &);
-    friend int registerSingletonType(const QQmlPrivate::RegisterSingletonType &);
-    friend int registerInterface(const QQmlPrivate::RegisterInterface &);
-    friend int registerCompositeType(const QQmlPrivate::RegisterCompositeType &);
-    friend int registerCompositeSingletonType(const QQmlPrivate::RegisterCompositeSingletonType &);
+    friend QQmlType registerType(const QQmlPrivate::RegisterType &);
+    friend QQmlType registerSingletonType(const QQmlPrivate::RegisterSingletonType &);
+    friend QQmlType registerInterface(const QQmlPrivate::RegisterInterface &);
     friend int registerQmlUnitCacheHook(const QQmlPrivate::RegisterQmlUnitCacheHook &);
+    friend uint qHash(const QQmlType &t, uint seed);
     friend Q_QML_EXPORT void qmlClearTypeRegistrations();
-    QQmlType(int, const QQmlPrivate::RegisterInterface &);
-    QQmlType(int, const QString &, const QQmlPrivate::RegisterSingletonType &);
-    QQmlType(int, const QString &, const QQmlPrivate::RegisterType &);
-    QQmlType(int, const QString &, const QQmlPrivate::RegisterCompositeType &);
-    QQmlType(int, const QString &, const QQmlPrivate::RegisterCompositeSingletonType &);
-    ~QQmlType();
+    friend class QQmlMetaType;
+
+    QQmlType(QQmlMetaTypeData *data, const QQmlPrivate::RegisterInterface &);
+    QQmlType(QQmlMetaTypeData *data, const QString &, const QQmlPrivate::RegisterSingletonType &);
+    QQmlType(QQmlMetaTypeData *data, const QString &, const QQmlPrivate::RegisterType &);
+    QQmlType(QQmlMetaTypeData *data, const QString &, const QQmlPrivate::RegisterCompositeType &);
+    QQmlType(QQmlMetaTypeData *data, const QString &, const QQmlPrivate::RegisterCompositeSingletonType &);
 
     QQmlTypePrivate *d;
 };
+
+Q_DECLARE_TYPEINFO(QQmlMetaType, Q_MOVABLE_TYPE);
+
+
+inline uint qHash(const QQmlType &t, uint seed = 0) { return qHash(reinterpret_cast<quintptr>(t.d), seed); }
+
 
 class QQmlTypeModulePrivate;
 class QQmlTypeModule
@@ -253,14 +296,16 @@ public:
     int minimumMinorVersion() const;
     int maximumMinorVersion() const;
 
-    QQmlType *type(const QHashedStringRef &, int);
-    QQmlType *type(const QV4::String *, int);
+    QQmlType type(const QHashedStringRef &, int) const;
+    QQmlType type(const QV4::String *, int) const;
 
-    QList<QQmlType*> singletonTypes(int) const;
+    void walkCompositeSingletons(const std::function<void(const QQmlType &)> &callback) const;
 
+    QQmlTypeModulePrivate *priv() { return d; }
 private:
     //Used by register functions and creates the QQmlTypeModule for them
-    friend void addTypeToData(QQmlType* type, QQmlMetaTypeData *data);
+    friend QQmlTypeModule *getTypeModule(const QHashedString &uri, int majorVersion, QQmlMetaTypeData *data);
+    friend void addTypeToData(QQmlTypePrivate *type, QQmlMetaTypeData *data);
     friend struct QQmlMetaTypeData;
     friend Q_QML_EXPORT void qmlClearTypeRegistrations();
     friend class QQmlTypeModulePrivate;
@@ -281,8 +326,8 @@ public:
     QQmlTypeModule *module() const;
     int minorVersion() const;
 
-    QQmlType *type(const QHashedStringRef &) const;
-    QQmlType *type(const QV4::String *) const;
+    QQmlType type(const QHashedStringRef &) const;
+    QQmlType type(const QV4::String *) const;
 
 private:
     QQmlTypeModule *m_module;

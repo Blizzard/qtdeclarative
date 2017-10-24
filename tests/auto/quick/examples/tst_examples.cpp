@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -34,7 +29,6 @@
 #include <qtest.h>
 #include <QLibraryInfo>
 #include <QDir>
-#include <QProcess>
 #include <QDebug>
 #include <QtQuick/QQuickItem>
 #include <QtQuick/QQuickView>
@@ -93,12 +87,6 @@ tst_examples::tst_examples()
     excludedDirs << "snippets/qml/qtbinding";
     excludedDirs << "snippets/qml/imports";
 
-#ifdef QT_NO_WEBKIT
-    excludedDirs << "qtquick/modelviews/webview";
-    excludedDirs << "demos/webbrowser";
-    excludedDirs << "doc/src/snippets/qml/webview";
-#endif
-
 #ifdef QT_NO_XMLPATTERNS
     excludedDirs << "demos/twitter";
     excludedDirs << "demos/flickr";
@@ -106,6 +94,18 @@ tst_examples::tst_examples()
     excludedFiles << "snippets/qml/xmlrole.qml";
     excludedFiles << "particles/itemparticle/particleview.qml";
     excludedFiles << "views/visualdatamodel/slideshow.qml";
+#endif
+
+#if !QT_CONFIG(opengl)
+    //No support for Particles
+    excludedFiles << "examples/qml/dynamicscene/dynamicscene.qml";
+    excludedFiles << "examples/quick/animation/basics/color-animation.qml";
+    excludedFiles << "examples/quick/particles/affectors/content/age.qml";
+    excludedFiles << "examples/quick/touchinteraction/multipointtouch/bearwhack.qml";
+    excludedFiles << "examples/quick/touchinteraction/multipointtouch/multiflame.qml";
+    excludedDirs << "examples/quick/particles";
+    // No Support for ShaderEffect
+    excludedFiles << "src/quick/doc/snippets/qml/animators.qml";
 #endif
 
 }
@@ -294,7 +294,6 @@ void tst_examples::sgsnippets_data()
 
 void tst_examples::sgsnippets()
 {
-    QQuickWindow window;
 
     QFETCH(QString, file);
 
@@ -304,19 +303,26 @@ void tst_examples::sgsnippets()
     QCOMPARE(component.status(), QQmlComponent::Ready);
 
     QScopedPointer<QObject> object(component.beginCreate(engine.rootContext()));
+    QQuickWindow *window = qobject_cast<QQuickWindow*>(object.data());
     QQuickItem *root = qobject_cast<QQuickItem *>(object.data());
-    if (!root)
+    if (!root && !window) {
         component.completeCreate();
-    QVERIFY(root);
+        QVERIFY(false);
+    }
+    if (!window)
+        window = new QQuickWindow;
 
-    window.resize(240, 320);
-    window.show();
-    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    window->resize(240, 320);
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
-    root->setParentItem(window.contentItem());
+    if (root)
+        root->setParentItem(window->contentItem());
     component.completeCreate();
 
     qApp->processEvents();
+    if (root)
+        delete window;
 }
 
 QTEST_MAIN(tst_examples)

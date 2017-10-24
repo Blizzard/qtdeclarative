@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -38,35 +44,14 @@
 #include "qquickitem_p.h"
 #include "qquickitemchangelistener_p.h"
 
-#include <private/qqmldebugconnector_p.h>
-#include <private/qquickprofiler_p.h>
-#include <private/qqmldebugserviceinterfaces_p.h>
 #include <private/qqmlmemoryprofiler_p.h>
 
 #include <QtQml/qqmlengine.h>
 #include <private/qqmlengine_p.h>
+#include <private/qv4qobjectwrapper_p.h>
 #include <QtCore/qbasictimer.h>
 
 QT_BEGIN_NAMESPACE
-
-DEFINE_OBJECT_VTABLE(QV4::QQuickRootItemMarker);
-
-QV4::Heap::QQuickRootItemMarker *QV4::QQuickRootItemMarker::create(QQmlEngine *engine, QQuickWindow *window)
-{
-    QV4::ExecutionEngine *e = QQmlEnginePrivate::getV4Engine(engine);
-    return e->memoryManager->allocObject<QQuickRootItemMarker>(window);
-}
-
-void QV4::QQuickRootItemMarker::markObjects(QV4::Heap::Base *that, QV4::ExecutionEngine *e)
-{
-    QQuickItem *root = static_cast<QQuickRootItemMarker::Data *>(that)->window->contentItem();
-    if (root) {
-        QQuickItemPrivate *rootPrivate = QQuickItemPrivate::get(root);
-        rootPrivate->markObjects(e);
-    }
-
-    QV4::Object::markObjects(that, e);
-}
 
 void QQuickViewPrivate::init(QQmlEngine* e)
 {
@@ -77,19 +62,17 @@ void QQuickViewPrivate::init(QQmlEngine* e)
     if (engine.isNull())
         engine = new QQmlEngine(q);
 
+    QQmlEngine::setContextForObject(contentItem, engine.data()->rootContext());
+
     if (!engine.data()->incubationController())
         engine.data()->setIncubationController(q->incubationController());
 
     {
+        // The content item has CppOwnership policy (set in QQuickWindow). Ensure the presence of a JS
+        // wrapper so that the garbage collector can see the policy.
         QV4::ExecutionEngine *v4 = QQmlEnginePrivate::getV4Engine(engine.data());
-        QV4::Scope scope(v4);
-        QV4::Scoped<QV4::QQuickRootItemMarker> v(scope, QV4::QQuickRootItemMarker::create(engine.data(), q));
-        rootItemMarker.set(v4, v);
+        QV4::QObjectWrapper::wrap(v4, contentItem);
     }
-
-    QQmlInspectorService *service = QQmlDebugConnector::service<QQmlInspectorService>();
-    if (service)
-        service->addView(q);
 }
 
 QQuickViewPrivate::QQuickViewPrivate()
@@ -99,9 +82,6 @@ QQuickViewPrivate::QQuickViewPrivate()
 
 QQuickViewPrivate::~QQuickViewPrivate()
 {
-    QQmlInspectorService *service = QQmlDebugConnector::service<QQmlInspectorService>();
-    if (service)
-        service->removeView(q_func());
 }
 
 void QQuickViewPrivate::execute()
@@ -132,14 +112,15 @@ void QQuickViewPrivate::execute()
     }
 }
 
-void QQuickViewPrivate::itemGeometryChanged(QQuickItem *resizeItem, const QRectF &newGeometry, const QRectF &oldGeometry)
+void QQuickViewPrivate::itemGeometryChanged(QQuickItem *resizeItem, QQuickGeometryChange change,
+                                            const QRectF &oldGeometry)
 {
     Q_Q(QQuickView);
     if (resizeItem == root && resizeMode == QQuickView::SizeViewToRootObject) {
         // wait for both width and height to be changed
         resizetimer.start(0,q);
     }
-    QQuickItemChangeListener::itemGeometryChanged(resizeItem, newGeometry, oldGeometry);
+    QQuickItemChangeListener::itemGeometryChanged(resizeItem, change, oldGeometry);
 }
 
 /*!
@@ -195,9 +176,8 @@ QQuickView::QQuickView(QWindow *parent)
 
 */
 QQuickView::QQuickView(const QUrl &source, QWindow *parent)
-: QQuickWindow(*(new QQuickViewPrivate), parent)
+    : QQuickView(parent)
 {
-    d_func()->init();
     setSource(source);
 }
 
@@ -268,8 +248,8 @@ void QQuickView::setContent(const QUrl& url, QQmlComponent *component, QObject* 
     d->component = component;
 
     if (d->component && d->component->isError()) {
-        QList<QQmlError> errorList = d->component->errors();
-        foreach (const QQmlError &error, errorList) {
+        const QList<QQmlError> errorList = d->component->errors();
+        for (const QQmlError &error : errorList) {
             QMessageLogger(error.url().toString().toLatin1().constData(), error.line(), 0).warning()
                     << error;
         }
@@ -434,9 +414,14 @@ void QQuickViewPrivate::updateSize()
             q->resize(newSize);
         }
     } else if (resizeMode == QQuickView::SizeRootObjectToView) {
-        if (!qFuzzyCompare(q->width(), root->width()))
+        bool needToUpdateWidth = !qFuzzyCompare(q->width(), root->width());
+        bool needToUpdateHeight = !qFuzzyCompare(q->height(), root->height());
+
+        if (needToUpdateWidth && needToUpdateHeight)
+            root->setSize(QSizeF(q->width(), q->height()));
+        else if (needToUpdateWidth)
             root->setWidth(q->width());
-        if (!qFuzzyCompare(q->height(), root->height()))
+        else if (needToUpdateHeight)
             root->setHeight(q->height());
     }
 }
@@ -474,8 +459,8 @@ void QQuickView::continueExecute()
     disconnect(d->component, SIGNAL(statusChanged(QQmlComponent::Status)), this, SLOT(continueExecute()));
 
     if (d->component->isError()) {
-        QList<QQmlError> errorList = d->component->errors();
-        foreach (const QQmlError &error, errorList) {
+        const QList<QQmlError> errorList = d->component->errors();
+        for (const QQmlError &error : errorList) {
             QMessageLogger(error.url().toString().toLatin1().constData(), error.line(), 0).warning()
                     << error;
         }
@@ -486,8 +471,8 @@ void QQuickView::continueExecute()
     QObject *obj = d->component->create();
 
     if (d->component->isError()) {
-        QList<QQmlError> errorList = d->component->errors();
-        foreach (const QQmlError &error, errorList) {
+        const QList<QQmlError> errorList = d->component->errors();
+        for (const QQmlError &error : errorList) {
             QMessageLogger(error.url().toString().toLatin1().constData(), error.line(), 0).warning()
                     << error;
         }
@@ -511,6 +496,7 @@ void QQuickViewPrivate::setRootObject(QObject *obj)
     if (QQuickItem *sgItem = qobject_cast<QQuickItem *>(obj)) {
         root = sgItem;
         sgItem->setParentItem(q->QQuickWindow::contentItem());
+        QQml_setParent_noEvent(sgItem, q->QQuickWindow::contentItem());
     } else if (qobject_cast<QWindow *>(obj)) {
         qWarning() << "QQuickView does not support using windows as a root item." << endl
                    << endl
@@ -601,42 +587,34 @@ void QQuickView::resizeEvent(QResizeEvent *e)
 /*! \reimp */
 void QQuickView::keyPressEvent(QKeyEvent *e)
 {
-    Q_QUICK_INPUT_PROFILE(addEvent<QQuickProfiler::Key>());
-
     QQuickWindow::keyPressEvent(e);
 }
 
 /*! \reimp */
 void QQuickView::keyReleaseEvent(QKeyEvent *e)
 {
-    Q_QUICK_INPUT_PROFILE(addEvent<QQuickProfiler::Key>());
-
     QQuickWindow::keyReleaseEvent(e);
 }
 
 /*! \reimp */
 void QQuickView::mouseMoveEvent(QMouseEvent *e)
 {
-    Q_QUICK_INPUT_PROFILE(addEvent<QQuickProfiler::Mouse>());
-
     QQuickWindow::mouseMoveEvent(e);
 }
 
 /*! \reimp */
 void QQuickView::mousePressEvent(QMouseEvent *e)
 {
-    Q_QUICK_INPUT_PROFILE(addEvent<QQuickProfiler::Mouse>());
-
     QQuickWindow::mousePressEvent(e);
 }
 
 /*! \reimp */
 void QQuickView::mouseReleaseEvent(QMouseEvent *e)
 {
-    Q_QUICK_INPUT_PROFILE(addEvent<QQuickProfiler::Mouse>());
-
     QQuickWindow::mouseReleaseEvent(e);
 }
 
 
 QT_END_NAMESPACE
+
+#include "moc_qquickview.cpp"

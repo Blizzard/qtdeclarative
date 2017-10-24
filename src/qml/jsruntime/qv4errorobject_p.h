@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -67,68 +73,72 @@ struct ErrorObject : Object {
         URIError
     };
 
-    ErrorObject();
-    ErrorObject(const Value &message, ErrorType t = Error);
-    ErrorObject(const Value &message, const QString &fileName, int line, int column, ErrorType t = Error);
+    void init();
+    void init(const Value &message, ErrorType t = Error);
+    void init(const Value &message, const QString &fileName, int line, int column, ErrorType t = Error);
+    void destroy() {
+        delete stackTrace;
+        Object::destroy();
+    }
 
     ErrorType errorType;
-    StackTrace stackTrace;
+    StackTrace *stackTrace;
     Pointer<String> stack;
 };
 
 struct EvalErrorObject : ErrorObject {
-    EvalErrorObject(const Value &message);
+    void init(const Value &message);
 };
 
 struct RangeErrorObject : ErrorObject {
-    RangeErrorObject(const Value &message);
+    void init(const Value &message);
 };
 
 struct ReferenceErrorObject : ErrorObject {
-    ReferenceErrorObject(const Value &message);
-    ReferenceErrorObject(const Value &msg, const QString &fileName, int lineNumber, int columnNumber);
+    void init(const Value &message);
+    void init(const Value &msg, const QString &fileName, int lineNumber, int columnNumber);
 };
 
 struct SyntaxErrorObject : ErrorObject {
-    SyntaxErrorObject(const Value &message);
-    SyntaxErrorObject(const Value &msg, const QString &fileName, int lineNumber, int columnNumber);
+    void init(const Value &message);
+    void init(const Value &msg, const QString &fileName, int lineNumber, int columnNumber);
 };
 
 struct TypeErrorObject : ErrorObject {
-    TypeErrorObject(const Value &message);
+    void init(const Value &message);
 };
 
 struct URIErrorObject : ErrorObject {
-    URIErrorObject(const Value &message);
+    void init(const Value &message);
 };
 
 struct ErrorCtor : Heap::FunctionObject {
-    ErrorCtor(QV4::ExecutionContext *scope);
-    ErrorCtor(QV4::ExecutionContext *scope, const QString &name);
+    void init(QV4::ExecutionContext *scope);
+    void init(QV4::ExecutionContext *scope, const QString &name);
 };
 
 struct EvalErrorCtor : ErrorCtor {
-    EvalErrorCtor(QV4::ExecutionContext *scope);
+    void init(QV4::ExecutionContext *scope);
 };
 
 struct RangeErrorCtor : ErrorCtor {
-    RangeErrorCtor(QV4::ExecutionContext *scope);
+    void init(QV4::ExecutionContext *scope);
 };
 
 struct ReferenceErrorCtor : ErrorCtor {
-    ReferenceErrorCtor(QV4::ExecutionContext *scope);
+    void init(QV4::ExecutionContext *scope);
 };
 
 struct SyntaxErrorCtor : ErrorCtor {
-    SyntaxErrorCtor(QV4::ExecutionContext *scope);
+    void init(QV4::ExecutionContext *scope);
 };
 
 struct TypeErrorCtor : ErrorCtor {
-    TypeErrorCtor(QV4::ExecutionContext *scope);
+    void init(QV4::ExecutionContext *scope);
 };
 
 struct URIErrorCtor : ErrorCtor {
-    URIErrorCtor(QV4::ExecutionContext *scope);
+    void init(QV4::ExecutionContext *scope);
 };
 
 }
@@ -147,7 +157,7 @@ struct ErrorObject: Object {
 
     V4_OBJECT2(ErrorObject, Object)
     Q_MANAGED_TYPE(ErrorObject)
-    V4_INTERNALCLASS(errorClass)
+    V4_INTERNALCLASS(ErrorObject)
     V4_PROTOTYPE(errorPrototype)
     V4_NEEDS_DESTROY
 
@@ -162,13 +172,13 @@ struct ErrorObject: Object {
 
     static const char *className(Heap::ErrorObject::ErrorType t);
 
-    static ReturnedValue method_get_stack(CallContext *ctx);
+    static void method_get_stack(const BuiltinFunction *, Scope &scope, CallData *callData);
     static void markObjects(Heap::Base *that, ExecutionEngine *e);
 };
 
 template<>
 inline const ErrorObject *Value::as() const {
-    return isManaged() && m() && m()->vtable()->isErrorObject ? reinterpret_cast<const ErrorObject *>(this) : 0;
+    return isManaged() && m()->vtable()->isErrorObject ? reinterpret_cast<const ErrorObject *>(this) : 0;
 }
 
 struct EvalErrorObject: ErrorObject {
@@ -193,8 +203,10 @@ struct ReferenceErrorObject: ErrorObject {
 };
 
 struct SyntaxErrorObject: ErrorObject {
-    V4_OBJECT2(SyntaxErrorObject, ErrorObject)
+    typedef Heap::SyntaxErrorObject Data;
     V4_PROTOTYPE(syntaxErrorPrototype)
+    const Data *d() const { return static_cast<const Data *>(ErrorObject::d()); }
+    Data *d() { return static_cast<Data *>(ErrorObject::d()); }
 };
 
 struct TypeErrorObject: ErrorObject {
@@ -215,50 +227,50 @@ struct ErrorCtor: FunctionObject
 {
     V4_OBJECT2(ErrorCtor, FunctionObject)
 
-    static ReturnedValue construct(const Managed *, CallData *callData);
-    static ReturnedValue call(const Managed *that, CallData *callData);
+    static void construct(const Managed *, Scope &scope, CallData *callData);
+    static void call(const Managed *that, Scope &scope, CallData *callData);
 };
 
 struct EvalErrorCtor: ErrorCtor
 {
     V4_OBJECT2(EvalErrorCtor, ErrorCtor)
 
-    static ReturnedValue construct(const Managed *m, CallData *callData);
+    static void construct(const Managed *m, Scope &scope, CallData *callData);
 };
 
 struct RangeErrorCtor: ErrorCtor
 {
     V4_OBJECT2(RangeErrorCtor, ErrorCtor)
 
-    static ReturnedValue construct(const Managed *m, CallData *callData);
+    static void construct(const Managed *, Scope &scope, CallData *callData);
 };
 
 struct ReferenceErrorCtor: ErrorCtor
 {
     V4_OBJECT2(ReferenceErrorCtor, ErrorCtor)
 
-    static ReturnedValue construct(const Managed *m, CallData *callData);
+    static void construct(const Managed *m, Scope &scope, CallData *callData);
 };
 
 struct SyntaxErrorCtor: ErrorCtor
 {
     V4_OBJECT2(SyntaxErrorCtor, ErrorCtor)
 
-    static ReturnedValue construct(const Managed *m, CallData *callData);
+    static void construct(const Managed *m, Scope &scope, CallData *callData);
 };
 
 struct TypeErrorCtor: ErrorCtor
 {
     V4_OBJECT2(TypeErrorCtor, ErrorCtor)
 
-    static ReturnedValue construct(const Managed *m, CallData *callData);
+    static void construct(const Managed *m, Scope &scope, CallData *callData);
 };
 
 struct URIErrorCtor: ErrorCtor
 {
     V4_OBJECT2(URIErrorCtor, ErrorCtor)
 
-    static ReturnedValue construct(const Managed *m, CallData *callData);
+    static void construct(const Managed *m, Scope &scope, CallData *callData);
 };
 
 
@@ -272,7 +284,7 @@ struct ErrorPrototype : ErrorObject
     void init(ExecutionEngine *engine, Object *ctor) { init(engine, ctor, this, Heap::ErrorObject::Error); }
 
     static void init(ExecutionEngine *engine, Object *ctor, Object *obj, Heap::ErrorObject::ErrorType t);
-    static ReturnedValue method_toString(CallContext *ctx);
+    static void method_toString(const BuiltinFunction *, Scope &scope, CallData *callData);
 };
 
 struct EvalErrorPrototype : ErrorObject
@@ -314,19 +326,25 @@ inline SyntaxErrorObject *ErrorObject::asSyntaxError()
 
 template <typename T>
 Heap::Object *ErrorObject::create(ExecutionEngine *e, const Value &message) {
-    return e->memoryManager->allocObject<T>(message.isUndefined() ? e->errorClass : e->errorClassWithMessage, T::defaultPrototype(e), message);
+    InternalClass *ic = e->internalClasses[message.isUndefined() ? EngineBase::Class_ErrorObject : EngineBase::Class_ErrorObjectWithMessage];
+    ic = ic->changePrototype(T::defaultPrototype(e)->d());
+    return e->memoryManager->allocObject<T>(ic, T::defaultPrototype(e), message);
 }
 template <typename T>
 Heap::Object *ErrorObject::create(ExecutionEngine *e, const QString &message) {
     Scope scope(e);
     ScopedValue v(scope, message.isEmpty() ? Encode::undefined() : e->newString(message)->asReturnedValue());
-    return e->memoryManager->allocObject<T>(v->isUndefined() ? e->errorClass : e->errorClassWithMessage, T::defaultPrototype(e), v);
+    InternalClass *ic = e->internalClasses[v->isUndefined() ? EngineBase::Class_ErrorObject : EngineBase::Class_ErrorObjectWithMessage];
+    ic = ic->changePrototype(T::defaultPrototype(e)->d());
+    return e->memoryManager->allocObject<T>(ic, T::defaultPrototype(e), v);
 }
 template <typename T>
 Heap::Object *ErrorObject::create(ExecutionEngine *e, const QString &message, const QString &filename, int line, int column) {
     Scope scope(e);
     ScopedValue v(scope, message.isEmpty() ? Encode::undefined() : e->newString(message)->asReturnedValue());
-    return e->memoryManager->allocObject<T>(v->isUndefined() ? e->errorClass : e->errorClassWithMessage, T::defaultPrototype(e), v, filename, line, column);
+    InternalClass *ic = e->internalClasses[v->isUndefined() ? EngineBase::Class_ErrorObject : EngineBase::Class_ErrorObjectWithMessage];
+    ic = ic->changePrototype(T::defaultPrototype(e)->d());
+    return e->memoryManager->allocObject<T>(ic, T::defaultPrototype(e), v, filename, line, column);
 }
 
 

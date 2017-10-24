@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -200,8 +206,8 @@ void QQuickItemParticle::tick(int time)
                 m_managed << d->delegate;
         }
         if (d && d->delegate){//###Data can be zero if creating an item leads to a reset - this screws things up.
-            d->delegate->setX(d->curX() - d->delegate->width()/2);//TODO: adjust for system?
-            d->delegate->setY(d->curY() - d->delegate->height()/2);
+            d->delegate->setX(d->curX(m_system) - d->delegate->width() / 2); //TODO: adjust for system?
+            d->delegate->setY(d->curY(m_system) - d->delegate->height() / 2);
             QQuickItemParticleAttached* mpa = qobject_cast<QQuickItemParticleAttached*>(qmlAttachedPropertiesObject<QQuickItemParticle>(d->delegate));
             if (mpa){
                 mpa->m_mp = this;
@@ -225,10 +231,10 @@ void QQuickItemParticle::reset()
     // delete all managed items which had their logical particles cleared
     // but leave it alone if the logical particle is maintained
     QSet<QQuickItem*> lost = QSet<QQuickItem*>::fromList(m_managed);
-    foreach (const QString group, m_groups){
-        int gIdx = m_system->groupIds[group];
-        foreach (QQuickParticleData* d, m_system->groupData[gIdx]->data)
-                lost.remove(d->delegate);
+    for (auto groupId : groupIds()) {
+        for (QQuickParticleData* d : qAsConst(m_system->groupData[groupId]->data)) {
+            lost.remove(d->delegate);
+        }
     }
     m_deletables.append(lost.toList());
     //TODO: This doesn't yet handle calling detach on taken particles in the system reset case
@@ -243,11 +249,12 @@ QSGNode* QQuickItemParticle::updatePaintNode(QSGNode* n, UpdatePaintNodeData* d)
         m_pleaseReset = false;
         //Refill loadables, delayed here so as to only happen once per frame max
         //### Constant resetting might lead to m_loadables never being populated when tick() occurs
-        foreach (const QString group, m_groups){
-            int gIdx = m_system->groupIds[group];
-            foreach (QQuickParticleData* d, m_system->groupData[gIdx]->data)
-                if (!d->delegate && d->t != -1  && d->stillAlive())
+        for (auto groupId : groupIds()) {
+            for (QQuickParticleData* d : qAsConst(m_system->groupData[groupId]->data)) {
+                if (!d->delegate && d->t != -1  && d->stillAlive(m_system)) {
                     m_loadables << d;
+                }
+            }
         }
     }
     prepareNextFrame();
@@ -270,37 +277,32 @@ void QQuickItemParticle::prepareNextFrame()
         return;
 
     //TODO: Size, better fade?
-    foreach (const QString &str, m_groups){
-        const int gIdx = m_system->groupIds[str];
-        const QVector<QQuickParticleData*> dataVector = m_system->groupData.value(gIdx)->data;
-        const int count = dataVector.size();
-
-        for (int i=0; i<count; i++){
-            QQuickParticleData* data = dataVector.at(i);
+    for (auto groupId : groupIds()) {
+        for (QQuickParticleData* data : qAsConst(m_system->groupData[groupId]->data)) {
             QQuickItem* item = data->delegate;
             if (!item)
                 continue;
-            qreal t = ((timeStamp/1000.0) - data->t) / data->lifeSpan;
+            float t = ((timeStamp / 1000.0f) - data->t) / data->lifeSpan;
             if (m_stasis.contains(item)) {
                 data->t += dt;//Stasis effect
                 continue;
             }
-            if (t >= 1.0){//Usually happens from load
+            if (t >= 1.0f){//Usually happens from load
                 m_deletables << item;
                 data->delegate = 0;
             }else{//Fade
                 data->delegate->setVisible(true);
                 if (m_fade){
-                    qreal o = 1.;
-                    if (t<0.2)
-                        o = t*5;
-                    if (t>0.8)
+                    float o = 1.f;
+                    if (t <0.2f)
+                        o = t * 5;
+                    if (t > 0.8f)
                         o = (1-t)*5;
                     item->setOpacity(o);
                 }
             }
-            item->setX(data->curX() - item->width()/2 - m_systemOffset.x());
-            item->setY(data->curY() - item->height()/2 - m_systemOffset.y());
+            item->setX(data->curX(m_system) - item->width() / 2 - m_systemOffset.x());
+            item->setY(data->curY(m_system) - item->height() / 2 - m_systemOffset.y());
         }
     }
 }
@@ -311,3 +313,5 @@ QQuickItemParticleAttached *QQuickItemParticle::qmlAttachedProperties(QObject *o
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickitemparticle_p.cpp"

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -40,59 +46,11 @@
 #include "qv4stringobject_p.h"
 #endif
 #include <QtCore/QHash>
+#include <QtCore/private/qnumeric_p.h>
 
 using namespace QV4;
 
-static uint toArrayIndex(const QChar *ch, const QChar *end)
-{
-    uint i = ch->unicode() - '0';
-    if (i > 9)
-        return UINT_MAX;
-    ++ch;
-    // reject "01", "001", ...
-    if (i == 0 && ch != end)
-        return UINT_MAX;
-
-    while (ch < end) {
-        uint x = ch->unicode() - '0';
-        if (x > 9)
-            return UINT_MAX;
-        uint n = i*10 + x;
-        if (n < i)
-            // overflow
-            return UINT_MAX;
-        i = n;
-        ++ch;
-    }
-    return i;
-}
-
 #ifndef V4_BOOTSTRAP
-
-static uint toArrayIndex(const char *ch, const char *end)
-{
-    uint i = *ch - '0';
-    if (i > 9)
-        return UINT_MAX;
-    ++ch;
-    // reject "01", "001", ...
-    if (i == 0 && ch != end)
-        return UINT_MAX;
-
-    while (ch < end) {
-        uint x = *ch - '0';
-        if (x > 9)
-            return UINT_MAX;
-        uint n = i*10 + x;
-        if (n < i)
-            // overflow
-            return UINT_MAX;
-        i = n;
-        ++ch;
-    }
-    return i;
-}
-
 
 DEFINE_MANAGED_VTABLE(String);
 
@@ -117,9 +75,10 @@ bool String::isEqualTo(Managed *t, Managed *o)
 }
 
 
-Heap::String::String(MemoryManager *mm, const QString &t)
-    : mm(mm)
+void Heap::String::init(const QString &t)
 {
+    Base::init();
+
     subtype = String::StringType_Unknown;
 
     text = const_cast<QString &>(t).data_ptr();
@@ -130,9 +89,10 @@ Heap::String::String(MemoryManager *mm, const QString &t)
     len = text->size;
 }
 
-Heap::String::String(MemoryManager *mm, String *l, String *r)
-    : mm(mm)
+void Heap::String::init(String *l, String *r)
 {
+    Base::init();
+
     subtype = String::StringType_Unknown;
 
     left = l;
@@ -140,6 +100,7 @@ Heap::String::String(MemoryManager *mm, String *l, String *r)
     stringHash = UINT_MAX;
     largestSubLength = qMax(l->largestSubLength, r->largestSubLength);
     len = l->len + r->len;
+    Q_ASSERT(largestSubLength <= len);
 
     if (!l->largestSubLength && l->len > largestSubLength)
         largestSubLength = l->len;
@@ -149,6 +110,15 @@ Heap::String::String(MemoryManager *mm, String *l, String *r)
     // make sure we don't get excessive depth in our strings
     if (len > 256 && len >= 2*largestSubLength)
         simplifyString();
+}
+
+void Heap::String::destroy() {
+    if (!largestSubLength) {
+        internalClass->engine->memoryManager->changeUnmanagedHeapSizeUsage(qptrdiff(-text->size) * (int)sizeof(QChar));
+        if (!text->ref.deref())
+            QStringData::deallocate(text);
+    }
+    Base::destroy();
 }
 
 uint String::toUInt(bool *ok) const
@@ -169,12 +139,12 @@ uint String::toUInt(bool *ok) const
     return UINT_MAX;
 }
 
-void String::makeIdentifierImpl(ExecutionEngine *e) const
+void String::makeIdentifierImpl() const
 {
     if (d()->largestSubLength)
         d()->simplifyString();
     Q_ASSERT(!d()->largestSubLength);
-    e->identifierTable->identifier(this);
+    engine()->identifierTable->identifier(this);
 }
 
 void Heap::String::simplifyString() const
@@ -189,32 +159,7 @@ void Heap::String::simplifyString() const
     text->ref.ref();
     identifier = 0;
     largestSubLength = 0;
-    mm->growUnmanagedHeapSizeUsage(size_t(text->size) * sizeof(QChar));
-}
-
-void Heap::String::createHashValue() const
-{
-    if (largestSubLength)
-        simplifyString();
-    Q_ASSERT(!largestSubLength);
-    const QChar *ch = reinterpret_cast<const QChar *>(text->data());
-    const QChar *end = ch + text->size;
-
-    // array indices get their number as hash value
-    stringHash = ::toArrayIndex(ch, end);
-    if (stringHash != UINT_MAX) {
-        subtype = Heap::String::StringType_ArrayIndex;
-        return;
-    }
-
-    uint h = 0xffffffff;
-    while (ch < end) {
-        h = 31 * h + ch->unicode();
-        ++ch;
-    }
-
-    stringHash = h;
-    subtype = Heap::String::StringType_Regular;
+    internalClass->engine->memoryManager->changeUnmanagedHeapSizeUsage(qptrdiff(text->size) * (qptrdiff)sizeof(QChar));
 }
 
 void Heap::String::append(const String *data, QChar *ch)
@@ -237,45 +182,14 @@ void Heap::String::append(const String *data, QChar *ch)
     }
 }
 
-
-
-
-uint String::createHashValue(const QChar *ch, int length)
+void Heap::String::createHashValue() const
 {
-    const QChar *end = ch + length;
-
-    // array indices get their number as hash value
-    uint stringHash = ::toArrayIndex(ch, end);
-    if (stringHash != UINT_MAX)
-        return stringHash;
-
-    uint h = 0xffffffff;
-    while (ch < end) {
-        h = 31 * h + ch->unicode();
-        ++ch;
-    }
-
-    return h;
-}
-
-uint String::createHashValue(const char *ch, int length)
-{
-    const char *end = ch + length;
-
-    // array indices get their number as hash value
-    uint stringHash = ::toArrayIndex(ch, end);
-    if (stringHash != UINT_MAX)
-        return stringHash;
-
-    uint h = 0xffffffff;
-    while (ch < end) {
-        if ((uchar)(*ch) >= 0x80)
-            return UINT_MAX;
-        h = 31 * h + *ch;
-        ++ch;
-    }
-
-    return h;
+    if (largestSubLength)
+        simplifyString();
+    Q_ASSERT(!largestSubLength);
+    const QChar *ch = reinterpret_cast<const QChar *>(text->data());
+    const QChar *end = ch + text->size;
+    stringHash = QV4::String::calculateHashValue(ch, end, &subtype);
 }
 
 uint String::getLength(const Managed *m)
@@ -287,6 +201,6 @@ uint String::getLength(const Managed *m)
 
 uint String::toArrayIndex(const QString &str)
 {
-    return ::toArrayIndex(str.constData(), str.constData() + str.length());
+    return QV4::String::toArrayIndex(str.constData(), str.constData() + str.length());
 }
 

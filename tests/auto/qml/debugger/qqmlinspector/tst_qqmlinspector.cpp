@@ -1,101 +1,147 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <qtest.h>
-#include <QSignalSpy>
-#include <QTimer>
-#include <QHostAddress>
-#include <QDebug>
-#include <QThread>
-#include <QtCore/QLibraryInfo>
 
+#include "qqmlinspectorclient.h"
 #include "../shared/debugutil_p.h"
 #include "../../../shared/util.h"
-#include "qqmlinspectorclient.h"
+
+#include <private/qqmldebugconnection_p.h>
+
+#include <QtTest/qtest.h>
+#include <QtTest/qsignalspy.h>
+#include <QtCore/qtimer.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qthread.h>
+#include <QtCore/qlibraryinfo.h>
+#include <QtNetwork/qhostaddress.h>
 
 #define STR_PORT_FROM "3772"
 #define STR_PORT_TO "3782"
-
 
 
 class tst_QQmlInspector : public QQmlDataTest
 {
     Q_OBJECT
 
-public:
-    tst_QQmlInspector()
-        : m_process(0)
-        , m_connection(0)
-        , m_client(0)
-    {
-    }
+private:
+    void startQmlProcess(const QString &qmlFile, bool restrictMode = true);
+    void checkAnimationSpeed(int targetMillisPerDegree);
 
 private:
-    void startQmlsceneProcess(const char *qmlFile, bool restrictMode = true);
-
-private:
-    QQmlDebugProcess *m_process;
-    QQmlDebugConnection *m_connection;
-    QQmlInspectorClient *m_client;
+    QScopedPointer<QQmlDebugProcess> m_process;
+    QScopedPointer<QQmlDebugConnection> m_connection;
+    QScopedPointer<QQmlInspectorClient> m_client;
+    QScopedPointer<QQmlInspectorResultRecipient> m_recipient;
 
 private slots:
     void cleanup();
 
     void connect_data();
     void connect();
+    void setAnimationSpeed();
     void showAppOnTop();
-    void reloadQml();
-    void reloadQmlWindow();
 };
 
-void tst_QQmlInspector::startQmlsceneProcess(const char * /* qmlFile */, bool restrictServices)
+void tst_QQmlInspector::startQmlProcess(const QString &qmlFile, bool restrictServices)
 {
     const QString argument = QString::fromLatin1("-qmljsdebugger=port:%1,%2,block%3")
             .arg(STR_PORT_FROM).arg(STR_PORT_TO)
             .arg(restrictServices ? QStringLiteral(",services:QmlInspector") : QString());
 
-    // ### This should be using qml instead of qmlscene, but can't because of QTBUG-33376 (same as the XFAIL testcase)
-    m_process = new QQmlDebugProcess(QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmlscene", this);
-    m_process->start(QStringList() << argument << testFile("qtquick2.qml"));
+    m_process.reset(new QQmlDebugProcess(QLibraryInfo::location(QLibraryInfo::BinariesPath) +
+                                         "/qml"));
+    // Make sure the animation timing is exact
+    m_process->addEnvironment(QLatin1String("QSG_RENDER_LOOP=basic"));
+    m_process->start(QStringList() << argument << testFile(qmlFile));
     QVERIFY2(m_process->waitForSessionStart(),
              "Could not launch application, or did not get 'Waiting for connection'.");
 
-    m_connection = new QQmlDebugConnection();
-    m_client = new QQmlInspectorClient(m_connection);
+    m_client.reset();
+    m_connection.reset(new QQmlDebugConnection);
+    m_client.reset(new QQmlInspectorClient(m_connection.data()));
+
+    m_recipient.reset(new QQmlInspectorResultRecipient);
+    QObject::connect(m_client.data(), &QQmlInspectorClient::responseReceived,
+                     m_recipient.data(), &QQmlInspectorResultRecipient::recordResponse);
+
+    QList<QQmlDebugClient *> others = QQmlDebugTest::createOtherClients(m_connection.data());
 
     m_connection->connectToHost(QLatin1String("127.0.0.1"), m_process->debugPort());
-    QVERIFY(m_client);
     QTRY_COMPARE(m_client->state(), QQmlDebugClient::Enabled);
 
+    foreach (QQmlDebugClient *other, others)
+        QCOMPARE(other->state(), restrictServices ? QQmlDebugClient::Unavailable :
+                                                    QQmlDebugClient::Enabled);
+    qDeleteAll(others);
+}
+
+void tst_QQmlInspector::checkAnimationSpeed(int targetMillisPerDegree)
+{
+    const QString markerString = QStringLiteral("ms/degrees");
+
+    // Funny things can happen with time and VMs. Also the change might take a while to propagate.
+    // Thus, we wait until we either have 3 passes or 3 failures in a row, or 10 loops have passed.
+
+    int numFailures = 0;
+    int numPasses = 0;
+
+    for (int i = 0; i < 10; ++i) {
+        QString output = m_process->output();
+        int position = output.length();
+        do {
+            QVERIFY(QQmlDebugTest::waitForSignal(m_process.data(),
+                                                 SIGNAL(readyReadStandardOutput())));
+            output = m_process->output();
+        } while (!output.mid(position).contains(markerString));
+
+
+        QStringList words = output.split(QLatin1Char(' '));
+        const int marker = words.lastIndexOf(markerString);
+        QVERIFY(marker > 1);
+        const double degrees = words[marker - 1].toDouble();
+        const int milliseconds = words[marker - 2].toInt();
+        const double millisecondsPerDegree = milliseconds / degrees;
+
+        if (millisecondsPerDegree > targetMillisPerDegree - 3
+                || millisecondsPerDegree < targetMillisPerDegree + 3) {
+            if (++numPasses == 3)
+                return; // pass
+            numFailures = 0;
+        } else {
+            QVERIFY2(++numFailures < 3,
+                     QString("3 consecutive failures when checking for %1 milliseconds per degree")
+                     .arg(targetMillisPerDegree).toLocal8Bit().constData());
+            numPasses = 0;
+        }
+    }
+
+    QFAIL(QString("Animation speed won't settle to %1 milliseconds per degree")
+          .arg(targetMillisPerDegree).toLocal8Bit().constData());
 }
 
 void tst_QQmlInspector::cleanup()
@@ -104,93 +150,71 @@ void tst_QQmlInspector::cleanup()
         qDebug() << "Process State:" << m_process->state();
         qDebug() << "Application Output:" << m_process->output();
     }
-    delete m_client;
-    m_client = 0;
-    delete m_connection;
-    m_connection = 0;
-    delete m_process;
-    m_process = 0;
 }
 
 void tst_QQmlInspector::connect_data()
 {
+    QTest::addColumn<QString>("file");
     QTest::addColumn<bool>("restrictMode");
-    QTest::newRow("unrestricted") << false;
-    QTest::newRow("restricted") << true;
+    QTest::newRow("rectangle/unrestricted") << "qtquick2.qml" << false;
+    QTest::newRow("rectangle/restricted")   << "qtquick2.qml" << true;
+    QTest::newRow("window/unrestricted")    << "window.qml"   << false;
+    QTest::newRow("window/restricted")      << "window.qml"   << true;
 }
 
 void tst_QQmlInspector::connect()
 {
+    QFETCH(QString, file);
     QFETCH(bool, restrictMode);
-    startQmlsceneProcess("qtquick2.qml", restrictMode);
+    startQmlProcess(file, restrictMode);
+    QVERIFY(m_client);
+    QTRY_COMPARE(m_client->state(), QQmlDebugClient::Enabled);
+
+    int requestId = m_client->setInspectToolEnabled(true);
+    QTRY_COMPARE(m_recipient->lastResponseId, requestId);
+    QVERIFY(m_recipient->lastResult);
+
+    requestId = m_client->setInspectToolEnabled(false);
+    QTRY_COMPARE(m_recipient->lastResponseId, requestId);
+    QVERIFY(m_recipient->lastResult);
 }
 
 void tst_QQmlInspector::showAppOnTop()
 {
-    startQmlsceneProcess("qtquick2.qml");
+    startQmlProcess("qtquick2.qml");
     QVERIFY(m_client);
     QTRY_COMPARE(m_client->state(), QQmlDebugClient::Enabled);
 
-    m_client->setShowAppOnTop(true);
-    QVERIFY(QQmlDebugTest::waitForSignal(m_client, SIGNAL(responseReceived())));
-    QCOMPARE(m_client->m_requestResult, true);
+    int requestId = m_client->setShowAppOnTop(true);
+    QTRY_COMPARE(m_recipient->lastResponseId, requestId);
+    QVERIFY(m_recipient->lastResult);
 
-    m_client->setShowAppOnTop(false);
-    QVERIFY(QQmlDebugTest::waitForSignal(m_client, SIGNAL(responseReceived())));
-    QCOMPARE(m_client->m_requestResult, true);
+    requestId = m_client->setShowAppOnTop(false);
+    QTRY_COMPARE(m_recipient->lastResponseId, requestId);
+    QVERIFY(m_recipient->lastResult);
 }
 
-void tst_QQmlInspector::reloadQml()
+void tst_QQmlInspector::setAnimationSpeed()
 {
-    startQmlsceneProcess("qtquick2.qml");
+    startQmlProcess("qtquick2.qml");
     QVERIFY(m_client);
     QTRY_COMPARE(m_client->state(), QQmlDebugClient::Enabled);
+    checkAnimationSpeed(10);
 
-    QByteArray fileContents;
+    int requestId = m_client->setAnimationSpeed(0.5);
+    QTRY_COMPARE(m_recipient->lastResponseId, requestId);
+    QVERIFY(m_recipient->lastResult);
+    checkAnimationSpeed(5);
 
-    QFile file(testFile("changes.txt"));
-    if (file.open(QFile::ReadOnly))
-        fileContents = file.readAll();
-    file.close();
+    requestId = m_client->setAnimationSpeed(2.0);
+    QTRY_COMPARE(m_recipient->lastResponseId, requestId);
+    QVERIFY(m_recipient->lastResult);
+    checkAnimationSpeed(20);
 
-    QHash<QString, QByteArray> changesHash;
-    changesHash.insert("qtquick2.qml", fileContents);
-
-    m_client->reloadQml(changesHash);
-    QVERIFY(QQmlDebugTest::waitForSignal(m_client, SIGNAL(responseReceived())));
-
-    QTRY_COMPARE(m_process->output().contains(
-                 QString("version 2.0")), true);
-
-    QCOMPARE(m_client->m_requestResult, true);
-    QCOMPARE(m_client->m_reloadRequestId, m_client->m_responseId);
-}
-
-void tst_QQmlInspector::reloadQmlWindow()
-{
-    startQmlsceneProcess("window.qml");
-    QVERIFY(m_client);
-    QTRY_COMPARE(m_client->state(), QQmlDebugClient::Enabled);
-
-    QByteArray fileContents;
-
-    QFile file(testFile("changes.txt"));
-    if (file.open(QFile::ReadOnly))
-        fileContents = file.readAll();
-    file.close();
-
-    QHash<QString, QByteArray> changesHash;
-    changesHash.insert("window.qml", fileContents);
-
-    m_client->reloadQml(changesHash);
-    QVERIFY(QQmlDebugTest::waitForSignal(m_client, SIGNAL(responseReceived())));
-
-    QEXPECT_FAIL("", "cannot debug with a QML file containing a top-level Window", Abort); // QTBUG-33376
-    // TODO: remove the timeout once we don't expect it to fail anymore.
-    QTRY_VERIFY_WITH_TIMEOUT(m_process->output().contains(QString("version 2.0")), 1);
-
-    QCOMPARE(m_client->m_requestResult, true);
-    QCOMPARE(m_client->m_reloadRequestId, m_client->m_responseId);
+    requestId = m_client->setAnimationSpeed(1.0);
+    QTRY_COMPARE(m_recipient->lastResponseId, requestId);
+    QVERIFY(m_recipient->lastResult);
+    checkAnimationSpeed(10);
 }
 
 QTEST_MAIN(tst_QQmlInspector)

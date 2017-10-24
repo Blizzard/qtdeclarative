@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -38,6 +33,7 @@
 #include <QHash>
 #include <QFile>
 #include <QXmlStreamReader>
+#include <QRegExp>
 
 #include <limits>
 
@@ -73,14 +69,14 @@ Q_STATIC_ASSERT(sizeof(MESSAGE_STRINGS) ==
 struct QmlRangeEventData {
     QmlRangeEventData() {} // never called
     QmlRangeEventData(const QString &_displayName, int _detailType, const QString &_eventHashStr,
-                      const QmlEventLocation &_location, const QString &_details,
+                      const QQmlEventLocation &_location, const QString &_details,
                       QQmlProfilerDefinitions::Message _message,
                       QQmlProfilerDefinitions::RangeType _rangeType)
         : displayName(_displayName), eventHashStr(_eventHashStr), location(_location),
           details(_details), message(_message), rangeType(_rangeType), detailType(_detailType) {}
     QString displayName;
     QString eventHashStr;
-    QmlEventLocation location;
+    QQmlEventLocation location;
     QString details;
     QQmlProfilerDefinitions::Message message;
     QQmlProfilerDefinitions::RangeType rangeType;
@@ -107,14 +103,17 @@ struct QmlRangeEventStartInstance {
     qint64 duration;
     union {
         int frameRate;
+        int inputType;
         qint64 numericData1;
     };
     union {
         int animationCount;
+        int inputA;
         qint64 numericData2;
     };
     union {
         int threadId;
+        int inputB;
         qint64 numericData3;
     };
     qint64 numericData4;
@@ -127,18 +126,6 @@ Q_DECLARE_TYPEINFO(QmlRangeEventData, Q_MOVABLE_TYPE);
 Q_DECLARE_TYPEINFO(QmlRangeEventStartInstance, Q_MOVABLE_TYPE);
 QT_END_NAMESPACE
 
-struct QV8EventInfo {
-    QString displayName;
-    QString eventHashStr;
-    QString functionName;
-    QString fileName;
-    int line;
-    qint64 totalTime;
-    qint64 selfTime;
-
-    QHash<QString, qint64> v8children;
-};
-
 /////////////////////////////////////////////////////////////////
 class QmlProfilerDataPrivate
 {
@@ -148,18 +135,12 @@ public:
     // data storage
     QHash<QString, QmlRangeEventData *> eventDescriptions;
     QVector<QmlRangeEventStartInstance> startInstanceList;
-    QHash<QString, QV8EventInfo *> v8EventHash;
 
     qint64 traceStartTime;
     qint64 traceEndTime;
 
     // internal state while collecting events
     qint64 qmlMeasuredTime;
-    qint64 v8MeasuredTime;
-    QHash<int, QV8EventInfo *> v8parents;
-    void clearV8RootEvent();
-    QV8EventInfo v8RootEvent;
-
     QmlProfilerData::State state;
 };
 
@@ -183,12 +164,6 @@ void QmlProfilerData::clear()
     d->eventDescriptions.clear();
     d->startInstanceList.clear();
 
-    qDeleteAll(d->v8EventHash);
-    d->v8EventHash.clear();
-    d->v8parents.clear();
-    d->clearV8RootEvent();
-    d->v8MeasuredTime = 0;
-
     d->traceEndTime = std::numeric_limits<qint64>::min();
     d->traceStartTime = std::numeric_limits<qint64>::max();
     d->qmlMeasuredTime = 0;
@@ -196,7 +171,7 @@ void QmlProfilerData::clear()
     setState(Empty);
 }
 
-QString QmlProfilerData::getHashStringForQmlEvent(const QmlEventLocation &location, int eventType)
+QString QmlProfilerData::getHashStringForQmlEvent(const QQmlEventLocation &location, int eventType)
 {
     return QString(QStringLiteral("%1:%2:%3:%4")).arg(
                 location.filename,
@@ -205,14 +180,9 @@ QString QmlProfilerData::getHashStringForQmlEvent(const QmlEventLocation &locati
                 QString::number(eventType));
 }
 
-QString QmlProfilerData::getHashStringForV8Event(const QString &displayName, const QString &function)
-{
-    return QString(QStringLiteral("%1:%2")).arg(displayName, function);
-}
-
 QString QmlProfilerData::qmlRangeTypeAsString(QQmlProfilerDefinitions::RangeType type)
 {
-    if (type * sizeof(QString) < sizeof(RANGE_TYPE_STRINGS))
+    if (type * sizeof(char *) < sizeof(RANGE_TYPE_STRINGS))
         return QLatin1String(RANGE_TYPE_STRINGS[type]);
     else
         return QString::number(type);
@@ -220,7 +190,7 @@ QString QmlProfilerData::qmlRangeTypeAsString(QQmlProfilerDefinitions::RangeType
 
 QString QmlProfilerData::qmlMessageAsString(QQmlProfilerDefinitions::Message type)
 {
-    if (type * sizeof(QString) < sizeof(MESSAGE_STRINGS))
+    if (type * sizeof(char *) < sizeof(MESSAGE_STRINGS))
         return QLatin1String(MESSAGE_STRINGS[type]);
     else
         return QString::number(type);
@@ -253,15 +223,13 @@ void QmlProfilerData::addQmlEvent(QQmlProfilerDefinitions::RangeType type,
                                   qint64 startTime,
                                   qint64 duration,
                                   const QStringList &data,
-                                  const QmlEventLocation &location)
+                                  const QQmlEventLocation &location)
 {
     setState(AcquiringData);
 
     QString details;
     // generate details string
-    if (data.isEmpty())
-        details = tr("Source code not available");
-    else {
+    if (!data.isEmpty()) {
         details = data.join(QLatin1Char(' ')).replace(
                     QLatin1Char('\n'), QLatin1Char(' ')).simplified();
         QRegExp rewrite(QStringLiteral("\\(function \\$(\\w+)\\(\\) \\{ (return |)(.+) \\}\\)"));
@@ -273,7 +241,7 @@ void QmlProfilerData::addQmlEvent(QQmlProfilerDefinitions::RangeType type,
             details = details.mid(details.lastIndexOf(QLatin1Char('/')) + 1);
     }
 
-    QmlEventLocation eventLocation = location;
+    QQmlEventLocation eventLocation = location;
     QString displayName, eventHashStr;
     // generate hash
     if (eventLocation.filename.isEmpty()) {
@@ -281,7 +249,7 @@ void QmlProfilerData::addQmlEvent(QQmlProfilerDefinitions::RangeType type,
         eventHashStr = getHashStringForQmlEvent(eventLocation, type);
     } else {
         const QString filePath = QUrl(eventLocation.filename).path();
-        displayName = filePath.mid(
+        displayName = filePath.midRef(
                     filePath.lastIndexOf(QLatin1Char('/')) + 1) +
                     QLatin1Char(':') + QString::number(eventLocation.line);
         eventHashStr = getHashStringForQmlEvent(eventLocation, type);
@@ -315,7 +283,7 @@ void QmlProfilerData::addFrameEvent(qint64 time, int framerate, int animationcou
     } else {
         newEvent = new QmlRangeEventData(displayName, QQmlProfilerDefinitions::AnimationFrame,
                                          eventHashStr,
-                                         QmlEventLocation(), details,
+                                         QQmlEventLocation(), details,
                                          QQmlProfilerDefinitions::Event,
                                          QQmlProfilerDefinitions::MaximumRangeType);
         d->eventDescriptions.insert(eventHashStr, newEvent);
@@ -340,7 +308,7 @@ void QmlProfilerData::addSceneGraphFrameEvent(QQmlProfilerDefinitions::SceneGrap
         newEvent = d->eventDescriptions[eventHashStr];
     } else {
         newEvent = new QmlRangeEventData(QStringLiteral("<SceneGraph>"), type, eventHashStr,
-                                         QmlEventLocation(), QString(),
+                                         QQmlEventLocation(), QString(),
                                          QQmlProfilerDefinitions::SceneGraphFrame,
                                          QQmlProfilerDefinitions::MaximumRangeType);
         d->eventDescriptions.insert(eventHashStr, newEvent);
@@ -353,26 +321,27 @@ void QmlProfilerData::addSceneGraphFrameEvent(QQmlProfilerDefinitions::SceneGrap
 }
 
 void QmlProfilerData::addPixmapCacheEvent(QQmlProfilerDefinitions::PixmapEventType type,
-                                          qint64 time, const QmlEventLocation &location,
-                                          int width, int height, int refcount)
+                                          qint64 time, const QString &location,
+                                          int numericData1, int numericData2)
 {
     setState(AcquiringData);
 
-    QString filePath = QUrl(location.filename).path();
+    QString filePath = QUrl(location).path();
 
-    QString eventHashStr = filePath.mid(filePath.lastIndexOf(QLatin1Char('/')) + 1) +
-            QStringLiteral(":") + QString::number(type);
+    const QString eventHashStr = filePath.midRef(filePath.lastIndexOf(QLatin1Char('/')) + 1)
+            + QLatin1Char(':') + QString::number(type);
     QmlRangeEventData *newEvent;
     if (d->eventDescriptions.contains(eventHashStr)) {
         newEvent = d->eventDescriptions[eventHashStr];
     } else {
-        newEvent = new QmlRangeEventData(eventHashStr, type, eventHashStr, location, QString(),
+        newEvent = new QmlRangeEventData(eventHashStr, type, eventHashStr,
+                                         QQmlEventLocation(location, -1, -1), QString(),
                                          QQmlProfilerDefinitions::PixmapCacheEvent,
                                          QQmlProfilerDefinitions::MaximumRangeType);
         d->eventDescriptions.insert(eventHashStr, newEvent);
     }
 
-    QmlRangeEventStartInstance rangeEventStartInstance(time, width, height, refcount, 0, 0,
+    QmlRangeEventStartInstance rangeEventStartInstance(time, numericData1, numericData2, 0, 0, 0,
                                                        newEvent);
     d->startInstanceList.append(rangeEventStartInstance);
 }
@@ -386,7 +355,7 @@ void QmlProfilerData::addMemoryEvent(QQmlProfilerDefinitions::MemoryType type, q
     if (d->eventDescriptions.contains(eventHashStr)) {
         newEvent = d->eventDescriptions[eventHashStr];
     } else {
-        newEvent = new QmlRangeEventData(eventHashStr, type, eventHashStr, QmlEventLocation(),
+        newEvent = new QmlRangeEventData(eventHashStr, type, eventHashStr, QQmlEventLocation(),
                                          QString(), QQmlProfilerDefinitions::MemoryAllocation,
                                          QQmlProfilerDefinitions::MaximumRangeType);
         d->eventDescriptions.insert(eventHashStr, newEvent);
@@ -395,93 +364,36 @@ void QmlProfilerData::addMemoryEvent(QQmlProfilerDefinitions::MemoryType type, q
     d->startInstanceList.append(rangeEventStartInstance);
 }
 
-void QmlProfilerData::addInputEvent(QQmlProfilerDefinitions::EventType type, qint64 time)
+void QmlProfilerData::addInputEvent(QQmlProfilerDefinitions::InputEventType type, qint64 time,
+                                    int a, int b)
 {
     setState(AcquiringData);
 
-    QString eventHashStr = QString::fromLatin1("Input:%1").arg(type);
+    QQmlProfilerDefinitions::EventType eventType;
+    switch (type) {
+    case QQmlProfilerDefinitions::InputKeyPress:
+    case QQmlProfilerDefinitions::InputKeyRelease:
+    case QQmlProfilerDefinitions::InputKeyUnknown:
+        eventType = QQmlProfilerDefinitions::Key;
+        break;
+    default:
+        eventType = QQmlProfilerDefinitions::Mouse;
+        break;
+    }
+
+    QString eventHashStr = QString::fromLatin1("Input:%1").arg(eventType);
 
     QmlRangeEventData *newEvent;
     if (d->eventDescriptions.contains(eventHashStr)) {
         newEvent = d->eventDescriptions[eventHashStr];
     } else {
-        newEvent = new QmlRangeEventData(QString(), type, eventHashStr, QmlEventLocation(),
+        newEvent = new QmlRangeEventData(QString(), eventType, eventHashStr, QQmlEventLocation(),
                                          QString(), QQmlProfilerDefinitions::Event,
                                          QQmlProfilerDefinitions::MaximumRangeType);
         d->eventDescriptions.insert(eventHashStr, newEvent);
     }
 
-    d->startInstanceList.append(QmlRangeEventStartInstance(time, -1, 0, 0, 0, newEvent));
-}
-
-QString QmlProfilerData::rootEventName()
-{
-    return tr("<program>");
-}
-
-QString QmlProfilerData::rootEventDescription()
-{
-    return tr("Main Program");
-}
-
-void QmlProfilerDataPrivate::clearV8RootEvent()
-{
-    v8RootEvent.displayName = QmlProfilerData::rootEventName();
-    v8RootEvent.eventHashStr = QmlProfilerData::rootEventName();
-    v8RootEvent.functionName = QmlProfilerData::rootEventDescription();
-    v8RootEvent.line = -1;
-    v8RootEvent.totalTime = 0;
-    v8RootEvent.selfTime = 0;
-    v8RootEvent.v8children.clear();
-}
-
-void QmlProfilerData::addV8Event(int depth, const QString &function, const QString &filename,
-                                 int lineNumber, double totalTime, double selfTime)
-{
-    QString displayName = filename.mid(filename.lastIndexOf(QLatin1Char('/')) + 1) +
-            QLatin1Char(':') + QString::number(lineNumber);
-    QString hashStr = getHashStringForV8Event(displayName, function);
-
-    setState(AcquiringData);
-
-    // time is given in milliseconds, but internally we store it in microseconds
-    totalTime *= 1e6;
-    selfTime *= 1e6;
-
-    // accumulate information
-    QV8EventInfo *eventData = d->v8EventHash[hashStr];
-    if (!eventData) {
-        eventData = new QV8EventInfo;
-        eventData->displayName = displayName;
-        eventData->eventHashStr = hashStr;
-        eventData->fileName = filename;
-        eventData->functionName = function;
-        eventData->line = lineNumber;
-        eventData->totalTime = totalTime;
-        eventData->selfTime = selfTime;
-        d->v8EventHash[hashStr] = eventData;
-    } else {
-        eventData->totalTime += totalTime;
-        eventData->selfTime += selfTime;
-    }
-    d->v8parents[depth] = eventData;
-
-    QV8EventInfo *parentEvent = 0;
-    if (depth == 0) {
-        parentEvent = &d->v8RootEvent;
-        d->v8MeasuredTime += totalTime;
-    }
-    if (depth > 0 && d->v8parents.contains(depth-1)) {
-        parentEvent = d->v8parents.value(depth-1);
-    }
-
-    if (parentEvent != 0) {
-        if (!parentEvent->v8children.contains(eventData->eventHashStr)) {
-            parentEvent->v8children[eventData->eventHashStr] = totalTime;
-        } else {
-            parentEvent->v8children[eventData->eventHashStr] += totalTime;
-        }
-    }
+    d->startInstanceList.append(QmlRangeEventStartInstance(time, -1, type, a, b, newEvent));
 }
 
 void QmlProfilerData::computeQmlTime()
@@ -492,23 +404,23 @@ void QmlProfilerData::computeQmlTime()
     int level = minimumLevel;
 
     for (int i = 0; i < d->startInstanceList.count(); i++) {
-        qint64 st = d->startInstanceList[i].startTime;
+        qint64 st = d->startInstanceList.at(i).startTime;
 
-        if (d->startInstanceList[i].data->rangeType == QQmlProfilerDefinitions::Painting) {
+        if (d->startInstanceList.at(i).data->rangeType == QQmlProfilerDefinitions::Painting) {
             continue;
         }
 
         // general level
-        if (endtimesPerLevel[level] > st) {
+        if (endtimesPerLevel.value(level) > st) {
             level++;
         } else {
             while (level > minimumLevel && endtimesPerLevel[level-1] <= st)
                 level--;
         }
-        endtimesPerLevel[level] = st + d->startInstanceList[i].duration;
+        endtimesPerLevel[level] = st + d->startInstanceList.at(i).duration;
 
         if (level == minimumLevel) {
-            d->qmlMeasuredTime += d->startInstanceList[i].duration;
+            d->qmlMeasuredTime += d->startInstanceList.at(i).duration;
         }
     }
 }
@@ -532,7 +444,7 @@ void QmlProfilerData::sortStartTimes()
         // find block to sort
         while ( itFrom != d->startInstanceList.begin()
                 && itTo->startTime > itFrom->startTime ) {
-            itTo--;
+            --itTo;
             itFrom = itTo - 1;
         }
 
@@ -543,7 +455,7 @@ void QmlProfilerData::sortStartTimes()
         // find block length
         while ( itFrom != d->startInstanceList.begin()
                 && itTo->startTime <= itFrom->startTime )
-            itFrom--;
+            --itFrom;
 
         if (itTo->startTime <= itFrom->startTime)
             std::sort(itFrom, itTo + 1, compareStartTimes);
@@ -567,7 +479,7 @@ void QmlProfilerData::complete()
 
 bool QmlProfilerData::isEmpty() const
 {
-    return d->startInstanceList.isEmpty() && d->v8EventHash.isEmpty();
+    return d->startInstanceList.isEmpty();
 }
 
 bool QmlProfilerData::save(const QString &filename)
@@ -604,25 +516,31 @@ bool QmlProfilerData::save(const QString &filename)
     stream.writeStartElement(QStringLiteral("eventData"));
     stream.writeAttribute(QStringLiteral("totalTime"), QString::number(d->qmlMeasuredTime));
 
-    foreach (const QmlRangeEventData *eventData, d->eventDescriptions.values()) {
+    const auto eventDescriptionsKeys = d->eventDescriptions.keys();
+    for (auto it = d->eventDescriptions.cbegin(), end = d->eventDescriptions.cend();
+         it != end; ++it) {
+        const QmlRangeEventData *eventData = it.value();
         stream.writeStartElement(QStringLiteral("event"));
         stream.writeAttribute(QStringLiteral("index"), QString::number(
-                                  d->eventDescriptions.keys().indexOf(eventData->eventHashStr)));
-        stream.writeTextElement(QStringLiteral("displayname"), eventData->displayName);
+                                  eventDescriptionsKeys.indexOf(eventData->eventHashStr)));
+        if (!eventData->displayName.isEmpty())
+            stream.writeTextElement(QStringLiteral("displayname"), eventData->displayName);
         if (eventData->rangeType != QQmlProfilerDefinitions::MaximumRangeType)
             stream.writeTextElement(QStringLiteral("type"),
                                     qmlRangeTypeAsString(eventData->rangeType));
         else
             stream.writeTextElement(QStringLiteral("type"),
                                     qmlMessageAsString(eventData->message));
-        if (!eventData->location.filename.isEmpty()) {
+        if (!eventData->location.filename.isEmpty())
             stream.writeTextElement(QStringLiteral("filename"), eventData->location.filename);
+        if (eventData->location.line >= 0)
             stream.writeTextElement(QStringLiteral("line"),
                                     QString::number(eventData->location.line));
+        if (eventData->location.column >= 0)
             stream.writeTextElement(QStringLiteral("column"),
                                     QString::number(eventData->location.column));
-        }
-        stream.writeTextElement(QStringLiteral("details"), eventData->details);
+        if (!eventData->details.isEmpty())
+            stream.writeTextElement(QStringLiteral("details"), eventData->details);
         if (eventData->rangeType == QQmlProfilerDefinitions::Binding)
             stream.writeTextElement(QStringLiteral("bindingType"),
                                     QString::number((int)eventData->detailType));
@@ -655,21 +573,31 @@ bool QmlProfilerData::save(const QString &filename)
     stream.writeEndElement(); // eventData
 
     stream.writeStartElement(QStringLiteral("profilerDataModel"));
-    foreach (const QmlRangeEventStartInstance &event, d->startInstanceList) {
+    for (const QmlRangeEventStartInstance &event : qAsConst(d->startInstanceList)) {
         stream.writeStartElement(QStringLiteral("range"));
         stream.writeAttribute(QStringLiteral("startTime"), QString::number(event.startTime));
         if (event.duration >= 0)
             stream.writeAttribute(QStringLiteral("duration"),
                                   QString::number(event.duration));
         stream.writeAttribute(QStringLiteral("eventIndex"), QString::number(
-                                  d->eventDescriptions.keys().indexOf(event.data->eventHashStr)));
-        if (event.data->message == QQmlProfilerDefinitions::Event &&
-                event.data->detailType == QQmlProfilerDefinitions::AnimationFrame) {
-            // special: animation frame
-            stream.writeAttribute(QStringLiteral("framerate"), QString::number(event.frameRate));
-            stream.writeAttribute(QStringLiteral("animationcount"),
-                                  QString::number(event.animationCount));
-            stream.writeAttribute(QStringLiteral("thread"), QString::number(event.threadId));
+                                  eventDescriptionsKeys.indexOf(event.data->eventHashStr)));
+        if (event.data->message == QQmlProfilerDefinitions::Event) {
+            if (event.data->detailType == QQmlProfilerDefinitions::AnimationFrame) {
+                // special: animation frame
+                stream.writeAttribute(QStringLiteral("framerate"), QString::number(event.frameRate));
+                stream.writeAttribute(QStringLiteral("animationcount"),
+                                      QString::number(event.animationCount));
+                stream.writeAttribute(QStringLiteral("thread"), QString::number(event.threadId));
+            } else if (event.data->detailType == QQmlProfilerDefinitions::Key ||
+                       event.data->detailType == QQmlProfilerDefinitions::Mouse) {
+                // numerical value here, to keep the format a bit more compact
+                stream.writeAttribute(QStringLiteral("type"),
+                                      QString::number(event.inputType));
+                stream.writeAttribute(QStringLiteral("data1"),
+                                      QString::number(event.inputA));
+                stream.writeAttribute(QStringLiteral("data2"),
+                                      QString::number(event.inputB));
+            }
         } else if (event.data->message == QQmlProfilerDefinitions::PixmapCacheEvent) {
             // special: pixmap cache event
             if (event.data->detailType == QQmlProfilerDefinitions::PixmapSizeKnown) {
@@ -682,7 +610,7 @@ bool QmlProfilerData::save(const QString &filename)
                     event.data->detailType ==
                        QQmlProfilerDefinitions::PixmapCacheCountChanged) {
                 stream.writeAttribute(QStringLiteral("refCount"),
-                                      QString::number(event.numericData3));
+                                      QString::number(event.numericData1));
             }
         } else if (event.data->message == QQmlProfilerDefinitions::SceneGraphFrame) {
             // special: scenegraph frame events
@@ -708,52 +636,11 @@ bool QmlProfilerData::save(const QString &filename)
     }
     stream.writeEndElement(); // profilerDataModel
 
-    stream.writeStartElement(QStringLiteral("v8profile")); // v8 profiler output
-    stream.writeAttribute(QStringLiteral("totalTime"), QString::number(d->v8MeasuredTime));
-    foreach (QV8EventInfo *v8event, d->v8EventHash.values()) {
-        stream.writeStartElement(QStringLiteral("event"));
-        stream.writeAttribute(QStringLiteral("index"),QString::number(
-                                  d->v8EventHash.keys().indexOf(v8event->eventHashStr)));
-        stream.writeTextElement(QStringLiteral("displayname"), v8event->displayName);
-        stream.writeTextElement(QStringLiteral("functionname"), v8event->functionName);
-        if (!v8event->fileName.isEmpty()) {
-            stream.writeTextElement(QStringLiteral("filename"), v8event->fileName);
-            stream.writeTextElement(QStringLiteral("line"), QString::number(v8event->line));
-        }
-        stream.writeTextElement(QStringLiteral("totalTime"), QString::number(v8event->totalTime));
-        stream.writeTextElement(QStringLiteral("selfTime"), QString::number(v8event->selfTime));
-        if (!v8event->v8children.isEmpty()) {
-            stream.writeStartElement(QStringLiteral("childrenEvents"));
-            QStringList childrenIndexes;
-            QStringList childrenTimes;
-            foreach (const QString &childHash, v8event->v8children.keys()) {
-                childrenIndexes << QString::number(v8EventIndex(childHash));
-                childrenTimes << QString::number(v8event->v8children[childHash]);
-            }
-
-            stream.writeAttribute(QStringLiteral("list"), childrenIndexes.join(QString(", ")));
-            stream.writeAttribute(QStringLiteral("childrenTimes"),
-                                  childrenTimes.join(QString(", ")));
-            stream.writeEndElement();
-        }
-        stream.writeEndElement();
-    }
-    stream.writeEndElement(); // v8 profiler output
-
     stream.writeEndElement(); // trace
     stream.writeEndDocument();
 
     file.close();
     return true;
-}
-
-int QmlProfilerData::v8EventIndex(const QString &hashStr)
-{
-    if (!d->v8EventHash.contains(hashStr)) {
-        emit error("Trying to index nonexisting v8 event");
-        return -1;
-    }
-    return d->v8EventHash.keys().indexOf( hashStr );
 }
 
 void QmlProfilerData::setState(QmlProfilerData::State state)
@@ -796,3 +683,4 @@ void QmlProfilerData::setState(QmlProfilerData::State state)
     return;
 }
 
+#include "moc_qmlprofilerdata.cpp"

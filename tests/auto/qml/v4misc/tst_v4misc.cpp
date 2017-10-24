@@ -1,38 +1,35 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
 
+#include <qhashfunctions.h>
 #include <qtest.h>
 
+#define V4_AUTOTEST
 #include <private/qv4ssa_p.h>
 
 class tst_v4misc: public QObject
@@ -45,19 +42,17 @@ private slots:
     void rangeSplitting_1();
     void rangeSplitting_2();
     void rangeSplitting_3();
-};
 
-QT_BEGIN_NAMESPACE
-// Avoid QHash randomization so that the temp numbering is stable.
-extern Q_CORE_EXPORT QBasicAtomicInt qt_qhash_seed; // from qhash.cpp
-QT_END_NAMESPACE
+    void moveMapping_1();
+    void moveMapping_2();
+};
 
 using namespace QT_PREPEND_NAMESPACE(QV4::IR);
 
 void tst_v4misc::initTestCase()
 {
-    qt_qhash_seed.store(0);
-    QCOMPARE(qt_qhash_seed.load(), 0);
+    qSetGlobalQHashSeed(0);
+    QCOMPARE(qGlobalQHashSeed(), 0);
 }
 
 // split between two ranges
@@ -142,6 +137,94 @@ void tst_v4misc::rangeSplitting_3()
     QCOMPARE(interval.ranges()[1].start, 61);
     QCOMPARE(interval.ranges()[1].end, 64);
     QCOMPARE(interval.end(), 71);
+}
+
+void tst_v4misc::moveMapping_1()
+{
+    Temp fp2(DoubleType, Temp::PhysicalRegister, 2);
+    Temp fp3(DoubleType, Temp::PhysicalRegister, 3);
+    Temp fp4(DoubleType, Temp::PhysicalRegister, 4);
+    Temp fp5(DoubleType, Temp::PhysicalRegister, 5);
+
+    MoveMapping mapping;
+    mapping.add(&fp2, &fp3);
+    mapping.add(&fp2, &fp4);
+    mapping.add(&fp2, &fp5);
+    mapping.add(&fp3, &fp2);
+
+    mapping.order();
+//    mapping.dump();
+
+    QCOMPARE(mapping._moves.size(), 3);
+    QVERIFY(mapping._moves.contains(MoveMapping::Move(&fp2, &fp4, false)));
+    QVERIFY(mapping._moves.contains(MoveMapping::Move(&fp2, &fp5, false)));
+    QVERIFY(mapping._moves.last() == MoveMapping::Move(&fp2, &fp3, true) ||
+            mapping._moves.last() == MoveMapping::Move(&fp3, &fp2, true));
+}
+
+void tst_v4misc::moveMapping_2()
+{
+    Temp fp1(DoubleType, Temp::PhysicalRegister, 1);
+    Temp fp2(DoubleType, Temp::PhysicalRegister, 2);
+    Temp fp3(DoubleType, Temp::PhysicalRegister, 3);
+    Temp fp4(DoubleType, Temp::PhysicalRegister, 4);
+    Temp fp5(DoubleType, Temp::PhysicalRegister, 5);
+    Temp fp6(DoubleType, Temp::PhysicalRegister, 6);
+    Temp fp7(DoubleType, Temp::PhysicalRegister, 7);
+    Temp fp8(DoubleType, Temp::PhysicalRegister, 8);
+    Temp fp9(DoubleType, Temp::PhysicalRegister, 9);
+    Temp fp10(DoubleType, Temp::PhysicalRegister, 10);
+    Temp fp11(DoubleType, Temp::PhysicalRegister, 11);
+    Temp fp12(DoubleType, Temp::PhysicalRegister, 12);
+    Temp fp13(DoubleType, Temp::PhysicalRegister, 13);
+
+    MoveMapping mapping;
+    mapping.add(&fp2, &fp1);
+    mapping.add(&fp2, &fp3);
+    mapping.add(&fp3, &fp2);
+    mapping.add(&fp3, &fp4);
+
+    mapping.add(&fp9, &fp8);
+    mapping.add(&fp8, &fp7);
+    mapping.add(&fp7, &fp6);
+    mapping.add(&fp7, &fp5);
+
+    mapping.add(&fp10, &fp11);
+    mapping.add(&fp11, &fp12);
+    mapping.add(&fp12, &fp13);
+    mapping.add(&fp13, &fp10);
+
+    mapping.order();
+//    mapping.dump();
+
+    QCOMPARE(mapping._moves.size(), 10);
+
+    QVERIFY(mapping._moves.contains(MoveMapping::Move(&fp2, &fp1, false)));
+    QVERIFY(mapping._moves.contains(MoveMapping::Move(&fp3, &fp4, false)));
+    QVERIFY(mapping._moves.contains(MoveMapping::Move(&fp7, &fp6, false)));
+    QVERIFY(mapping._moves.contains(MoveMapping::Move(&fp7, &fp5, false)));
+    QVERIFY(mapping._moves.contains(MoveMapping::Move(&fp8, &fp7, false)));
+    QVERIFY(mapping._moves.contains(MoveMapping::Move(&fp9, &fp8, false)));
+
+    QVERIFY(mapping._moves.contains(MoveMapping::Move(&fp2, &fp3, true)) ||
+            mapping._moves.contains(MoveMapping::Move(&fp3, &fp2, true)));
+    QVERIFY(mapping._moves.contains(MoveMapping::Move(&fp10, &fp13, true)) ||
+            mapping._moves.contains(MoveMapping::Move(&fp13, &fp10, true)));
+    QVERIFY(mapping._moves.contains(MoveMapping::Move(&fp12, &fp13, true)) ||
+            mapping._moves.contains(MoveMapping::Move(&fp13, &fp12, true)));
+    QVERIFY(mapping._moves.contains(MoveMapping::Move(&fp12, &fp11, true)) ||
+            mapping._moves.contains(MoveMapping::Move(&fp11, &fp12, true)));
+
+    QVERIFY(!mapping._moves.at(0).needsSwap);
+    QVERIFY(!mapping._moves.at(1).needsSwap);
+    QVERIFY(!mapping._moves.at(2).needsSwap);
+    QVERIFY(!mapping._moves.at(3).needsSwap);
+    QVERIFY(!mapping._moves.at(4).needsSwap);
+    QVERIFY(!mapping._moves.at(5).needsSwap);
+    QVERIFY(mapping._moves.at(6).needsSwap);
+    QVERIFY(mapping._moves.at(7).needsSwap);
+    QVERIFY(mapping._moves.at(8).needsSwap);
+    QVERIFY(mapping._moves.at(9).needsSwap);
 }
 
 QTEST_MAIN(tst_v4misc)

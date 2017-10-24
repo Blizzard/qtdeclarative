@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -186,14 +192,14 @@ QQmlProperty QQuickAbstractAnimationPrivate::createProperty(QObject *obj, const 
         if (errorMessage)
             *errorMessage = message;
         else
-            qmlInfo(infoObj) << message;
+            qmlWarning(infoObj) << message;
         return QQmlProperty();
     } else if (!prop.isWritable()) {
         const QString message = QQuickAbstractAnimation::tr("Cannot animate read-only property \"%1\"").arg(str);
         if (errorMessage)
             *errorMessage = message;
         else
-            qmlInfo(infoObj) << message;
+            qmlWarning(infoObj) << message;
         return QQmlProperty();
     }
     return prop;
@@ -250,7 +256,7 @@ void QQuickAbstractAnimation::setRunning(bool r)
         return;
 
     if (d->group || d->disableUserControl) {
-        qmlInfo(this) << "setRunning() cannot be used on non-root animation nodes.";
+        qmlWarning(this) << "setRunning() cannot be used on non-root animation nodes.";
         return;
     }
 
@@ -316,12 +322,12 @@ void QQuickAbstractAnimation::setPaused(bool p)
         return;
 
     if (!d->running) {
-        qmlInfo(this) << "setPaused() cannot be used when animation isn't running.";
+        qmlWarning(this) << "setPaused() cannot be used when animation isn't running.";
         return;
     }
 
     if (d->group || d->disableUserControl) {
-        qmlInfo(this) << "setPaused() cannot be used on non-root animation nodes.";
+        qmlWarning(this) << "setPaused() cannot be used on non-root animation nodes.";
         return;
     }
 
@@ -703,7 +709,7 @@ int QQuickPauseAnimation::duration() const
 void QQuickPauseAnimation::setDuration(int duration)
 {
     if (duration < 0) {
-        qmlInfo(this) << tr("Cannot set a duration of < 0");
+        qmlWarning(this) << tr("Cannot set a duration of < 0");
         return;
     }
 
@@ -980,7 +986,7 @@ void QQuickScriptActionPrivate::debugAction(QDebug d, int indentLevel) const
         QByteArray ind(indentLevel, ' ');
         QString exprStr = expr.expression();
         int endOfFirstLine = exprStr.indexOf('\n');
-        d << "\n" << ind.constData() << exprStr.left(endOfFirstLine);
+        d << "\n" << ind.constData() << exprStr.leftRef(endOfFirstLine);
         if (endOfFirstLine != -1 && endOfFirstLine < exprStr.length())
             d << "...";
     }
@@ -998,7 +1004,7 @@ void QQuickScriptActionPrivate::execute()
         QQmlExpression expr(scriptStr);
         expr.evaluate();
         if (expr.hasError())
-            qmlInfo(q) << expr.error();
+            qmlWarning(q) << expr.error();
     }
 }
 
@@ -1192,14 +1198,14 @@ QAbstractAnimationJob* QQuickPropertyAction::transition(QQuickStateActions &acti
     struct QQuickSetPropertyAnimationAction : public QAbstractAnimationAction
     {
         QQuickStateActions actions;
-        virtual void doAction()
+        void doAction() override
         {
             for (int ii = 0; ii < actions.count(); ++ii) {
                 const QQuickStateAction &action = actions.at(ii);
-                QQmlPropertyPrivate::write(action.property, action.toValue, QQmlPropertyPrivate::BypassInterceptor | QQmlPropertyPrivate::DontRemoveBinding);
+                QQmlPropertyPrivate::write(action.property, action.toValue, QQmlPropertyData::BypassInterceptor | QQmlPropertyData::DontRemoveBinding);
             }
         }
-        virtual void debugAction(QDebug d, int indentLevel) const {
+        void debugAction(QDebug d, int indentLevel) const override {
             QByteArray ind(indentLevel, ' ');
             for (int ii = 0; ii < actions.count(); ++ii) {
                 const QQuickStateAction &action = actions.at(ii);
@@ -2071,7 +2077,7 @@ int QQuickPropertyAnimation::duration() const
 void QQuickPropertyAnimation::setDuration(int duration)
 {
     if (duration < 0) {
-        qmlInfo(this) << tr("Cannot set a duration of < 0");
+        qmlWarning(this) << tr("Cannot set a duration of < 0");
         return;
     }
 
@@ -2529,7 +2535,7 @@ void QQuickAnimationPropertyUpdater::setValue(qreal v)
         QQuickStateAction &action = actions[ii];
 
         if (v == 1.) {
-            QQmlPropertyPrivate::write(action.property, action.toValue, QQmlPropertyPrivate::BypassInterceptor | QQmlPropertyPrivate::DontRemoveBinding);
+            QQmlPropertyPrivate::write(action.property, action.toValue, QQmlPropertyData::BypassInterceptor | QQmlPropertyData::DontRemoveBinding);
         } else {
             if (!fromSourced && !fromDefined) {
                 action.fromValue = action.property.read();
@@ -2545,7 +2551,7 @@ void QQuickAnimationPropertyUpdater::setValue(qreal v)
                 }
             }
             if (interpolator)
-                QQmlPropertyPrivate::write(action.property, interpolator(action.fromValue.constData(), action.toValue.constData(), v), QQmlPropertyPrivate::BypassInterceptor | QQmlPropertyPrivate::DontRemoveBinding);
+                QQmlPropertyPrivate::write(action.property, interpolator(action.fromValue.constData(), action.toValue.constData(), v), QQmlPropertyData::BypassInterceptor | QQmlPropertyData::DontRemoveBinding);
         }
         if (deleted)
             return;
@@ -2637,8 +2643,8 @@ QQuickStateActions QQuickPropertyAnimation::createTransitionActions(QQuickStateA
         }
 
         if (!successfullyCreatedDefaultProperty) {
-            foreach (const QString &errorMessage, errorMessages)
-                qmlInfo(this) << errorMessage;
+            for (const QString &errorMessage : qAsConst(errorMessages))
+                qmlWarning(this) << errorMessage;
         }
     }
 
@@ -2712,3 +2718,5 @@ QQuickAnimationPropertyUpdater::~QQuickAnimationPropertyUpdater()
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickanimation_p.cpp"

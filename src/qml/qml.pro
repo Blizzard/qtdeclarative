@@ -1,24 +1,37 @@
 TARGET     = QtQml
-QT = core-private network
+QT = core-private
+
+qtConfig(qml-network): \
+    QT += network
 
 DEFINES   += QT_NO_URL_CAST_FROM_STRING QT_NO_INTEGER_EVENT_COORDINATES
 
 win32-msvc*|win32-icc:QMAKE_LFLAGS += /BASE:0x66000000
 win32-msvc*:DEFINES *= _CRT_SECURE_NO_WARNINGS
-win32:!wince*:!winrt:LIBS += -lshell32
+win32:!winrt:LIBS += -lshell32
 solaris-cc*:QMAKE_CXXFLAGS_RELEASE -= -O2
 
 # Ensure this gcc optimization is switched off for mips platforms to avoid trouble with JIT.
 gcc:isEqual(QT_ARCH, "mips"): QMAKE_CXXFLAGS += -fno-reorder-blocks
 
+DEFINES += QT_NO_FOREACH
+
+tagFile=$$PWD/../../.tag
+tag=
+exists($$tagFile) {
+    tag=$$cat($$tagFile, singleline)
+    QMAKE_INTERNAL_INCLUDED_FILES += $$tagFile
+}
+!equals(tag, "$${LITERAL_DOLLAR}Format:%H$${LITERAL_DOLLAR}") {
+    DEFINES += QML_COMPILE_HASH="$$tag"
+} else:exists($$PWD/../../.git) {
+    commit=$$system(git describe --tags --always --long --dirty)
+    DEFINES += QML_COMPILE_HASH="$$commit"
+}
+
 exists("qqml_enable_gcov") {
     QMAKE_CXXFLAGS = -fprofile-arcs -ftest-coverage -fno-elide-constructors
     LIBS_PRIVATE += -lgcov
-}
-
-greaterThan(QT_GCC_MAJOR_VERSION, 5) {
-    # Our code is bad. Temporary workaround.
-    QMAKE_CXXFLAGS += -fno-delete-null-pointer-checks -fno-lifetime-dse
 }
 
 # QTBUG-55238, disable new optimizer for MSVC 2015/Update 3.
@@ -48,7 +61,9 @@ include(jit/jit.pri)
 include(jsruntime/jsruntime.pri)
 include(qml/qml.pri)
 include(debugger/debugger.pri)
-include(animations/animations.pri)
+qtConfig(animation) {
+    include(animations/animations.pri)
+}
 include(types/types.pri)
 
 MODULE_PLUGIN_TYPES = \

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -70,16 +76,19 @@ class TextureReference;
 class QSGDistanceFieldGlyphCacheManager;
 class QSGDistanceFieldGlyphNode;
 class QOpenGLContext;
-class QSGImageNode;
+class QSGInternalImageNode;
 class QSGPainterNode;
-class QSGRectangleNode;
+class QSGInternalRectangleNode;
 class QSGGlyphNode;
-class QSGNinePatchNode;
 class QSGRootNode;
+class QSGSpriteNode;
+class QSGRenderNode;
 
 class Q_QUICK_PRIVATE_EXPORT QSGNodeVisitorEx
 {
 public:
+    virtual ~QSGNodeVisitorEx() {}
+
     // visit(...) returns true if the children are supposed to be
     // visisted and false if they're supposed to be skipped by the visitor.
 
@@ -91,18 +100,22 @@ public:
     virtual void endVisit(QSGGeometryNode *) = 0;
     virtual bool visit(QSGOpacityNode *) = 0;
     virtual void endVisit(QSGOpacityNode *) = 0;
-    virtual bool visit(QSGImageNode *) = 0;
-    virtual void endVisit(QSGImageNode *) = 0;
+    virtual bool visit(QSGInternalImageNode *) = 0;
+    virtual void endVisit(QSGInternalImageNode *) = 0;
     virtual bool visit(QSGPainterNode *) = 0;
     virtual void endVisit(QSGPainterNode *) = 0;
-    virtual bool visit(QSGRectangleNode *) = 0;
-    virtual void endVisit(QSGRectangleNode *) = 0;
+    virtual bool visit(QSGInternalRectangleNode *) = 0;
+    virtual void endVisit(QSGInternalRectangleNode *) = 0;
     virtual bool visit(QSGGlyphNode *) = 0;
     virtual void endVisit(QSGGlyphNode *) = 0;
-    virtual bool visit(QSGNinePatchNode *) = 0;
-    virtual void endVisit(QSGNinePatchNode *) = 0;
     virtual bool visit(QSGRootNode *) = 0;
     virtual void endVisit(QSGRootNode *) = 0;
+#if QT_CONFIG(quick_sprite)
+    virtual bool visit(QSGSpriteNode *) = 0;
+    virtual void endVisit(QSGSpriteNode *) = 0;
+#endif
+    virtual bool visit(QSGRenderNode *) = 0;
+    virtual void endVisit(QSGRenderNode *) = 0;
 
     void visitChildren(QSGNode *node);
 };
@@ -116,7 +129,7 @@ public:
     virtual void accept(QSGNodeVisitorEx *) = 0;
 };
 
-class Q_QUICK_PRIVATE_EXPORT QSGRectangleNode : public QSGVisitableNode
+class Q_QUICK_PRIVATE_EXPORT QSGInternalRectangleNode : public QSGVisitableNode
 {
 public:
     virtual void setRect(const QRectF &rect) = 0;
@@ -130,11 +143,11 @@ public:
 
     virtual void update() = 0;
 
-    virtual void accept(QSGNodeVisitorEx *visitor) { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
+    void accept(QSGNodeVisitorEx *visitor) override { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
 };
 
 
-class Q_QUICK_PRIVATE_EXPORT QSGImageNode : public QSGVisitableNode
+class Q_QUICK_PRIVATE_EXPORT QSGInternalImageNode : public QSGVisitableNode
 {
 public:
     virtual void setTargetRect(const QRectF &rect) = 0;
@@ -154,7 +167,7 @@ public:
 
     virtual void update() = 0;
 
-    virtual void accept(QSGNodeVisitorEx *visitor) { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
+    void accept(QSGNodeVisitorEx *visitor) override { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
 };
 
 class Q_QUICK_PRIVATE_EXPORT QSGPainterNode : public QSGVisitableNode
@@ -177,20 +190,7 @@ public:
     virtual void update() = 0;
     virtual QSGTexture *texture() const = 0;
 
-    virtual void accept(QSGNodeVisitorEx *visitor) { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
-};
-
-class Q_QUICK_PRIVATE_EXPORT QSGNinePatchNode : public QSGVisitableNode
-{
-public:
-    virtual void setTexture(QSGTexture *texture) = 0;
-    virtual void setBounds(const QRectF &bounds) = 0;
-    virtual void setDevicePixelRatio(qreal ratio) = 0;
-    virtual void setPadding(qreal left, qreal top, qreal right, qreal bottom) = 0;
-
-    virtual void update() = 0;
-
-    virtual void accept(QSGNodeVisitorEx *visitor) { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
+    void accept(QSGNodeVisitorEx *visitor) override { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
 };
 
 class Q_QUICK_EXPORT QSGLayer : public QSGDynamicTexture
@@ -204,7 +204,7 @@ public:
     virtual QImage toImage() const = 0;
     virtual void setLive(bool live) = 0;
     virtual void setRecursive(bool recursive) = 0;
-    virtual void setFormat(GLenum format) = 0;
+    virtual void setFormat(uint format) = 0;
     virtual void setHasMipmaps(bool mipmap) = 0;
     virtual void setDevicePixelRatio(qreal ratio) = 0;
     virtual void setMirrorHorizontal(bool mirror) = 0;
@@ -216,6 +216,152 @@ Q_SIGNALS:
     void updateRequested();
     void scheduledUpdateCompleted();
 };
+
+#if QT_CONFIG(quick_sprite)
+
+class Q_QUICK_PRIVATE_EXPORT QSGSpriteNode : public QSGVisitableNode
+{
+public:
+    virtual void setTexture(QSGTexture *texture) = 0;
+    virtual void setTime(float time) = 0;
+    virtual void setSourceA(const QPoint &source) = 0;
+    virtual void setSourceB(const QPoint &source) = 0;
+    virtual void setSpriteSize(const QSize &size) = 0;
+    virtual void setSheetSize(const QSize &size) = 0;
+    virtual void setSize(const QSizeF &size) = 0;
+    virtual void setFiltering(QSGTexture::Filtering filtering) = 0;
+
+    virtual void update() = 0;
+
+    void accept(QSGNodeVisitorEx *visitor) override { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
+};
+
+#endif
+
+class Q_QUICK_PRIVATE_EXPORT QSGGuiThreadShaderEffectManager : public QObject
+{
+    Q_OBJECT
+
+public:
+    enum Status {
+        Compiled,
+        Uncompiled,
+        Error
+    };
+
+    virtual bool hasSeparateSamplerAndTextureObjects() const = 0;
+
+    virtual QString log() const = 0;
+    virtual Status status() const = 0;
+
+    struct ShaderInfo {
+        enum Type {
+            TypeVertex,
+            TypeFragment,
+            TypeOther
+        };
+        enum VariableType {
+            Constant, // cbuffer members or uniforms
+            Sampler,
+            Texture // for APIs with separate texture and sampler objects
+        };
+        struct InputParameter {
+            InputParameter() : semanticIndex(0) { }
+            // Semantics use the D3D keys (POSITION, TEXCOORD).
+            // Attribute name based APIs can map based on pre-defined names.
+            QByteArray semanticName;
+            int semanticIndex;
+        };
+        struct Variable {
+            Variable() : type(Constant), offset(0), size(0), bindPoint(0) { }
+            VariableType type;
+            QByteArray name;
+            uint offset; // for cbuffer members
+            uint size; // for cbuffer members
+            int bindPoint; // for textures and samplers; for register-based APIs
+        };
+
+        QByteArray blob; // source or bytecode
+        Type type;
+        QVector<InputParameter> inputParameters;
+        QVector<Variable> variables;
+        uint constantDataSize;
+    };
+
+    virtual void prepareShaderCode(ShaderInfo::Type typeHint, const QByteArray &src, ShaderInfo *result) = 0;
+
+Q_SIGNALS:
+    void shaderCodePrepared(bool ok, ShaderInfo::Type typeHint, const QByteArray &src, ShaderInfo *result);
+    void textureChanged();
+    void logAndStatusChanged();
+};
+
+#ifndef QT_NO_DEBUG_STREAM
+Q_QUICK_PRIVATE_EXPORT QDebug operator<<(QDebug debug, const QSGGuiThreadShaderEffectManager::ShaderInfo::InputParameter &p);
+Q_QUICK_PRIVATE_EXPORT QDebug operator<<(QDebug debug, const QSGGuiThreadShaderEffectManager::ShaderInfo::Variable &v);
+#endif
+
+class Q_QUICK_PRIVATE_EXPORT QSGShaderEffectNode : public QSGVisitableNode
+{
+public:
+    enum DirtyShaderFlag {
+        DirtyShaders = 0x01,
+        DirtyShaderConstant = 0x02,
+        DirtyShaderTexture = 0x04,
+        DirtyShaderGeometry = 0x08,
+        DirtyShaderMesh = 0x10,
+
+        DirtyShaderAll = 0xFF
+    };
+    Q_DECLARE_FLAGS(DirtyShaderFlags, DirtyShaderFlag)
+
+    enum CullMode { // must match ShaderEffect
+        NoCulling,
+        BackFaceCulling,
+        FrontFaceCulling
+    };
+
+    struct VariableData {
+        enum SpecialType { None, Unused, Source, SubRect, Opacity, Matrix };
+
+        QVariant value;
+        SpecialType specialType;
+    };
+
+    struct ShaderData {
+        ShaderData() : hasShaderCode(false) { }
+        bool hasShaderCode;
+        QSGGuiThreadShaderEffectManager::ShaderInfo shaderInfo;
+        QVector<VariableData> varData;
+    };
+
+    struct SyncData {
+        DirtyShaderFlags dirty;
+        CullMode cullMode;
+        bool blending;
+        struct ShaderSyncData {
+            const ShaderData *shader;
+            const QSet<int> *dirtyConstants;
+            const QSet<int> *dirtyTextures;
+        };
+        ShaderSyncData vertex;
+        ShaderSyncData fragment;
+    };
+
+    // Each ShaderEffect item has one node (render thread) and one manager (gui thread).
+    QSGShaderEffectNode(QSGGuiThreadShaderEffectManager *) { }
+
+    virtual QRectF updateNormalizedTextureSubRect(bool supportsAtlasTextures) = 0;
+    virtual void syncMaterial(SyncData *syncData) = 0;
+
+    void accept(QSGNodeVisitorEx *visitor) override { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
+};
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(QSGShaderEffectNode::DirtyShaderFlags)
+
+#ifndef QT_NO_DEBUG_STREAM
+Q_QUICK_PRIVATE_EXPORT QDebug operator<<(QDebug debug, const QSGShaderEffectNode::VariableData &vd);
+#endif
 
 class Q_QUICK_PRIVATE_EXPORT QSGGlyphNode : public QSGVisitableNode
 {
@@ -245,7 +391,7 @@ public:
     void setOwnerElement(QQuickItem *ownerElement) { m_ownerElement = ownerElement; }
     QQuickItem *ownerElement() const { return m_ownerElement; }
 
-    virtual void accept(QSGNodeVisitorEx *visitor) { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
+    void accept(QSGNodeVisitorEx *visitor) override { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
 protected:
     QRectF m_bounding_rect;
     QQuickItem *m_ownerElement;
@@ -289,7 +435,7 @@ public:
     };
 
     struct Texture {
-        GLuint textureId;
+        uint textureId;
         QSize size;
 
         Texture() : textureId(0), size(QSize()) { }
@@ -353,10 +499,10 @@ protected:
     void markGlyphsToRender(const QVector<glyph_t> &glyphs);
     inline void removeGlyph(glyph_t glyph);
 
-    void updateTexture(GLuint oldTex, GLuint newTex, const QSize &newTexSize);
+    void updateTexture(uint oldTex, uint newTex, const QSize &newTexSize);
 
     inline bool containsGlyph(glyph_t glyph);
-    GLuint textureIdForGlyph(glyph_t glyph) const;
+    uint textureIdForGlyph(glyph_t glyph) const;
 
     GlyphData &glyphData(glyph_t glyph);
 
@@ -406,7 +552,8 @@ inline bool QSGDistanceFieldGlyphCache::containsGlyph(glyph_t glyph)
     return glyphData(glyph).texCoord.isValid();
 }
 
-
 QT_END_NAMESPACE
+
+Q_DECLARE_METATYPE(QSGGuiThreadShaderEffectManager::ShaderInfo::Type)
 
 #endif

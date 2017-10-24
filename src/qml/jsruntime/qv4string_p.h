@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -46,6 +52,8 @@
 
 #include <QtCore/qstring.h>
 #include "qv4managed_p.h"
+#include <QtCore/private/qnumeric_p.h>
+#include "qv4enginebase_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -56,7 +64,6 @@ struct Identifier;
 
 namespace Heap {
 
-#ifndef V4_BOOTSTRAP
 struct Q_QML_PRIVATE_EXPORT String : Base {
     enum StringType {
         StringType_Unknown,
@@ -64,12 +71,10 @@ struct Q_QML_PRIVATE_EXPORT String : Base {
         StringType_ArrayIndex
     };
 
-    String(MemoryManager *mm, const QString &text);
-    String(MemoryManager *mm, String *l, String *n);
-    ~String() {
-        if (!largestSubLength && !text->ref.deref())
-            QStringData::deallocate(text);
-    }
+#ifndef V4_BOOTSTRAP
+    void init(const QString &text);
+    void init(String *l, String *n);
+    void destroy();
     void simplifyString() const;
     int length() const {
         Q_ASSERT((largestSubLength &&
@@ -121,11 +126,11 @@ struct Q_QML_PRIVATE_EXPORT String : Base {
     mutable uint stringHash;
     mutable uint largestSubLength;
     uint len;
-    MemoryManager *mm;
 private:
     static void append(const String *data, QChar *ch);
-};
 #endif
+};
+V4_ASSERT_IS_TRIVIAL(String)
 
 }
 
@@ -133,6 +138,7 @@ struct Q_QML_PRIVATE_EXPORT String : public Managed {
 #ifndef V4_BOOTSTRAP
     V4_MANAGED(String, Managed)
     Q_MANAGED_TYPE(String)
+    V4_INTERNALCLASS(String)
     V4_NEEDS_DESTROY
     enum {
         IsString = true
@@ -169,16 +175,25 @@ struct Q_QML_PRIVATE_EXPORT String : public Managed {
     }
     uint toUInt(bool *ok) const;
 
-    void makeIdentifier(ExecutionEngine *e) const {
+    void makeIdentifier() const {
         if (d()->identifier)
             return;
-        makeIdentifierImpl(e);
+        makeIdentifierImpl();
     }
 
-    void makeIdentifierImpl(ExecutionEngine *e) const;
+    void makeIdentifierImpl() const;
 
-    static uint createHashValue(const QChar *ch, int length);
-    static uint createHashValue(const char *ch, int length);
+    static uint createHashValue(const QChar *ch, int length, uint *subtype)
+    {
+        const QChar *end = ch + length;
+        return calculateHashValue(ch, end, subtype);
+    }
+
+    static uint createHashValue(const char *ch, int length, uint *subtype)
+    {
+        const char *end = ch + length;
+        return calculateHashValue(ch, end, subtype);
+    }
 
     bool startsWithUpper() const {
         const String::Data *l = d();
@@ -197,11 +212,59 @@ protected:
 
 public:
     static uint toArrayIndex(const QString &str);
+
+private:
+    static inline uint toUInt(const QChar *ch) { return ch->unicode(); }
+    static inline uint toUInt(const char *ch) { return *ch; }
+
+    template <typename T>
+    static inline uint toArrayIndex(const T *ch, const T *end)
+    {
+        uint i = toUInt(ch) - '0';
+        if (i > 9)
+            return UINT_MAX;
+        ++ch;
+        // reject "01", "001", ...
+        if (i == 0 && ch != end)
+            return UINT_MAX;
+
+        while (ch < end) {
+            uint x = toUInt(ch) - '0';
+            if (x > 9)
+                return UINT_MAX;
+            if (mul_overflow(i, uint(10), &i) || add_overflow(i, x, &i)) // i = i * 10 + x
+                return UINT_MAX;
+            ++ch;
+        }
+        return i;
+    }
+
+public:
+    template <typename T>
+    static inline uint calculateHashValue(const T *ch, const T* end, uint *subtype)
+    {
+        // array indices get their number as hash value
+        uint h = toArrayIndex(ch, end);
+        if (h != UINT_MAX) {
+            if (subtype)
+                *subtype = Heap::String::StringType_ArrayIndex;
+            return h;
+        }
+
+        while (ch < end) {
+            h = 31 * h + toUInt(ch);
+            ++ch;
+        }
+
+        if (subtype)
+            *subtype = Heap::String::StringType_Regular;
+        return h;
+    }
 };
 
 template<>
 inline const String *Value::as() const {
-    return isManaged() && m() && m()->vtable()->isString ? static_cast<const String *>(this) : 0;
+    return isManaged() && m()->vtable()->isString ? static_cast<const String *>(this) : 0;
 }
 
 #ifndef V4_BOOTSTRAP

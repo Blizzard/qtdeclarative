@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -72,7 +78,7 @@ void QQuickParentChangePrivate::doChange(QQuickItem *targetParent, QQuickItem *s
         bool ok;
         const QTransform &transform = target->parentItem()->itemTransform(targetParent, &ok);
         if (transform.type() >= QTransform::TxShear || !ok) {
-            qmlInfo(q) << QQuickParentChange::tr("Unable to preserve appearance under complex transform");
+            qmlWarning(q) << QQuickParentChange::tr("Unable to preserve appearance under complex transform");
             ok = false;
         }
 
@@ -83,21 +89,21 @@ void QQuickParentChangePrivate::doChange(QQuickItem *targetParent, QQuickItem *s
             if (transform.m11() == transform.m22())
                 scale = transform.m11();
             else {
-                qmlInfo(q) << QQuickParentChange::tr("Unable to preserve appearance under non-uniform scale");
+                qmlWarning(q) << QQuickParentChange::tr("Unable to preserve appearance under non-uniform scale");
                 ok = false;
             }
         } else if (ok && isRotate) {
             if (transform.m11() == transform.m22())
                 scale = qSqrt(transform.m11()*transform.m11() + transform.m12()*transform.m12());
             else {
-                qmlInfo(q) << QQuickParentChange::tr("Unable to preserve appearance under non-uniform scale");
+                qmlWarning(q) << QQuickParentChange::tr("Unable to preserve appearance under non-uniform scale");
                 ok = false;
             }
 
             if (scale != 0)
                 rotation = qAtan2(transform.m12()/scale, transform.m11()/scale) * 180/M_PI;
             else {
-                qmlInfo(q) << QQuickParentChange::tr("Unable to preserve appearance under scale of 0");
+                qmlWarning(q) << QQuickParentChange::tr("Unable to preserve appearance under scale of 0");
                 ok = false;
             }
         }
@@ -353,8 +359,8 @@ QQuickStateOperation::ActionList QQuickParentChange::actions()
             QQuickStateAction xa(d->target, QLatin1String("x"), x);
             actions << xa;
         } else {
-            QQmlBinding *newBinding = new QQmlBinding(d->xString.value, d->target, qmlContext(this));
             QQmlProperty property(d->target, QLatin1String("x"));
+            QQmlBinding *newBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(property)->core, d->xString.value, d->target, qmlContext(this));
             newBinding->setTarget(property);
             QQuickStateAction xa;
             xa.property = property;
@@ -372,8 +378,8 @@ QQuickStateOperation::ActionList QQuickParentChange::actions()
             QQuickStateAction ya(d->target, QLatin1String("y"), y);
             actions << ya;
         } else {
-            QQmlBinding *newBinding = new QQmlBinding(d->yString.value, d->target, qmlContext(this));
             QQmlProperty property(d->target, QLatin1String("y"));
+            QQmlBinding *newBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(property)->core, d->yString.value, d->target, qmlContext(this));
             newBinding->setTarget(property);
             QQuickStateAction ya;
             ya.property = property;
@@ -391,8 +397,8 @@ QQuickStateOperation::ActionList QQuickParentChange::actions()
             QQuickStateAction sa(d->target, QLatin1String("scale"), scale);
             actions << sa;
         } else {
-            QQmlBinding *newBinding = new QQmlBinding(d->scaleString.value, d->target, qmlContext(this));
             QQmlProperty property(d->target, QLatin1String("scale"));
+            QQmlBinding *newBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(property)->core, d->scaleString.value, d->target, qmlContext(this));
             newBinding->setTarget(property);
             QQuickStateAction sa;
             sa.property = property;
@@ -410,8 +416,8 @@ QQuickStateOperation::ActionList QQuickParentChange::actions()
             QQuickStateAction ra(d->target, QLatin1String("rotation"), rotation);
             actions << ra;
         } else {
-            QQmlBinding *newBinding = new QQmlBinding(d->rotationString.value, d->target, qmlContext(this));
             QQmlProperty property(d->target, QLatin1String("rotation"));
+            QQmlBinding *newBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(property)->core, d->rotationString.value, d->target, qmlContext(this));
             newBinding->setTarget(property);
             QQuickStateAction ra;
             ra.property = property;
@@ -429,8 +435,8 @@ QQuickStateOperation::ActionList QQuickParentChange::actions()
             QQuickStateAction wa(d->target, QLatin1String("width"), width);
             actions << wa;
         } else {
-            QQmlBinding *newBinding = new QQmlBinding(d->widthString.value, d->target, qmlContext(this));
             QQmlProperty property(d->target, QLatin1String("width"));
+            QQmlBinding *newBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(property)->core, d->widthString.value, d->target, qmlContext(this));
             newBinding->setTarget(property);
             QQuickStateAction wa;
             wa.property = property;
@@ -448,8 +454,8 @@ QQuickStateOperation::ActionList QQuickParentChange::actions()
             QQuickStateAction ha(d->target, QLatin1String("height"), height);
             actions << ha;
         } else {
-            QQmlBinding *newBinding = new QQmlBinding(d->heightString.value, d->target, qmlContext(this));
             QQmlProperty property(d->target, QLatin1String("height"));
+            QQmlBinding *newBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(property)->core, d->heightString.value, d->target, qmlContext(this));
             newBinding->setTarget(property);
             QQuickStateAction ha;
             ha.property = property;
@@ -860,31 +866,31 @@ QQuickAnchorChanges::ActionList QQuickAnchorChanges::actions()
     d->baselineProp = QQmlProperty(d->target, QLatin1String("anchors.baseline"));
 
     if (d->anchorSet->d_func()->usedAnchors & QQuickAnchors::LeftAnchor) {
-        d->leftBinding = new QQmlBinding(d->anchorSet->d_func()->leftScript, d->target, qmlContext(this));
+        d->leftBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(d->leftProp)->core, d->anchorSet->d_func()->leftScript, d->target, qmlContext(this));
         d->leftBinding->setTarget(d->leftProp);
     }
     if (d->anchorSet->d_func()->usedAnchors & QQuickAnchors::RightAnchor) {
-        d->rightBinding = new QQmlBinding(d->anchorSet->d_func()->rightScript, d->target, qmlContext(this));
+        d->rightBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(d->rightProp)->core, d->anchorSet->d_func()->rightScript, d->target, qmlContext(this));
         d->rightBinding->setTarget(d->rightProp);
     }
     if (d->anchorSet->d_func()->usedAnchors & QQuickAnchors::HCenterAnchor) {
-        d->hCenterBinding = new QQmlBinding(d->anchorSet->d_func()->hCenterScript, d->target, qmlContext(this));
+        d->hCenterBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(d->hCenterProp)->core, d->anchorSet->d_func()->hCenterScript, d->target, qmlContext(this));
         d->hCenterBinding->setTarget(d->hCenterProp);
     }
     if (d->anchorSet->d_func()->usedAnchors & QQuickAnchors::TopAnchor) {
-        d->topBinding = new QQmlBinding(d->anchorSet->d_func()->topScript, d->target, qmlContext(this));
+        d->topBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(d->topProp)->core, d->anchorSet->d_func()->topScript, d->target, qmlContext(this));
         d->topBinding->setTarget(d->topProp);
     }
     if (d->anchorSet->d_func()->usedAnchors & QQuickAnchors::BottomAnchor) {
-        d->bottomBinding = new QQmlBinding(d->anchorSet->d_func()->bottomScript, d->target, qmlContext(this));
+        d->bottomBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(d->bottomProp)->core, d->anchorSet->d_func()->bottomScript, d->target, qmlContext(this));
         d->bottomBinding->setTarget(d->bottomProp);
     }
     if (d->anchorSet->d_func()->usedAnchors & QQuickAnchors::VCenterAnchor) {
-        d->vCenterBinding = new QQmlBinding(d->anchorSet->d_func()->vCenterScript, d->target, qmlContext(this));
+        d->vCenterBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(d->vCenterProp)->core, d->anchorSet->d_func()->vCenterScript, d->target, qmlContext(this));
         d->vCenterBinding->setTarget(d->vCenterProp);
     }
     if (d->anchorSet->d_func()->usedAnchors & QQuickAnchors::BaselineAnchor) {
-        d->baselineBinding = new QQmlBinding(d->anchorSet->d_func()->baselineScript, d->target, qmlContext(this));
+        d->baselineBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(d->baselineProp)->core, d->anchorSet->d_func()->baselineScript, d->target, qmlContext(this));
         d->baselineBinding->setTarget(d->baselineProp);
     }
 
@@ -893,9 +899,9 @@ QQuickAnchorChanges::ActionList QQuickAnchorChanges::actions()
     return ActionList() << a;
 }
 
-QQuickAnchorSet *QQuickAnchorChanges::anchors()
+QQuickAnchorSet *QQuickAnchorChanges::anchors() const
 {
-    Q_D(QQuickAnchorChanges);
+    Q_D(const QQuickAnchorChanges);
     return d->anchorSet;
 }
 
@@ -1128,9 +1134,9 @@ QQuickStateActionEvent::EventType QQuickAnchorChanges::type() const
     return AnchorChanges;
 }
 
-QList<QQuickStateAction> QQuickAnchorChanges::additionalActions()
+QList<QQuickStateAction> QQuickAnchorChanges::additionalActions() const
 {
-    Q_D(QQuickAnchorChanges);
+    Q_D(const QQuickAnchorChanges);
     QList<QQuickStateAction> extra;
 
     QQuickAnchors::Anchors combined = d->anchorSet->d_func()->usedAnchors | d->anchorSet->d_func()->resetAnchors;

@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -33,6 +28,7 @@
 
 #include <qtest.h>
 #include <QDebug>
+#include <QMimeData>
 #include <QTouchEvent>
 #include <QtQuick/QQuickItem>
 #include <QtQuick/QQuickView>
@@ -45,10 +41,11 @@
 #include "../shared/visualtestutil.h"
 #include "../shared/viewtestutil.h"
 #include <QSignalSpy>
-#include <qpa/qwindowsysteminterface.h>
 #include <private/qquickwindow_p.h>
 #include <private/qguiapplication_p.h>
 #include <QRunnable>
+#include <QOpenGLFunctions>
+#include <QSGRendererInterface>
 
 struct TouchEventData {
     QEvent::Type type;
@@ -161,6 +158,7 @@ public:
         lastVelocity = lastVelocityFromMouseMove = QVector2D();
         lastMousePos = QPointF();
         lastMouseCapabilityFlags = 0;
+        touchEventCount = 0;
     }
 
     static void clearMousePressCounter()
@@ -278,25 +276,18 @@ class tst_qquickwindow : public QQmlDataTest
     Q_OBJECT
 public:
     tst_qquickwindow()
+      : touchDevice(QTest::createTouchDevice())
+      , touchDeviceWithVelocity(QTest::createTouchDevice())
     {
         QQuickWindow::setDefaultAlphaBuffer(true);
+        touchDeviceWithVelocity->setCapabilities(QTouchDevice::Position | QTouchDevice::Velocity);
     }
 
 private slots:
-    void initTestCase()
-    {
-        QQmlDataTest::initTestCase();
-        touchDevice = new QTouchDevice;
-        touchDevice->setType(QTouchDevice::TouchScreen);
-        QWindowSystemInterface::registerTouchDevice(touchDevice);
-        touchDeviceWithVelocity = new QTouchDevice;
-        touchDeviceWithVelocity->setType(QTouchDevice::TouchScreen);
-        touchDeviceWithVelocity->setCapabilities(QTouchDevice::Position | QTouchDevice::Velocity);
-        QWindowSystemInterface::registerTouchDevice(touchDeviceWithVelocity);
-    }
     void cleanup();
-
+#if QT_CONFIG(opengl)
     void openglContextCreatedSignal();
+#endif
     void aboutToStopSignal();
 
     void constantUpdates();
@@ -313,11 +304,15 @@ private slots:
     void touchEvent_reentrant();
     void touchEvent_velocity();
 
+    void mergeTouchPointLists_data();
+    void mergeTouchPointLists();
+
     void mouseFromTouch_basic();
 
     void clearWindow();
 
     void qmlCreation();
+    void qmlCreationWithScreen();
     void clearColor();
     void defaultState();
 
@@ -351,12 +346,13 @@ private slots:
     void crashWhenHoverItemDeleted();
 
     void unloadSubWindow();
+    void changeVisibilityInCompleted();
 
     void qobjectEventFilter_touch();
     void qobjectEventFilter_key();
     void qobjectEventFilter_mouse();
 
-#ifndef QT_NO_CURSOR
+#if QT_CONFIG(cursor)
     void cursor();
 #endif
 
@@ -372,18 +368,27 @@ private slots:
 
     void testHoverChildMouseEventFilter();
     void testHoverTimestamp();
+
+    void pointerEventTypeAndPointCount();
+
+    void grabContentItemToImage();
+
+    void testDragEventPropertyPropagation();
+
+    void findChild();
+
 private:
     QTouchDevice *touchDevice;
     QTouchDevice *touchDeviceWithVelocity;
 };
-
+#if QT_CONFIG(opengl)
 Q_DECLARE_METATYPE(QOpenGLContext *);
-
+#endif
 void tst_qquickwindow::cleanup()
 {
     QVERIFY(QGuiApplication::topLevelWindows().isEmpty());
 }
-
+#if QT_CONFIG(opengl)
 void tst_qquickwindow::openglContextCreatedSignal()
 {
     qRegisterMetaType<QOpenGLContext *>();
@@ -395,12 +400,15 @@ void tst_qquickwindow::openglContextCreatedSignal()
     window.show();
     QTest::qWaitForWindowExposed(&window);
 
+    if (window.rendererInterface()->graphicsApi() != QSGRendererInterface::OpenGL)
+        QSKIP("Skipping OpenGL context test due to not running with OpenGL");
+
     QVERIFY(spy.size() > 0);
 
     QVariant ctx = spy.at(0).at(0);
-    QCOMPARE(qVariantValue<QOpenGLContext *>(ctx), window.openglContext());
+    QCOMPARE(qvariant_cast<QOpenGLContext *>(ctx), window.openglContext());
 }
-
+#endif
 void tst_qquickwindow::aboutToStopSignal()
 {
     QQuickWindow window;
@@ -442,8 +450,7 @@ void tst_qquickwindow::constantUpdatesOnWindow_data()
     window.setGeometry(100, 100, 300, 200);
     window.show();
     QTest::qWaitForWindowExposed(&window);
-    bool threaded = window.openglContext()->thread() != QGuiApplication::instance()->thread();
-
+    const bool threaded = QQuickWindowPrivate::get(&window)->context->thread() != QGuiApplication::instance()->thread();
     if (threaded) {
         QTest::newRow("blocked, beforeRender") << true << QByteArray(SIGNAL(beforeRendering()));
         QTest::newRow("blocked, afterRender") << true << QByteArray(SIGNAL(afterRendering()));
@@ -529,9 +536,8 @@ void tst_qquickwindow::touchEvent_basic()
 
     // press single point
     QTest::touchEvent(window, touchDevice).press(0, topItem->mapToScene(pos).toPoint(),window);
-    QTest::qWait(50);
-
-    QCOMPARE(topItem->lastEvent.touchPoints.count(), 1);
+    QQuickTouchUtils::flush(window);
+    QTRY_COMPARE(topItem->lastEvent.touchPoints.count(), 1);
 
     QVERIFY(middleItem->lastEvent.touchPoints.isEmpty());
     QVERIFY(bottomItem->lastEvent.touchPoints.isEmpty());
@@ -539,9 +545,10 @@ void tst_qquickwindow::touchEvent_basic()
     // would put the decorated window at that position rather than the window itself.
     COMPARE_TOUCH_DATA(topItem->lastEvent, makeTouchData(QEvent::TouchBegin, window, Qt::TouchPointPressed, makeTouchPoint(topItem, pos)));
     topItem->reset();
+    QTest::touchEvent(window, touchDevice).release(0, topItem->mapToScene(pos).toPoint(), window);
 
     // press multiple points
-    QTest::touchEvent(window, touchDevice).press(0, topItem->mapToScene(pos).toPoint(),window)
+    QTest::touchEvent(window, touchDevice).press(0, topItem->mapToScene(pos).toPoint(), window)
             .press(1, bottomItem->mapToScene(pos).toPoint(), window);
     QQuickTouchUtils::flush(window);
     QCOMPARE(topItem->lastEvent.touchPoints.count(), 1);
@@ -551,6 +558,7 @@ void tst_qquickwindow::touchEvent_basic()
     COMPARE_TOUCH_DATA(bottomItem->lastEvent, makeTouchData(QEvent::TouchBegin, window, Qt::TouchPointPressed, makeTouchPoint(bottomItem, pos)));
     topItem->reset();
     bottomItem->reset();
+    QTest::touchEvent(window, touchDevice).release(0, topItem->mapToScene(pos).toPoint(), window).release(1, bottomItem->mapToScene(pos).toPoint(), window);
 
     // touch point on top item moves to bottom item, but top item should still receive the event
     QTest::touchEvent(window, touchDevice).press(0, topItem->mapToScene(pos).toPoint(), window);
@@ -561,6 +569,7 @@ void tst_qquickwindow::touchEvent_basic()
     COMPARE_TOUCH_DATA(topItem->lastEvent, makeTouchData(QEvent::TouchUpdate, window, Qt::TouchPointMoved,
             makeTouchPoint(topItem, topItem->mapFromItem(bottomItem, pos), pos)));
     topItem->reset();
+    QTest::touchEvent(window, touchDevice).release(0, bottomItem->mapToScene(pos).toPoint(), window);
 
     // touch point on bottom item moves to top item, but bottom item should still receive the event
     QTest::touchEvent(window, touchDevice).press(0, bottomItem->mapToScene(pos).toPoint(), window);
@@ -571,6 +580,7 @@ void tst_qquickwindow::touchEvent_basic()
     COMPARE_TOUCH_DATA(bottomItem->lastEvent, makeTouchData(QEvent::TouchUpdate, window, Qt::TouchPointMoved,
             makeTouchPoint(bottomItem, bottomItem->mapFromItem(topItem, pos), pos)));
     bottomItem->reset();
+    QTest::touchEvent(window, touchDevice).release(0, bottomItem->mapToScene(pos).toPoint(), window);
 
     // a single stationary press on an item shouldn't cause an event
     QTest::touchEvent(window, touchDevice).press(0, topItem->mapToScene(pos).toPoint(), window);
@@ -675,6 +685,7 @@ void tst_qquickwindow::touchEvent_propagation()
     QVERIFY(bottomItem->lastEvent.touchPoints.isEmpty());
     COMPARE_TOUCH_DATA(middleItem->lastEvent, makeTouchData(QEvent::TouchBegin, window, Qt::TouchPointPressed,
             makeTouchPoint(middleItem, middleItem->mapFromItem(topItem, pos))));
+    QTest::touchEvent(window, touchDevice).release(0, pointInTopItem, window);
 
     // touch top and middle items, middle item should get both events
     QTest::touchEvent(window, touchDevice).press(0, pointInTopItem, window)
@@ -686,6 +697,8 @@ void tst_qquickwindow::touchEvent_propagation()
     COMPARE_TOUCH_DATA(middleItem->lastEvent, makeTouchData(QEvent::TouchBegin, window, Qt::TouchPointPressed,
            (QList<QTouchEvent::TouchPoint>() << makeTouchPoint(middleItem, middleItem->mapFromItem(topItem, pos))
                                               << makeTouchPoint(middleItem, pos) )));
+    QTest::touchEvent(window, touchDevice).release(0, pointInTopItem, window)
+            .release(1, pointInMiddleItem, window);
     middleItem->reset();
 
     // disable middleItem as well
@@ -710,6 +723,8 @@ void tst_qquickwindow::touchEvent_propagation()
     bottomItem->acceptTouchEvents = acceptTouchEvents;
     bottomItem->setEnabled(enableItem);
     bottomItem->setVisible(showItem);
+    QTest::touchEvent(window, touchDevice).release(0, pointInTopItem, window)
+            .release(1, pointInMiddleItem, window);
 
     // no events should be received
     QTest::touchEvent(window, touchDevice).press(0, pointInTopItem, window)
@@ -719,7 +734,9 @@ void tst_qquickwindow::touchEvent_propagation()
     QVERIFY(topItem->lastEvent.touchPoints.isEmpty());
     QVERIFY(middleItem->lastEvent.touchPoints.isEmpty());
     QVERIFY(bottomItem->lastEvent.touchPoints.isEmpty());
-
+    QTest::touchEvent(window, touchDevice).release(0, pointInTopItem, window)
+            .release(1, pointInMiddleItem, window)
+            .release(2, pointInBottomItem, window);
     topItem->reset();
     middleItem->reset();
     bottomItem->reset();
@@ -745,6 +762,7 @@ void tst_qquickwindow::touchEvent_propagation()
         COMPARE_TOUCH_DATA(topItem->lastEvent, makeTouchData(QEvent::TouchBegin, window, Qt::TouchPointPressed,
                 makeTouchPoint(topItem, pos)));
     }
+    QTest::touchEvent(window, touchDevice).release(0, pointInTopItem, window);
 
     delete topItem;
     delete middleItem;
@@ -853,21 +871,29 @@ void tst_qquickwindow::touchEvent_velocity()
     item->setPosition(QPointF(50, 50));
     item->setSize(QSizeF(150, 150));
 
-    QList<QWindowSystemInterface::TouchPoint> points;
-    QWindowSystemInterface::TouchPoint tp;
-    tp.id = 1;
-    tp.state = Qt::TouchPointPressed;
-    QPoint pos = window->mapToGlobal(item->mapToScene(QPointF(10, 10)).toPoint());
-    tp.area = QRectF(pos, QSizeF(4, 4));
+    QList<QTouchEvent::TouchPoint> points;
+    QTouchEvent::TouchPoint tp;
+    tp.setId(1);
+    tp.setState(Qt::TouchPointPressed);
+    const QPointF localPos = item->mapToScene(QPointF(10, 10));
+    const QPointF screenPos = window->mapToGlobal(localPos.toPoint());
+    tp.setPos(localPos);
+    tp.setScreenPos(screenPos);
+    tp.setEllipseDiameters(QSizeF(4, 4));
     points << tp;
-    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity, points);
+    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity,
+                                             QWindowSystemInterfacePrivate::toNativeTouchPoints(points, window));
     QGuiApplication::processEvents();
     QQuickTouchUtils::flush(window);
-    points[0].state = Qt::TouchPointMoved;
-    points[0].area.adjust(5, 5, 5, 5);
+    QCOMPARE(item->touchEventCount, 1);
+
+    points[0].setState(Qt::TouchPointMoved);
+    points[0].setPos(localPos + QPointF(5, 5));
+    points[0].setScreenPos(screenPos + QPointF(5, 5));
     QVector2D velocity(1.5, 2.5);
-    points[0].velocity = velocity;
-    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity, points);
+    points[0].setVelocity(velocity);
+    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity,
+                                             QWindowSystemInterfacePrivate::toNativeTouchPoints(points, window));
     QGuiApplication::processEvents();
     QQuickTouchUtils::flush(window);
     QCOMPARE(item->touchEventCount, 2);
@@ -879,20 +905,84 @@ void tst_qquickwindow::touchEvent_velocity()
     QMatrix4x4 transformMatrix;
     transformMatrix.rotate(-90, 0, 0, 1); // counterclockwise
     QVector2D transformedVelocity = transformMatrix.mapVector(velocity).toVector2D();
-    points[0].area.adjust(5, 5, 5, 5);
-    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity, points);
+    points[0].setPos(points[0].pos() + QPointF(5, 5));
+    points[0].setScreenPos(points[0].screenPos() + QPointF(5, 5));
+    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity,
+                                             QWindowSystemInterfacePrivate::toNativeTouchPoints(points, window));
     QGuiApplication::processEvents();
     QQuickTouchUtils::flush(window);
     QCOMPARE(item->lastVelocity, transformedVelocity);
-    QPoint itemLocalPos = item->mapFromScene(window->mapFromGlobal(points[0].area.center().toPoint())).toPoint();
+    QPoint itemLocalPos = item->mapFromScene(points[0].pos()).toPoint();
     QPoint itemLocalPosFromEvent = item->lastEvent.touchPoints[0].pos().toPoint();
     QCOMPARE(itemLocalPos, itemLocalPosFromEvent);
 
-    points[0].state = Qt::TouchPointReleased;
-    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity, points);
+    points[0].setState(Qt::TouchPointReleased);
+    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity,
+                                             QWindowSystemInterfacePrivate::toNativeTouchPoints(points, window));
     QGuiApplication::processEvents();
     QQuickTouchUtils::flush(window);
     delete item;
+}
+
+void tst_qquickwindow::mergeTouchPointLists_data()
+{
+    QTest::addColumn<QVector<QQuickItem*>>("list1");
+    QTest::addColumn<QVector<QQuickItem*>>("list2");
+    QTest::addColumn<QVector<QQuickItem*>>("expected");
+    QTest::addColumn<bool>("showItem");
+
+    // FIXME: do not leak all these items
+    auto item1 = new QQuickItem();
+    auto item2 = new QQuickItem();
+    auto item3 = new QQuickItem();
+    auto item4 = new QQuickItem();
+    auto item5 = new QQuickItem();
+
+    QTest::newRow("empty") << QVector<QQuickItem*>() << QVector<QQuickItem*>() << QVector<QQuickItem*>();
+    QTest::newRow("single list left")
+            << (QVector<QQuickItem*>() << item1 << item2 << item3)
+            << QVector<QQuickItem*>()
+            << (QVector<QQuickItem*>() << item1 << item2 << item3);
+    QTest::newRow("single list right")
+            << QVector<QQuickItem*>()
+            << (QVector<QQuickItem*>() << item1 << item2 << item3)
+            << (QVector<QQuickItem*>() << item1 << item2 << item3);
+    QTest::newRow("two lists identical")
+            << (QVector<QQuickItem*>() << item1 << item2 << item3)
+            << (QVector<QQuickItem*>() << item1 << item2 << item3)
+            << (QVector<QQuickItem*>() << item1 << item2 << item3);
+    QTest::newRow("two lists 1")
+            << (QVector<QQuickItem*>() << item1 << item2 << item5)
+            << (QVector<QQuickItem*>() << item3 << item4 << item5)
+            << (QVector<QQuickItem*>() << item1 << item2 << item3 << item4 << item5);
+    QTest::newRow("two lists 2")
+            << (QVector<QQuickItem*>() << item1 << item2 << item5)
+            << (QVector<QQuickItem*>() << item3 << item4 << item5)
+            << (QVector<QQuickItem*>() << item1 << item2 << item3 << item4 << item5);
+    QTest::newRow("two lists 3")
+            << (QVector<QQuickItem*>() << item1 << item2 << item3)
+            << (QVector<QQuickItem*>() << item1 << item4 << item5)
+            << (QVector<QQuickItem*>() << item1 << item2 << item3 << item4 << item5);
+    QTest::newRow("two lists 4")
+            << (QVector<QQuickItem*>() << item1 << item3 << item4)
+            << (QVector<QQuickItem*>() << item2 << item3 << item5)
+            << (QVector<QQuickItem*>() << item1 << item2 << item3 << item4 << item5);
+    QTest::newRow("two lists 5")
+            << (QVector<QQuickItem*>() << item1 << item2 << item4)
+            << (QVector<QQuickItem*>() << item1 << item3 << item4)
+            << (QVector<QQuickItem*>() << item1 << item2 << item3 << item4);
+}
+
+void tst_qquickwindow::mergeTouchPointLists()
+{
+    QFETCH(QVector<QQuickItem*>, list1);
+    QFETCH(QVector<QQuickItem*>, list2);
+    QFETCH(QVector<QQuickItem*>, expected);
+
+    QQuickWindow win;
+    auto windowPrivate = QQuickWindowPrivate::get(&win);
+    auto targetList = windowPrivate->mergePointerTargets(list1, list2);
+    QCOMPARE(targetList, expected);
 }
 
 void tst_qquickwindow::mouseFromTouch_basic()
@@ -916,25 +1006,32 @@ void tst_qquickwindow::mouseFromTouch_basic()
     item->setSize(QSizeF(150, 150));
     item->acceptTouchEvents = false;
 
-    QList<QWindowSystemInterface::TouchPoint> points;
-    QWindowSystemInterface::TouchPoint tp;
-    tp.id = 1;
-    tp.state = Qt::TouchPointPressed;
-    QPoint pos = window->mapToGlobal(item->mapToScene(QPointF(10, 10)).toPoint());
-    tp.area = QRectF(pos, QSizeF(4, 4));
+    QList<QTouchEvent::TouchPoint> points;
+    QTouchEvent::TouchPoint tp;
+    tp.setId(1);
+    tp.setState(Qt::TouchPointPressed);
+    const QPointF localPos = item->mapToScene(QPointF(10, 10));
+    const QPointF screenPos = window->mapToGlobal(localPos.toPoint());
+    tp.setPos(localPos);
+    tp.setScreenPos(screenPos);
+    tp.setEllipseDiameters(QSizeF(4, 4));
     points << tp;
-    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity, points);
+    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity,
+                                             QWindowSystemInterfacePrivate::toNativeTouchPoints(points, window));
     QGuiApplication::processEvents();
     QQuickTouchUtils::flush(window);
-    points[0].state = Qt::TouchPointMoved;
-    points[0].area.adjust(5, 5, 5, 5);
+    points[0].setState(Qt::TouchPointMoved);
+    points[0].setPos(localPos + QPointF(5, 5));
+    points[0].setScreenPos(screenPos + QPointF(5, 5));
     QVector2D velocity(1.5, 2.5);
-    points[0].velocity = velocity;
-    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity, points);
+    points[0].setVelocity(velocity);
+    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity,
+                                             QWindowSystemInterfacePrivate::toNativeTouchPoints(points, window));
     QGuiApplication::processEvents();
     QQuickTouchUtils::flush(window);
-    points[0].state = Qt::TouchPointReleased;
-    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity, points);
+    points[0].setState(Qt::TouchPointReleased);
+    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity,
+                                             QWindowSystemInterfacePrivate::toNativeTouchPoints(points, window));
     QGuiApplication::processEvents();
     QQuickTouchUtils::flush(window);
 
@@ -942,7 +1039,7 @@ void tst_qquickwindow::mouseFromTouch_basic()
     QCOMPARE(item->mousePressNum, 1);
     QCOMPARE(item->mouseMoveNum, 1);
     QCOMPARE(item->mouseReleaseNum, 1);
-    QCOMPARE(item->lastMousePos.toPoint(), item->mapFromScene(window->mapFromGlobal(points[0].area.center().toPoint())).toPoint());
+    QCOMPARE(item->lastMousePos.toPoint(), item->mapFromScene(points[0].pos()).toPoint());
     QCOMPARE(item->lastVelocityFromMouseMove, velocity);
     QVERIFY((item->lastMouseCapabilityFlags & QTouchDevice::Velocity) != 0);
 
@@ -951,22 +1048,27 @@ void tst_qquickwindow::mouseFromTouch_basic()
     QMatrix4x4 transformMatrix;
     transformMatrix.rotate(-90, 0, 0, 1); // counterclockwise
     QVector2D transformedVelocity = transformMatrix.mapVector(velocity).toVector2D();
-    points[0].state = Qt::TouchPointPressed;
-    points[0].velocity = velocity;
-    points[0].area = QRectF(pos, QSizeF(4, 4));
-    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity, points);
+    points[0].setState(Qt::TouchPointPressed);
+    points[0].setVelocity(velocity);
+    tp.setPos(localPos);
+    tp.setScreenPos(screenPos);
+    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity,
+                                             QWindowSystemInterfacePrivate::toNativeTouchPoints(points, window));
     QGuiApplication::processEvents();
     QQuickTouchUtils::flush(window);
-    points[0].state = Qt::TouchPointMoved;
-    points[0].area.adjust(5, 5, 5, 5);
-    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity, points);
+    points[0].setState(Qt::TouchPointMoved);
+    points[0].setPos(localPos + QPointF(5, 5));
+    points[0].setScreenPos(screenPos + QPointF(5, 5));
+    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity,
+                                             QWindowSystemInterfacePrivate::toNativeTouchPoints(points, window));
     QGuiApplication::processEvents();
     QQuickTouchUtils::flush(window);
-    QCOMPARE(item->lastMousePos.toPoint(), item->mapFromScene(window->mapFromGlobal(points[0].area.center().toPoint())).toPoint());
+    QCOMPARE(item->lastMousePos.toPoint(), item->mapFromScene(points[0].pos()).toPoint());
     QCOMPARE(item->lastVelocityFromMouseMove, transformedVelocity);
 
-    points[0].state = Qt::TouchPointReleased;
-    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity, points);
+    points[0].setState(Qt::TouchPointReleased);
+    QWindowSystemInterface::handleTouchEvent(window, touchDeviceWithVelocity,
+                                             QWindowSystemInterfacePrivate::toNativeTouchPoints(points, window));
     QCoreApplication::processEvents();
     QQuickTouchUtils::flush(window);
     delete item;
@@ -1036,6 +1138,24 @@ void tst_qquickwindow::qmlCreation()
     QQmlEngine engine;
     QQmlComponent component(&engine);
     component.loadUrl(testFileUrl("window.qml"));
+    QObject *created = component.create();
+    QScopedPointer<QObject> cleanup(created);
+    QVERIFY(created);
+
+    QQuickWindow *window = qobject_cast<QQuickWindow*>(created);
+    QVERIFY(window);
+    QCOMPARE(window->color(), QColor(Qt::green));
+
+    QQuickItem *item = window->findChild<QQuickItem*>("item");
+    QVERIFY(item);
+    QCOMPARE(item->window(), window);
+}
+
+void tst_qquickwindow::qmlCreationWithScreen()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.loadUrl(testFileUrl("windowWithScreen.qml"));
     QObject *created = component.create();
     QScopedPointer<QObject> cleanup(created);
     QVERIFY(created);
@@ -1233,13 +1353,14 @@ void tst_qquickwindow::headless()
 
     QVERIFY(QTest::qWaitForWindowExposed(window));
     QVERIFY(window->isVisible());
-    bool threaded = window->openglContext()->thread() != QThread::currentThread();
-
+    const bool threaded = QQuickWindowPrivate::get(window)->context->thread() != QThread::currentThread();
     QSignalSpy initialized(window, SIGNAL(sceneGraphInitialized()));
     QSignalSpy invalidated(window, SIGNAL(sceneGraphInvalidated()));
 
     // Verify that the window is alive and kicking
-    QVERIFY(window->openglContext() != 0);
+    QVERIFY(window->isSceneGraphInitialized());
+
+    const bool isGL = window->rendererInterface()->graphicsApi() == QSGRendererInterface::OpenGL;
 
     // Store the visual result
     QImage originalContent = window->grabWindow();
@@ -1249,15 +1370,16 @@ void tst_qquickwindow::headless()
     window->releaseResources();
 
     if (threaded) {
-        QTRY_COMPARE(invalidated.size(), 1);
-        QVERIFY(!window->openglContext());
+        QTRY_VERIFY(invalidated.size() >= 1);
+        if (isGL)
+            QVERIFY(!window->isSceneGraphInitialized());
     }
-
+#if QT_CONFIG(opengl)
     if (QGuiApplication::platformName() == QLatin1String("windows")
         && QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGLES) {
         QSKIP("Crashes on Windows/ANGLE, QTBUG-42967");
     }
-
+#endif
     // Destroy the native windowing system buffers
     window->destroy();
     QVERIFY(!window->handle());
@@ -1268,7 +1390,8 @@ void tst_qquickwindow::headless()
 
     if (threaded)
         QTRY_COMPARE(initialized.size(), 1);
-    QVERIFY(window->openglContext() != 0);
+
+    QVERIFY(window->isSceneGraphInitialized());
 
     // Verify that the visual output is the same
     QImage newContent = window->grabWindow();
@@ -1289,8 +1412,7 @@ void tst_qquickwindow::noUpdateWhenNothingChanges()
     // the initial expose with a second expose or more. Let these go
     // through before we let the test continue.
     QTest::qWait(100);
-
-    if (window.openglContext()->thread() == QGuiApplication::instance()->thread()) {
+    if (QQuickWindowPrivate::get(&window)->context->thread() == QGuiApplication::instance()->thread()) {
         QSKIP("Only threaded renderloop implements this feature");
         return;
     }
@@ -1440,7 +1562,7 @@ void tst_qquickwindow::ownershipRootItem()
     QVERIFY(!accessor->isRootItemDestroyed());
 }
 
-#ifndef QT_NO_CURSOR
+#if QT_CONFIG(cursor)
 void tst_qquickwindow::cursor()
 {
     QQuickWindow window;
@@ -1597,7 +1719,6 @@ void tst_qquickwindow::hideThenDelete()
 
     QSignalSpy *openglDestroyed = 0;
     QSignalSpy *sgInvalidated = 0;
-    bool threaded = false;
 
     {
         QQuickWindow window;
@@ -1612,9 +1733,13 @@ void tst_qquickwindow::hideThenDelete()
         window.show();
 
         QTest::qWaitForWindowExposed(&window);
-        threaded = window.openglContext()->thread() != QThread::currentThread();
+        const bool threaded = QQuickWindowPrivate::get(&window)->context->thread() != QGuiApplication::instance()->thread();
+        const bool isGL = window.rendererInterface()->graphicsApi() == QSGRendererInterface::OpenGL;
+#if QT_CONFIG(opengl)
+        if (isGL)
+            openglDestroyed = new QSignalSpy(window.openglContext(), SIGNAL(aboutToBeDestroyed()));
+#endif
 
-        openglDestroyed = new QSignalSpy(window.openglContext(), SIGNAL(aboutToBeDestroyed()));
         sgInvalidated = new QSignalSpy(&window, SIGNAL(sceneGraphInvalidated()));
 
         window.hide();
@@ -1622,6 +1747,9 @@ void tst_qquickwindow::hideThenDelete()
         QTRY_VERIFY(!window.isExposed());
 
         if (threaded) {
+            if (!isGL)
+                QSKIP("Skipping persistency verification due to not running with OpenGL");
+
             if (!persistentSG) {
                 QVERIFY(sgInvalidated->size() > 0);
                 if (!persistentGL)
@@ -1636,7 +1764,10 @@ void tst_qquickwindow::hideThenDelete()
     }
 
     QVERIFY(sgInvalidated->size() > 0);
-    QVERIFY(openglDestroyed->size() > 0);
+#if QT_CONFIG(opengl)
+    if (openglDestroyed)
+        QVERIFY(openglDestroyed->size() > 0);
+#endif
 }
 
 void tst_qquickwindow::showHideAnimate()
@@ -1853,6 +1984,28 @@ void tst_qquickwindow::unloadSubWindow()
     QTRY_VERIFY(transient.isNull() || !transient->isVisible());
 }
 
+// QTBUG-52573
+void tst_qquickwindow::changeVisibilityInCompleted()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.loadUrl(testFileUrl("changeVisibilityInCompleted.qml"));
+    QScopedPointer<QQuickWindow> window(qobject_cast<QQuickWindow *>(component.create()));
+    QVERIFY(!window.isNull());
+    window->setTitle(QTest::currentTestFunction());
+    window->show();
+    QTest::qWaitForWindowExposed(window.data());
+    QPointer<QQuickWindow> winVisible;
+    QTRY_VERIFY(winVisible = window->property("winVisible").value<QQuickWindow*>());
+    QPointer<QQuickWindow> winVisibility;
+    QTRY_VERIFY(winVisibility = window->property("winVisibility").value<QQuickWindow*>());
+    QTest::qWaitForWindowExposed(winVisible);
+    QTest::qWaitForWindowExposed(winVisibility);
+
+    QVERIFY(winVisible->isVisible());
+    QCOMPARE(winVisibility->visibility(), QWindow::Windowed);
+}
+
 // QTBUG-32004
 void tst_qquickwindow::qobjectEventFilter_touch()
 {
@@ -2011,6 +2164,9 @@ void tst_qquickwindow::defaultSurfaceFormat()
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
 
+    if (window.rendererInterface()->graphicsApi() != QSGRendererInterface::OpenGL)
+        QSKIP("Skipping OpenGL context test due to not running with OpenGL");
+
     const QSurfaceFormat reqFmt = window.requestedFormat();
     QCOMPARE(format.swapInterval(), reqFmt.swapInterval());
     QCOMPARE(format.redBufferSize(), reqFmt.redBufferSize());
@@ -2019,12 +2175,13 @@ void tst_qquickwindow::defaultSurfaceFormat()
     QCOMPARE(format.profile(), reqFmt.profile());
     QCOMPARE(int(format.options()), int(reqFmt.options()));
 
+#if QT_CONFIG(opengl)
     // Depth and stencil should be >= what has been requested. For real. But use
     // the context since the window's surface format is only partially updated
     // on most platforms.
     QVERIFY(window.openglContext()->format().depthBufferSize() >= 16);
     QVERIFY(window.openglContext()->format().stencilBufferSize() >= 8);
-
+#endif
     QSurfaceFormat::setDefaultFormat(savedDefaultFormat);
 }
 
@@ -2039,9 +2196,11 @@ void tst_qquickwindow::attachedProperty()
     QCOMPARE(view.rootObject()->property("contentItem").value<QQuickItem*>(), view.contentItem());
     QCOMPARE(view.rootObject()->property("windowWidth").toInt(), view.width());
     QCOMPARE(view.rootObject()->property("windowHeight").toInt(), view.height());
+    QCOMPARE(view.rootObject()->property("window").value<QQuickView*>(), &view);
 
     QQuickWindow *innerWindow = view.rootObject()->findChild<QQuickWindow*>("extraWindow");
     QVERIFY(innerWindow);
+    innerWindow->show();
     innerWindow->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(innerWindow));
 
@@ -2051,11 +2210,13 @@ void tst_qquickwindow::attachedProperty()
     QCOMPARE(text->property("contentItem").value<QQuickItem*>(), innerWindow->contentItem());
     QCOMPARE(text->property("windowWidth").toInt(), innerWindow->width());
     QCOMPARE(text->property("windowHeight").toInt(), innerWindow->height());
+    QCOMPARE(text->property("window").value<QQuickWindow*>(), innerWindow);
 
     text->setParentItem(0);
     QVERIFY(!text->property("contentItem").value<QQuickItem*>());
     QCOMPARE(text->property("windowWidth").toInt(), 0);
     QCOMPARE(text->property("windowHeight").toInt(), 0);
+    QVERIFY(!text->property("window").value<QQuickWindow*>());
 }
 
 class RenderJob : public QRunnable
@@ -2070,7 +2231,7 @@ public:
     }
     static int deleted;
 };
-
+#if QT_CONFIG(opengl)
 class GlRenderJob : public QRunnable
 {
 public:
@@ -2092,7 +2253,7 @@ public:
     QMutex *mutex;
     QWaitCondition *condition;
 };
-
+#endif
 int RenderJob::deleted = 0;
 
 void tst_qquickwindow::testRenderJob()
@@ -2141,25 +2302,29 @@ void tst_qquickwindow::testRenderJob()
         QTRY_COMPARE(RenderJob::deleted, 1);
         QCOMPARE(completedJobs.size(), 1);
 
-        // Do a synchronized GL job.
-        GLubyte readPixel[4] = {0, 0, 0, 0};
-        GlRenderJob *glJob = new GlRenderJob(readPixel);
-        if (window.openglContext()->thread() != QThread::currentThread()) {
-            QMutex mutex;
-            QWaitCondition condition;
-            glJob->mutex = &mutex;
-            glJob->condition = &condition;
-            mutex.lock();
-            window.scheduleRenderJob(glJob, QQuickWindow::NoStage);
-            condition.wait(&mutex);
-            mutex.unlock();
-        } else {
-            window.scheduleRenderJob(glJob, QQuickWindow::NoStage);
+#if QT_CONFIG(opengl)
+        if (window.rendererInterface()->graphicsApi() == QSGRendererInterface::OpenGL) {
+            // Do a synchronized GL job.
+            GLubyte readPixel[4] = {0, 0, 0, 0};
+            GlRenderJob *glJob = new GlRenderJob(readPixel);
+            if (window.openglContext()->thread() != QThread::currentThread()) {
+                QMutex mutex;
+                QWaitCondition condition;
+                glJob->mutex = &mutex;
+                glJob->condition = &condition;
+                mutex.lock();
+                window.scheduleRenderJob(glJob, QQuickWindow::NoStage);
+                condition.wait(&mutex);
+                mutex.unlock();
+            } else {
+                window.scheduleRenderJob(glJob, QQuickWindow::NoStage);
+            }
+            QCOMPARE(int(readPixel[0]), 255);
+            QCOMPARE(int(readPixel[1]), 0);
+            QCOMPARE(int(readPixel[2]), 0);
+            QCOMPARE(int(readPixel[3]), 255);
         }
-        QCOMPARE(int(readPixel[0]), 255);
-        QCOMPARE(int(readPixel[1]), 0);
-        QCOMPARE(int(readPixel[2]), 0);
-        QCOMPARE(int(readPixel[3]), 255);
+#endif
     }
 
     // Verify that jobs are deleted when window is not rendered at all
@@ -2177,7 +2342,6 @@ void tst_qquickwindow::testRenderJob()
 
 class EventCounter : public QQuickRectangle
 {
-    Q_OBJECT
 public:
     EventCounter(QQuickItem *parent = 0)
         : QQuickRectangle(parent)
@@ -2365,6 +2529,352 @@ void tst_qquickwindow::testHoverTimestamp()
     }
     QCOMPARE(hoverConsumer->hoverTimestamps.size(), 4);
     QCOMPARE(hoverConsumer->hoverTimestamps.last(), 5UL);
+}
+
+void tst_qquickwindow::pointerEventTypeAndPointCount()
+{
+    QPointF localPosition(33, 66);
+    QPointF scenePosition(133, 166);
+    QPointF screenPosition(333, 366);
+    QMouseEvent me(QEvent::MouseButtonPress, localPosition, scenePosition, screenPosition,
+                   Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QTouchEvent te(QEvent::TouchBegin, touchDevice, Qt::NoModifier, Qt::TouchPointPressed,
+        QList<QTouchEvent::TouchPoint>() << QTouchEvent::TouchPoint(1));
+
+
+    QQuickPointerMouseEvent pme;
+    pme.reset(&me);
+    QVERIFY(pme.isValid());
+    QCOMPARE(pme.asMouseEvent(localPosition), &me);
+    QVERIFY(pme.asPointerMouseEvent());
+    QVERIFY(!pme.asPointerTouchEvent());
+    QVERIFY(!pme.asPointerTabletEvent());
+//    QVERIFY(!pe->asTabletEvent()); // TODO
+    QCOMPARE(pme.pointCount(), 1);
+    QCOMPARE(pme.point(0)->scenePos(), scenePosition);
+    QCOMPARE(pme.asMouseEvent(localPosition)->localPos(), localPosition);
+    QCOMPARE(pme.asMouseEvent(localPosition)->screenPos(), screenPosition);
+
+    QQuickPointerTouchEvent pte;
+    pte.reset(&te);
+    QVERIFY(pte.isValid());
+    QCOMPARE(pte.asTouchEvent(), &te);
+    QVERIFY(!pte.asPointerMouseEvent());
+    QVERIFY(pte.asPointerTouchEvent());
+    QVERIFY(!pte.asPointerTabletEvent());
+    QVERIFY(pte.asTouchEvent());
+//    QVERIFY(!pte.asTabletEvent()); // TODO
+    QCOMPARE(pte.pointCount(), 1);
+    QCOMPARE(pte.touchPointById(1)->id(), 1);
+    QVERIFY(!pte.touchPointById(0));
+
+    te.setTouchPoints(QList<QTouchEvent::TouchPoint>() << QTouchEvent::TouchPoint(1) << QTouchEvent::TouchPoint(2));
+    pte.reset(&te);
+    QCOMPARE(pte.pointCount(), 2);
+    QCOMPARE(pte.touchPointById(1)->id(), 1);
+    QCOMPARE(pte.touchPointById(2)->id(), 2);
+    QVERIFY(!pte.touchPointById(0));
+
+    te.setTouchPoints(QList<QTouchEvent::TouchPoint>() << QTouchEvent::TouchPoint(2));
+    pte.reset(&te);
+    QCOMPARE(pte.pointCount(), 1);
+    QCOMPARE(pte.touchPointById(2)->id(), 2);
+    QVERIFY(!pte.touchPointById(1));
+    QVERIFY(!pte.touchPointById(0));
+}
+
+void tst_qquickwindow::grabContentItemToImage()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.loadUrl(testFileUrl("grabContentItemToImage.qml"));
+
+    QObject *created = component.create();
+    QScopedPointer<QObject> cleanup(created);
+    QVERIFY(created);
+
+    QQuickWindow *window = qobject_cast<QQuickWindow *>(created);
+    QVERIFY(QTest::qWaitForWindowActive(window));
+
+    QMetaObject::invokeMethod(window, "grabContentItemToImage");
+    QTRY_COMPARE(created->property("success").toInt(), 1);
+}
+
+class TestDropTarget : public QQuickItem
+{
+    Q_OBJECT
+public:
+    TestDropTarget(QQuickItem *parent = 0)
+        : QQuickItem(parent)
+        , enterDropAction(Qt::CopyAction)
+        , moveDropAction(Qt::CopyAction)
+        , dropDropAction(Qt::CopyAction)
+        , enterAccept(true)
+        , moveAccept(true)
+        , dropAccept(true)
+    {
+        setFlags(ItemAcceptsDrops);
+    }
+
+    void reset()
+    {
+        enterDropAction = Qt::CopyAction;
+        moveDropAction = Qt::CopyAction;
+        dropDropAction = Qt::CopyAction;
+        enterAccept = true;
+        moveAccept = true;
+        dropAccept = true;
+    }
+
+    void dragEnterEvent(QDragEnterEvent *event)
+    {
+        event->setAccepted(enterAccept);
+        event->setDropAction(enterDropAction);
+    }
+
+    void dragMoveEvent(QDragMoveEvent *event)
+    {
+        event->setAccepted(moveAccept);
+        event->setDropAction(moveDropAction);
+    }
+
+    void dropEvent(QDropEvent *event)
+    {
+        event->setAccepted(dropAccept);
+        event->setDropAction(dropDropAction);
+    }
+
+    Qt::DropAction enterDropAction;
+    Qt::DropAction moveDropAction;
+    Qt::DropAction dropDropAction;
+    bool enterAccept;
+    bool moveAccept;
+    bool dropAccept;
+};
+
+class DragEventTester {
+public:
+    DragEventTester()
+        : pos(60, 60)
+        , actions(Qt::CopyAction | Qt::MoveAction | Qt::LinkAction)
+        , buttons(Qt::LeftButton)
+        , modifiers(Qt::NoModifier)
+    {
+    }
+
+    ~DragEventTester() {
+        qDeleteAll(events);
+        events.clear();
+        enterEvent = 0;
+        moveEvent = 0;
+        dropEvent = 0;
+        leaveEvent = 0;
+    }
+
+    void addEnterEvent()
+    {
+        enterEvent = new QDragEnterEvent(pos, actions, &data, buttons, modifiers);
+        events.append(enterEvent);
+    }
+
+    void addMoveEvent()
+    {
+        moveEvent = new QDragMoveEvent(pos, actions, &data, buttons, modifiers, QEvent::DragMove);
+        events.append(moveEvent);
+    }
+
+    void addDropEvent()
+    {
+        dropEvent = new QDropEvent(pos, actions, &data, buttons, modifiers, QEvent::Drop);
+        events.append(dropEvent);
+    }
+
+    void addLeaveEvent()
+    {
+        leaveEvent = new QDragLeaveEvent();
+        events.append(leaveEvent);
+    }
+
+    void sendDragEventSequence(QQuickWindow *window) const {
+        for (int i = 0; i < events.size(); ++i) {
+            QCoreApplication::sendEvent(window, events[i]);
+        }
+    }
+
+    // Used for building events.
+    QMimeData data;
+    QPoint pos;
+    Qt::DropActions actions;
+    Qt::MouseButtons buttons;
+    Qt::KeyboardModifiers modifiers;
+
+    // Owns events.
+    QList<QEvent *> events;
+
+    // Non-owner pointers for easy acccess.
+    QDragEnterEvent *enterEvent;
+    QDragMoveEvent *moveEvent;
+    QDropEvent *dropEvent;
+    QDragLeaveEvent *leaveEvent;
+};
+
+void tst_qquickwindow::testDragEventPropertyPropagation()
+{
+    QQuickWindow window;
+    TestDropTarget dropTarget(window.contentItem());
+
+    // Setting the size is important because the QQuickWindow checks if the drag happened inside
+    // the drop target.
+    dropTarget.setSize(QSizeF(100, 100));
+
+    // Test enter events property propagation.
+    // For enter events, only isAccepted gets propagated.
+    {
+        DragEventTester builder;
+        dropTarget.enterAccept = false;
+        dropTarget.enterDropAction = Qt::IgnoreAction;
+        builder.addEnterEvent(); builder.addMoveEvent(); builder.addLeaveEvent();
+        builder.sendDragEventSequence(&window);
+        QDragEnterEvent* enterEvent = builder.enterEvent;
+        QCOMPARE(enterEvent->isAccepted(), dropTarget.enterAccept);
+    }
+    {
+        DragEventTester builder;
+        dropTarget.enterAccept = false;
+        dropTarget.enterDropAction = Qt::CopyAction;
+        builder.addEnterEvent(); builder.addMoveEvent(); builder.addLeaveEvent();
+        builder.sendDragEventSequence(&window);
+        QDragEnterEvent* enterEvent = builder.enterEvent;
+        QCOMPARE(enterEvent->isAccepted(), dropTarget.enterAccept);
+    }
+    {
+        DragEventTester builder;
+        dropTarget.enterAccept = true;
+        dropTarget.enterDropAction = Qt::IgnoreAction;
+        builder.addEnterEvent(); builder.addMoveEvent(); builder.addLeaveEvent();
+        builder.sendDragEventSequence(&window);
+        QDragEnterEvent* enterEvent = builder.enterEvent;
+        QCOMPARE(enterEvent->isAccepted(), dropTarget.enterAccept);
+    }
+    {
+        DragEventTester builder;
+        dropTarget.enterAccept = true;
+        dropTarget.enterDropAction = Qt::CopyAction;
+        builder.addEnterEvent(); builder.addMoveEvent(); builder.addLeaveEvent();
+        builder.sendDragEventSequence(&window);
+        QDragEnterEvent* enterEvent = builder.enterEvent;
+        QCOMPARE(enterEvent->isAccepted(), dropTarget.enterAccept);
+    }
+
+    // Test move events property propagation.
+    // For move events, both isAccepted and dropAction get propagated.
+    dropTarget.reset();
+    {
+        DragEventTester builder;
+        dropTarget.moveAccept = false;
+        dropTarget.moveDropAction = Qt::IgnoreAction;
+        builder.addEnterEvent(); builder.addMoveEvent(); builder.addLeaveEvent();
+        builder.sendDragEventSequence(&window);
+        QDragMoveEvent* moveEvent = builder.moveEvent;
+        QCOMPARE(moveEvent->isAccepted(), dropTarget.moveAccept);
+        QCOMPARE(moveEvent->dropAction(), dropTarget.moveDropAction);
+    }
+    {
+        DragEventTester builder;
+        dropTarget.moveAccept = false;
+        dropTarget.moveDropAction = Qt::CopyAction;
+        builder.addEnterEvent(); builder.addMoveEvent(); builder.addLeaveEvent();
+        builder.sendDragEventSequence(&window);
+        QDragMoveEvent* moveEvent = builder.moveEvent;
+        QCOMPARE(moveEvent->isAccepted(), dropTarget.moveAccept);
+        QCOMPARE(moveEvent->dropAction(), dropTarget.moveDropAction);
+    }
+    {
+        DragEventTester builder;
+        dropTarget.moveAccept = true;
+        dropTarget.moveDropAction = Qt::IgnoreAction;
+        builder.addEnterEvent(); builder.addMoveEvent(); builder.addLeaveEvent();
+        builder.sendDragEventSequence(&window);
+        QDragMoveEvent* moveEvent = builder.moveEvent;
+        QCOMPARE(moveEvent->isAccepted(), dropTarget.moveAccept);
+        QCOMPARE(moveEvent->dropAction(), dropTarget.moveDropAction);
+    }
+    {
+        DragEventTester builder;
+        dropTarget.moveAccept = true;
+        dropTarget.moveDropAction = Qt::CopyAction;
+        builder.addEnterEvent(); builder.addMoveEvent(); builder.addLeaveEvent();
+        builder.sendDragEventSequence(&window);
+        QDragMoveEvent* moveEvent = builder.moveEvent;
+        QCOMPARE(moveEvent->isAccepted(), dropTarget.moveAccept);
+        QCOMPARE(moveEvent->dropAction(), dropTarget.moveDropAction);
+    }
+
+    // Test drop events property propagation.
+    // For drop events, both isAccepted and dropAction get propagated.
+    dropTarget.reset();
+    {
+        DragEventTester builder;
+        dropTarget.dropAccept = false;
+        dropTarget.dropDropAction = Qt::IgnoreAction;
+        builder.addEnterEvent(); builder.addMoveEvent(); builder.addDropEvent();
+        builder.sendDragEventSequence(&window);
+        QDropEvent* dropEvent = builder.dropEvent;
+        QCOMPARE(dropEvent->isAccepted(), dropTarget.dropAccept);
+        QCOMPARE(dropEvent->dropAction(), dropTarget.dropDropAction);
+    }
+    {
+        DragEventTester builder;
+        dropTarget.dropAccept = false;
+        dropTarget.dropDropAction = Qt::CopyAction;
+        builder.addEnterEvent(); builder.addMoveEvent(); builder.addDropEvent();
+        builder.sendDragEventSequence(&window);
+        QDropEvent* dropEvent = builder.dropEvent;
+        QCOMPARE(dropEvent->isAccepted(), dropTarget.dropAccept);
+        QCOMPARE(dropEvent->dropAction(), dropTarget.dropDropAction);
+    }
+    {
+        DragEventTester builder;
+        dropTarget.dropAccept = true;
+        dropTarget.dropDropAction = Qt::IgnoreAction;
+        builder.addEnterEvent(); builder.addMoveEvent(); builder.addDropEvent();
+        builder.sendDragEventSequence(&window);
+        QDropEvent* dropEvent = builder.dropEvent;
+        QCOMPARE(dropEvent->isAccepted(), dropTarget.dropAccept);
+        QCOMPARE(dropEvent->dropAction(), dropTarget.dropDropAction);
+    }
+    {
+        DragEventTester builder;
+        dropTarget.dropAccept = true;
+        dropTarget.dropDropAction = Qt::CopyAction;
+        builder.addEnterEvent(); builder.addMoveEvent(); builder.addDropEvent();
+        builder.sendDragEventSequence(&window);
+        QDropEvent* dropEvent = builder.dropEvent;
+        QCOMPARE(dropEvent->isAccepted(), dropTarget.dropAccept);
+        QCOMPARE(dropEvent->dropAction(), dropTarget.dropDropAction);
+    }
+}
+
+void tst_qquickwindow::findChild()
+{
+    QQuickWindow window;
+
+    // QQuickWindow
+    // |_ QQuickWindow::contentItem
+    // |  |_ QObject("contentItemChild")
+    // |_ QObject("viewChild")
+
+    QObject *windowChild = new QObject(&window);
+    windowChild->setObjectName("windowChild");
+
+    QObject *contentItemChild = new QObject(window.contentItem());
+    contentItemChild->setObjectName("contentItemChild");
+
+    QCOMPARE(window.findChild<QObject *>("windowChild"), windowChild);
+    QCOMPARE(window.findChild<QObject *>("contentItemChild"), contentItemChild);
+
+    QVERIFY(!window.contentItem()->findChild<QObject *>("viewChild")); // sibling
+    QCOMPARE(window.contentItem()->findChild<QObject *>("contentItemChild"), contentItemChild);
 }
 
 QTEST_MAIN(tst_qquickwindow)

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -38,6 +44,7 @@
 #include <QtCore/QtMath>
 
 #include <QtGui/QOpenGLContext>
+#include <QtGui/QOpenGLFunctions>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QScreen>
 #include <QtGui/QSurface>
@@ -110,8 +117,9 @@ QSGTexture *Manager::create(const QImage &image, bool hasAlphaChannel)
     if (image.width() < m_atlas_size_limit && image.height() < m_atlas_size_limit) {
         if (!m_atlas)
             m_atlas = new Atlas(m_atlas_size);
+        // t may be null for atlas allocation failure
         t = m_atlas->create(image);
-        if (!hasAlphaChannel && t->hasAlphaChannel())
+        if (t && !hasAlphaChannel && t->hasAlphaChannel())
             t->setHasAlphaChannel(false);
     }
     return t;
@@ -132,13 +140,13 @@ Atlas::Atlas(const QSize &size)
     if (QOpenGLContext::currentContext()->isOpenGLES()) {
 #endif
 
-#if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_NO_SDK)
+#if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
     QString *deviceName =
             static_cast<QString *>(QGuiApplication::platformNativeInterface()->nativeResourceForIntegration("AndroidDeviceName"));
     static bool wrongfullyReportsBgra8888Support = deviceName != 0
-                                                    && (deviceName->compare(QStringLiteral("samsung SM-T211"), Qt::CaseInsensitive) == 0
-                                                        || deviceName->compare(QStringLiteral("samsung SM-T210"), Qt::CaseInsensitive) == 0
-                                                        || deviceName->compare(QStringLiteral("samsung SM-T215"), Qt::CaseInsensitive) == 0);
+                                                    && (deviceName->compare(QLatin1String("samsung SM-T211"), Qt::CaseInsensitive) == 0
+                                                        || deviceName->compare(QLatin1String("samsung SM-T210"), Qt::CaseInsensitive) == 0
+                                                        || deviceName->compare(QLatin1String("samsung SM-T215"), Qt::CaseInsensitive) == 0);
 #else
     static bool wrongfullyReportsBgra8888Support = false;
     // The Raspberry Pi (both 1 and 2) GPU refuses framebuffers with BGRA color attachments.
@@ -156,11 +164,11 @@ Atlas::Atlas(const QSize &size)
                 || strstr(ext, "GL_EXT_texture_format_BGRA8888")
                 || strstr(ext, "GL_IMG_texture_format_BGRA8888"))) {
         m_internalFormat = m_externalFormat = GL_BGRA;
-#ifdef Q_OS_IOS
+#if defined(Q_OS_DARWIN) && !defined(Q_OS_OSX)
     } else if (ext && strstr(ext, "GL_APPLE_texture_format_BGRA8888")) {
         m_internalFormat = GL_RGBA;
         m_externalFormat = GL_BGRA;
-#endif // IOS
+#endif // IOS || TVOS
     } else {
         m_internalFormat = m_externalFormat = GL_RGBA;
     }
@@ -387,9 +395,12 @@ void Atlas::bind(QSGTexture::Filtering filtering)
         bool profileFrames = QSG_LOG_TIME_TEXTURE().isDebugEnabled();
         if (profileFrames)
             qsg_renderer_timer.start();
-        // Skip bind, convert, swizzle; they're irrelevant
+
         Q_QUICK_SG_PROFILE_START(QQuickProfiler::SceneGraphTexturePrepare);
-        Q_QUICK_SG_PROFILE_SKIP(QQuickProfiler::SceneGraphTexturePrepare, 3);
+
+        // Skip bind, convert, swizzle; they're irrelevant
+        Q_QUICK_SG_PROFILE_SKIP(QQuickProfiler::SceneGraphTexturePrepare,
+                                QQuickProfiler::SceneGraphTexturePrepareStart, 3);
 
         Texture *t = m_pending_uploads.at(i);
         if (m_externalFormat == GL_BGRA &&
@@ -407,10 +418,14 @@ void Atlas::bind(QSGTexture::Filtering filtering)
                                            << "ms (" << t->textureSize().width() << "x"
                                            << t->textureSize().height() << ")";
 
+        Q_QUICK_SG_PROFILE_RECORD(QQuickProfiler::SceneGraphTexturePrepare,
+                                  QQuickProfiler::SceneGraphTexturePrepareUpload);
+
         // Skip mipmap; unused
-        Q_QUICK_SG_PROFILE_RECORD(QQuickProfiler::SceneGraphTexturePrepare);
-        Q_QUICK_SG_PROFILE_SKIP(QQuickProfiler::SceneGraphTexturePrepare, 1);
-        Q_QUICK_SG_PROFILE_REPORT(QQuickProfiler::SceneGraphTexturePrepare);
+        Q_QUICK_SG_PROFILE_SKIP(QQuickProfiler::SceneGraphTexturePrepare,
+                                QQuickProfiler::SceneGraphTexturePrepareUpload, 1);
+        Q_QUICK_SG_PROFILE_REPORT(QQuickProfiler::SceneGraphTexturePrepare,
+                                  QQuickProfiler::SceneGraphTexturePrepareMipmap);
     }
 
     GLenum f = filtering == QSGTexture::Nearest ? GL_NEAREST : GL_LINEAR;
@@ -518,3 +533,5 @@ QSGTexture *Texture::removedFromAtlas() const
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qsgatlastexture_p.cpp"

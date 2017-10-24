@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -98,17 +104,17 @@ public:
 
     QSize size() const { return m_size; }
 
-    GLuint internalFormat() const { return m_internalFormat; }
-    GLuint externalFormat() const { return m_externalFormat; }
+    uint internalFormat() const { return m_internalFormat; }
+    uint externalFormat() const { return m_externalFormat; }
 
 private:
     QSGAreaAllocator m_allocator;
-    GLuint m_texture_id;
+    unsigned int m_texture_id;
     QSize m_size;
     QList<Texture *> m_pending_uploads;
 
-    GLuint m_internalFormat;
-    GLuint m_externalFormat;
+    uint m_internalFormat;
+    uint m_externalFormat;
 
     int m_atlas_transient_image_threshold;
 
@@ -125,26 +131,26 @@ public:
     Texture(Atlas *atlas, const QRect &textureRect, const QImage &image);
     ~Texture();
 
-    int textureId() const { return m_atlas->textureId(); }
-    QSize textureSize() const { return atlasSubRectWithoutPadding().size(); }
+    int textureId() const override { return m_atlas->textureId(); }
+    QSize textureSize() const override { return atlasSubRectWithoutPadding().size(); }
     void setHasAlphaChannel(bool alpha) { m_has_alpha = alpha; }
-    bool hasAlphaChannel() const { return m_has_alpha; }
-    bool hasMipmaps() const { return false; }
-    bool isAtlasTexture() const { return true; }
+    bool hasAlphaChannel() const override { return m_has_alpha; }
+    bool hasMipmaps() const override { return false; }
+    bool isAtlasTexture() const override { return true; }
 
-    QRectF normalizedTextureSubRect() const { return m_texture_coords_rect; }
+    QRectF normalizedTextureSubRect() const override { return m_texture_coords_rect; }
 
     QRect atlasSubRect() const { return m_allocated_rect; }
     QRect atlasSubRectWithoutPadding() const { return m_allocated_rect.adjusted(1, 1, -1, -1); }
 
     bool isTexture() const { return true; }
 
-    QSGTexture *removedFromAtlas() const;
+    QSGTexture *removedFromAtlas() const override;
 
     void releaseImage() { m_image = QImage(); }
     const QImage &image() const { return m_image; }
 
-    void bind();
+    void bind() override;
 
 private:
     QRect m_allocated_rect;

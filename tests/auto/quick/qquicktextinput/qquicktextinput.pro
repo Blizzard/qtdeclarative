@@ -14,5 +14,3 @@ TESTDATA = data/*
 QT += core-private gui-private  qml-private quick-private testlib
 
 osx: LIBS += -framework AppKit
-
-DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0

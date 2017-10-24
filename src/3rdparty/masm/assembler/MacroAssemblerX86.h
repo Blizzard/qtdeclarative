@@ -35,6 +35,7 @@ namespace JSC {
 class MacroAssemblerX86 : public MacroAssemblerX86Common {
 public:
     static const Scale ScalePtr = TimesFour;
+    static const int PointerSize = 4;
 
     using MacroAssemblerX86Common::add32;
     using MacroAssemblerX86Common::and32;
@@ -53,6 +54,38 @@ public:
     using MacroAssemblerX86Common::storeDouble;
     using MacroAssemblerX86Common::convertInt32ToDouble;
     using MacroAssemblerX86Common::branchTest8;
+
+#if defined(V4_BOOTSTRAP)
+    void loadPtr(ImplicitAddress address, RegisterID dest)
+    {
+        load32(address, dest);
+    }
+
+    void subPtr(TrustedImm32 imm, RegisterID dest)
+    {
+        sub32(imm, dest);
+    }
+
+    void addPtr(TrustedImm32 imm, RegisterID dest)
+    {
+        add32(imm, dest);
+    }
+
+    void addPtr(TrustedImm32 imm, RegisterID src, RegisterID dest)
+    {
+        add32(imm, src, dest);
+    }
+
+    void storePtr(RegisterID src, ImplicitAddress address)
+    {
+        store32(src, address);
+    }
+
+    Jump branchTest8(ResultCondition cond, ExtendedAddress address, TrustedImm32 mask = TrustedImm32(-1))
+    {
+        return branchTest8(cond, Address(address.base, address.offset), mask);
+    }
+#endif
 
     void add32(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
@@ -306,7 +339,7 @@ public:
     }
 
 private:
-    friend class LinkBuffer;
+    template <typename, template <typename> class> friend class LinkBufferBase;
     friend class RepatchBuffer;
 
     static void linkCall(void* code, Call call, FunctionPtr function)

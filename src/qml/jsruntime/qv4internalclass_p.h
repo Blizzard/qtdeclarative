@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -48,13 +54,13 @@
 
 #include <QHash>
 #include <private/qqmljsmemorypool_p.h>
+#include <private/qv4identifier_p.h>
 
 QT_BEGIN_NAMESPACE
 
 namespace QV4 {
 
 struct String;
-struct ExecutionEngine;
 struct Object;
 struct Identifier;
 struct VTable;
@@ -111,6 +117,20 @@ inline PropertyHash::~PropertyHash()
         delete d;
 }
 
+inline uint PropertyHash::lookup(const Identifier *identifier) const
+{
+    Q_ASSERT(d->entries);
+
+    uint idx = identifier->hashValue % d->alloc;
+    while (1) {
+        if (d->entries[idx].identifier == identifier)
+            return d->entries[idx].index;
+        if (!d->entries[idx].identifier)
+            return UINT_MAX;
+        ++idx;
+        idx %= d->alloc;
+    }
+}
 
 template <typename T>
 struct SharedInternalClassData {
@@ -200,23 +220,31 @@ private:
 
 struct InternalClassTransition
 {
-    Identifier *id;
+    union {
+        Identifier *id;
+        const VTable *vtable;
+        Heap::Object *prototype;
+    };
     InternalClass *lookup;
     int flags;
     enum {
         // range 0-0xff is reserved for attribute changes
-        NotExtensible = 0x100
+        NotExtensible = 0x100,
+        VTableChange = 0x200,
+        PrototypeChange = 0x201
     };
 
     bool operator==(const InternalClassTransition &other) const
     { return id == other.id && flags == other.flags; }
 
     bool operator<(const InternalClassTransition &other) const
-    { return id < other.id; }
+    { return id < other.id || (id == other.id && flags < other.flags); }
 };
 
 struct InternalClass : public QQmlJS::Managed {
     ExecutionEngine *engine;
+    const VTable *vtable;
+    Heap::Object *prototype;
 
     PropertyHash propertyTable; // id to valueIndex
     SharedInternalClassData<Identifier *> nameMap;
@@ -232,23 +260,43 @@ struct InternalClass : public QQmlJS::Managed {
     uint size;
     bool extensible;
 
-    InternalClass *nonExtensible();
+    Q_REQUIRED_RESULT InternalClass *nonExtensible();
+    Q_REQUIRED_RESULT InternalClass *changeVTable(const VTable *vt) {
+        if (vtable == vt)
+            return this;
+        return changeVTableImpl(vt);
+    }
+    Q_REQUIRED_RESULT InternalClass *changePrototype(Heap::Object *proto) {
+        if (prototype == proto)
+            return this;
+        return changePrototypeImpl(proto);
+    }
+
     static void addMember(Object *object, String *string, PropertyAttributes data, uint *index);
-    InternalClass *addMember(String *string, PropertyAttributes data, uint *index = 0);
-    InternalClass *addMember(Identifier *identifier, PropertyAttributes data, uint *index = 0);
-    InternalClass *changeMember(Identifier *identifier, PropertyAttributes data, uint *index = 0);
+    Q_REQUIRED_RESULT InternalClass *addMember(String *string, PropertyAttributes data, uint *index = 0);
+    Q_REQUIRED_RESULT InternalClass *addMember(Identifier *identifier, PropertyAttributes data, uint *index = 0);
+    Q_REQUIRED_RESULT InternalClass *changeMember(Identifier *identifier, PropertyAttributes data, uint *index = 0);
     static void changeMember(Object *object, String *string, PropertyAttributes data, uint *index = 0);
     static void removeMember(Object *object, Identifier *id);
-    uint find(const String *s);
-    uint find(const Identifier *id);
+    uint find(const String *string);
+    uint find(const Identifier *id)
+    {
+        uint index = propertyTable.lookup(id);
+        if (index < size)
+            return index;
 
-    InternalClass *sealed();
-    InternalClass *frozen();
-    InternalClass *propertiesFrozen() const;
+        return UINT_MAX;
+    }
+
+    Q_REQUIRED_RESULT InternalClass *sealed();
+    Q_REQUIRED_RESULT InternalClass *frozen();
+    Q_REQUIRED_RESULT InternalClass *propertiesFrozen() const;
 
     void destroy();
 
 private:
+    Q_QML_EXPORT InternalClass *changeVTableImpl(const VTable *vt);
+    Q_QML_EXPORT InternalClass *changePrototypeImpl(Heap::Object *proto);
     InternalClass *addMemberImpl(Identifier *identifier, PropertyAttributes data, uint *index);
     friend struct ExecutionEngine;
     InternalClass(ExecutionEngine *engine);

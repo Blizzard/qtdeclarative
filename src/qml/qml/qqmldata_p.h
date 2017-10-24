@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -47,7 +53,7 @@
 
 #include <private/qtqmlglobal_p.h>
 #include <private/qobject_p.h>
-
+#include <private/qqmlpropertyindex_p.h>
 #include <private/qv4value_p.h>
 #include <private/qv4persistent_p.h>
 #include <qjsengine.h>
@@ -57,7 +63,6 @@ QT_BEGIN_NAMESPACE
 template <class Key, class T> class QHash;
 class QQmlEngine;
 class QQmlGuardImpl;
-class QQmlCompiledData;
 class QQmlAbstractBinding;
 class QQmlBoundSignal;
 class QQmlContext;
@@ -66,6 +71,41 @@ class QQmlContextData;
 class QQmlNotifier;
 class QQmlDataExtended;
 class QQmlNotifierEndpoint;
+
+namespace QV4 {
+namespace CompiledData {
+struct CompilationUnit;
+}
+}
+
+// This is declared here because QQmlData below needs it and this file
+// in turn is included from qqmlcontext_p.h.
+class QQmlContextData;
+class Q_QML_PRIVATE_EXPORT QQmlContextDataRef
+{
+public:
+    inline QQmlContextDataRef();
+    inline QQmlContextDataRef(QQmlContextData *);
+    inline QQmlContextDataRef(const QQmlContextDataRef &);
+    inline ~QQmlContextDataRef();
+
+    inline QQmlContextData *contextData() const;
+    inline void setContextData(QQmlContextData *);
+
+    inline bool isNull() const { return !m_contextData; }
+
+    inline operator QQmlContextData*() const { return m_contextData; }
+    inline QQmlContextData* operator->() const { return m_contextData; }
+    inline QQmlContextDataRef &operator=(QQmlContextData *d);
+    inline QQmlContextDataRef &operator=(const QQmlContextDataRef &other);
+
+private:
+
+    inline void clear();
+
+    QQmlContextData *m_contextData;
+};
+
 // This class is structured in such a way, that simply zero'ing it is the
 // default state for elemental object allocations.  This is crucial in the
 // workings of the QQmlInstruction::CreateSimpleObject instruction.
@@ -102,7 +142,6 @@ public:
 
     quint32 ownedByQml1:1; // This bit is shared with QML1's QDeclarativeData.
     quint32 ownMemory:1;
-    quint32 ownContext:1;
     quint32 indestructible:1;
     quint32 explicitIndestructibleSet:1;
     quint32 hasTaintedV4Object:1;
@@ -115,16 +154,18 @@ public:
     quint32 hasInterceptorMetaObject:1;
     quint32 hasVMEMetaObject:1;
     quint32 parentFrozen:1;
-    quint32 dummy:21;
+    quint32 dummy:22;
 
-    // When bindingBitsSize < 32, we store the binding bit flags inside
-    // bindingBitsValue. When we need more than 32 bits, we allocated
+    // When bindingBitsSize < sizeof(ptr), we store the binding bit flags inside
+    // bindingBitsValue. When we need more than sizeof(ptr) bits, we allocated
     // sufficient space and use bindingBits to point to it.
     int bindingBitsSize;
+    typedef quintptr BindingBitsType;
     union {
-        quint32 *bindingBits;
-        quint32 bindingBitsValue;
+        BindingBitsType *bindingBits;
+        BindingBitsType bindingBitsValue;
     };
+    enum { MaxInlineBits = sizeof(BindingBitsType) * 8 };
 
     struct NotifyList {
         quint64 connectionMask;
@@ -143,13 +184,14 @@ public:
     inline QQmlNotifierEndpoint *notify(int index);
     void addNotify(int index, QQmlNotifierEndpoint *);
     int endpointCount(int index);
-    bool signalHasEndpoint(int index);
+    bool signalHasEndpoint(int index) const;
     void disconnectNotifiers();
 
     // The context that created the C++ object
-    QQmlContextData *context;
+    QQmlContextData *context = 0;
     // The outermost context in which this object lives
-    QQmlContextData *outerContext;
+    QQmlContextData *outerContext = 0;
+    QQmlContextDataRef ownContext;
 
     QQmlAbstractBinding *bindings;
     QQmlBoundSignal *signalHandlers;
@@ -162,7 +204,7 @@ public:
     void clearBindingBit(int);
     void setBindingBit(QObject *obj, int);
 
-    inline bool hasPendingBindingBit(int) const;
+    inline bool hasPendingBindingBit(int index) const;
     void setPendingBindingBit(QObject *obj, int);
     void clearPendingBindingBit(int);
 
@@ -173,10 +215,10 @@ public:
 
     struct DeferredData {
         unsigned int deferredIdx;
-        QQmlCompiledData *compiledData;//Not always the same as the other compiledData
+        QV4::CompiledData::CompilationUnit *compilationUnit;//Not always the same as the other compilation unit
         QQmlContextData *context;//Could be either context or outerContext
     };
-    QQmlCompiledData *compiledData;
+    QV4::CompiledData::CompilationUnit *compilationUnit;
     DeferredData *deferredData;
 
     QV4::WeakValue jsWrapper;
@@ -187,14 +229,15 @@ public:
 
     static QQmlData *get(const QObject *object, bool create = false) {
         QObjectPrivate *priv = QObjectPrivate::get(const_cast<QObject *>(object));
-        if (priv->wasDeleted) {
+        // If QObjectData::isDeletingChildren is set then access to QObjectPrivate::declarativeData has
+        // to be avoided because QObjectPrivate::currentChildBeingDeleted is in use.
+        if (priv->isDeletingChildren || priv->wasDeleted) {
             Q_ASSERT(!create);
             return 0;
         } else if (priv->declarativeData) {
             return static_cast<QQmlData *>(priv->declarativeData);
         } else if (create) {
-            priv->declarativeData = new QQmlData;
-            return static_cast<QQmlData *>(priv->declarativeData);
+            return createQQmlData(priv);
         } else {
             return 0;
         }
@@ -215,15 +258,36 @@ public:
     static void markAsDeleted(QObject *);
     static void setQueuedForDeletion(QObject *);
 
-    static inline void flushPendingBinding(QObject *, int coreIndex);
+    static inline void flushPendingBinding(QObject *, QQmlPropertyIndex propertyIndex);
 
-    static void ensurePropertyCache(QJSEngine *engine, QObject *object);
+    static QQmlPropertyCache *ensurePropertyCache(QJSEngine *engine, QObject *object)
+    {
+        Q_ASSERT(engine);
+        QQmlData *ddata = QQmlData::get(object, /*create*/true);
+        if (Q_LIKELY(ddata->propertyCache))
+            return ddata->propertyCache;
+        return createPropertyCache(engine, object);
+    }
 
 private:
     // For attachedProperties
     mutable QQmlDataExtended *extendedData;
 
-    void flushPendingBindingImpl(int coreIndex);
+    Q_NEVER_INLINE static QQmlData *createQQmlData(QObjectPrivate *priv);
+    Q_NEVER_INLINE static QQmlPropertyCache *createPropertyCache(QJSEngine *engine, QObject *object);
+
+    void flushPendingBindingImpl(QQmlPropertyIndex index);
+
+    Q_ALWAYS_INLINE bool hasBitSet(int bit) const
+    {
+        if (bindingBitsSize <= bit)
+            return false;
+
+        if (bindingBitsSize == MaxInlineBits)
+            return bindingBitsValue & (BindingBitsType(1) << bit);
+        else
+            return bindingBits[bit / MaxInlineBits] & (BindingBitsType(1) << (bit % MaxInlineBits));
+    }
 };
 
 bool QQmlData::wasDeleted(QObject *object)
@@ -235,8 +299,8 @@ bool QQmlData::wasDeleted(QObject *object)
     if (!priv || priv->wasDeleted)
         return true;
 
-    return priv->declarativeData &&
-           static_cast<QQmlData *>(priv->declarativeData)->isQueuedForDeletion;
+    QQmlData *ddata = QQmlData::get(object);
+    return ddata && ddata->isQueuedForDeletion;
 }
 
 QQmlNotifierEndpoint *QQmlData::notify(int index)
@@ -258,29 +322,36 @@ QQmlNotifierEndpoint *QQmlData::notify(int index)
     }
 }
 
+/*
+    The index MUST be in the range returned by QObjectPrivate::signalIndex()
+    This is different than the index returned by QMetaMethod::methodIndex()
+*/
+inline bool QQmlData::signalHasEndpoint(int index) const
+{
+    return notifyList && (notifyList->connectionMask & (1ULL << quint64(index % 64)));
+}
+
 bool QQmlData::hasBindingBit(int coreIndex) const
 {
-    int bit = coreIndex * 2;
+    Q_ASSERT(coreIndex >= 0);
+    Q_ASSERT(coreIndex <= 0xffff);
 
-    return bindingBitsSize > bit &&
-           ((bindingBitsSize == 32) ? (bindingBitsValue & (1 << bit)) :
-                                      (bindingBits[bit / 32] & (1 << (bit % 32))));
+    return hasBitSet(coreIndex * 2);
 }
 
 bool QQmlData::hasPendingBindingBit(int coreIndex) const
 {
-    int bit = coreIndex * 2 + 1;
+    Q_ASSERT(coreIndex >= 0);
+    Q_ASSERT(coreIndex <= 0xffff);
 
-    return bindingBitsSize > bit &&
-           ((bindingBitsSize == 32) ? (bindingBitsValue & (1 << bit)) :
-                                      (bindingBits[bit / 32] & (1 << (bit % 32))));
+    return hasBitSet(coreIndex * 2 + 1);
 }
 
-void QQmlData::flushPendingBinding(QObject *o, int coreIndex)
+void QQmlData::flushPendingBinding(QObject *o, QQmlPropertyIndex propertyIndex)
 {
     QQmlData *data = QQmlData::get(o, false);
-    if (data && data->hasPendingBindingBit(coreIndex))
-        data->flushPendingBindingImpl(coreIndex);
+    if (data && data->hasPendingBindingBit(propertyIndex.coreIndex()))
+        data->flushPendingBindingImpl(propertyIndex);
 }
 
 QT_END_NAMESPACE

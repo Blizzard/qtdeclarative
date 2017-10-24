@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -58,26 +64,41 @@ class QQuickParticlePainter : public QQuickItem
     Q_PROPERTY(QQuickParticleSystem* system READ system WRITE setSystem NOTIFY systemChanged)
     Q_PROPERTY(QStringList groups READ groups WRITE setGroups NOTIFY groupsChanged)
 
+public: // data
+    typedef QQuickParticleVarLengthArray<QQuickParticleGroupData::ID, 4> GroupIDs;
+
 public:
     explicit QQuickParticlePainter(QQuickItem *parent = 0);
     //Data Interface to system
     void load(QQuickParticleData*);
     void reload(QQuickParticleData*);
     void setCount(int c);
-    int count();
+
+    int count() const
+    {
+        return m_count;
+    }
+
     void performPendingCommits();//Called from updatePaintNode
     QQuickParticleSystem* system() const
     {
         return m_system;
     }
 
-
     QStringList groups() const
     {
         return m_groups;
     }
 
-    void itemChange(ItemChange, const ItemChangeData &);
+    const GroupIDs &groupIds() const
+    {
+        if (m_groupIdsNeedRecalculation) {
+            recalculateGroupIds();
+        }
+        return m_groupIds;
+    }
+
+    void itemChange(ItemChange, const ItemChangeData &) override;
 
 Q_SIGNALS:
     void countChanged();
@@ -88,14 +109,7 @@ Q_SIGNALS:
 public Q_SLOTS:
     void setSystem(QQuickParticleSystem* arg);
 
-    void setGroups(const QStringList &arg)
-    {
-        if (m_groups != arg) {
-            m_groups = arg;
-            //Note: The system watches this as it has to recalc things when groups change. It will request a reset if necessary
-            Q_EMIT groupsChanged(arg);
-        }
-    }
+    void setGroups(const QStringList &arg);
 
     void calcSystemOffset(bool resetPending = false);
 
@@ -109,7 +123,7 @@ protected:
     */
     virtual void reset();
 
-    virtual void componentComplete();
+    void componentComplete() override;
     virtual void initialize(int gIdx, int pIdx){//Called from main thread
         Q_UNUSED(gIdx);
         Q_UNUSED(pIdx);
@@ -124,13 +138,18 @@ protected:
     friend class QQuickParticleSystem;
     int m_count;
     bool m_pleaseReset;//Used by subclasses, but it's a nice optimization to know when stuff isn't going to matter.
-    QStringList m_groups;
     QPointF m_systemOffset;
 
     QQuickWindow *m_window;
 
-private:
+private: // methods
+    void recalculateGroupIds() const;
+
+private: // data
+    QStringList m_groups;
     QSet<QPair<int,int> > m_pendingCommits;
+    mutable GroupIDs m_groupIds;
+    mutable bool m_groupIdsNeedRecalculation;
 };
 
 QT_END_NAMESPACE

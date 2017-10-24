@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -56,16 +62,16 @@ uint RegExp::match(const QString &string, int start, uint *matchOffsets)
     WTF::String s(string);
 
 #if ENABLE(YARR_JIT)
-    if (!jitCode().isFallBack() && jitCode().has16BitCode())
-        return uint(jitCode().execute(s.characters16(), start, s.length(), (int*)matchOffsets).start);
+    if (!jitCode()->isFallBack() && jitCode()->has16BitCode())
+        return uint(jitCode()->execute(s.characters16(), start, s.length(), (int*)matchOffsets).start);
 #endif
 
-    return JSC::Yarr::interpret(byteCode().get(), s.characters16(), string.length(), start, matchOffsets);
+    return JSC::Yarr::interpret(byteCode(), s.characters16(), string.length(), start, matchOffsets);
 }
 
-Heap::RegExp *RegExp::create(ExecutionEngine* engine, const QString& pattern, bool ignoreCase, bool multiline)
+Heap::RegExp *RegExp::create(ExecutionEngine* engine, const QString& pattern, bool ignoreCase, bool multiline, bool global)
 {
-    RegExpCacheKey key(pattern, ignoreCase, multiline);
+    RegExpCacheKey key(pattern, ignoreCase, multiline, global);
 
     RegExpCache *cache = engine->regExpCache;
     if (!cache)
@@ -76,7 +82,7 @@ Heap::RegExp *RegExp::create(ExecutionEngine* engine, const QString& pattern, bo
         return result->d();
 
     Scope scope(engine);
-    Scoped<RegExp> result(scope, engine->memoryManager->alloc<RegExp>(engine, pattern, ignoreCase, multiline));
+    Scoped<RegExp> result(scope, engine->memoryManager->alloc<RegExp>(engine, pattern, ignoreCase, multiline, global));
 
     result->d()->cache = cache;
     cachedValue.set(engine, result);
@@ -84,31 +90,42 @@ Heap::RegExp *RegExp::create(ExecutionEngine* engine, const QString& pattern, bo
     return result->d();
 }
 
-Heap::RegExp::RegExp(ExecutionEngine* engine, const QString &pattern, bool ignoreCase, bool multiline)
-    : pattern(pattern)
-    , ignoreCase(ignoreCase)
-    , multiLine(multiline)
+void Heap::RegExp::init(ExecutionEngine* engine, const QString &pattern, bool ignoreCase, bool multiline, bool global)
 {
+    Base::init();
+    this->pattern = new QString(pattern);
+    this->ignoreCase = ignoreCase;
+    this->multiLine = multiline;
+    this->global = global;
+
     const char* error = 0;
     JSC::Yarr::YarrPattern yarrPattern(WTF::String(pattern), ignoreCase, multiline, &error);
     if (error)
         return;
     subPatternCount = yarrPattern.m_numSubpatterns;
-    byteCode = JSC::Yarr::byteCompile(yarrPattern, engine->bumperPointerAllocator);
+    OwnPtr<JSC::Yarr::BytecodePattern> p = JSC::Yarr::byteCompile(yarrPattern, engine->bumperPointerAllocator);
+    byteCode = p.take();
 #if ENABLE(YARR_JIT)
+    jitCode = new JSC::Yarr::YarrCodeBlock;
     if (!yarrPattern.m_containsBackreferences && engine->iselFactory->jitCompileRegexps()) {
         JSC::JSGlobalData dummy(engine->regExpAllocator);
-        JSC::Yarr::jitCompile(yarrPattern, JSC::Yarr::Char16, &dummy, jitCode);
+        JSC::Yarr::jitCompile(yarrPattern, JSC::Yarr::Char16, &dummy, *jitCode);
     }
 #endif
 }
 
-Heap::RegExp::~RegExp()
+void Heap::RegExp::destroy()
 {
     if (cache) {
         RegExpCacheKey key(this);
         cache->remove(key);
     }
+#if ENABLE(YARR_JIT)
+    delete jitCode;
+#endif
+    delete byteCode;
+    delete pattern;
+    Base::destroy();
 }
 
 void RegExp::markObjects(Heap::Base *that, ExecutionEngine *e)

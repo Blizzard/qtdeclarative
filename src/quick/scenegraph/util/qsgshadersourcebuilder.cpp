@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2013 Klaralvdalens Datakonsult AB (KDAB).
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 Klaralvdalens Datakonsult AB (KDAB).
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -116,6 +122,7 @@ Tokenizer::Token Tokenizer::next()
         case '*':
             if (*pos == '/')
                 return Token_MultiLineCommentEnd;
+            Q_FALLTHROUGH();
 
         case '\n':
             return Token_NewLine;
@@ -123,6 +130,7 @@ Tokenizer::Token Tokenizer::next()
         case '\r':
             if (*pos == '\n')
                 return Token_NewLine;
+            Q_FALLTHROUGH();
 
         case '#': {
             if (*pos == 'v' && pos[1] == 'e' && pos[2] == 'r' && pos[3] == 's'
@@ -171,7 +179,7 @@ Tokenizer::Token Tokenizer::next()
                 pos += 3;
                 return Token_Void;
             }
-            // Fall-thru
+            Q_FALLTHROUGH();
         }
         default:
             // Identifier...
@@ -211,11 +219,11 @@ void QSGShaderSourceBuilder::initializeProgramFromFiles(QOpenGLShaderProgram *pr
     QSGShaderSourceBuilder builder;
 
     builder.appendSourceFile(vertexShader);
-    program->addShaderFromSourceCode(QOpenGLShader::Vertex, builder.source());
+    program->addCacheableShaderFromSourceCode(QOpenGLShader::Vertex, builder.source());
     builder.clear();
 
     builder.appendSourceFile(fragmentShader);
-    program->addShaderFromSourceCode(QOpenGLShader::Fragment, builder.source());
+    program->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, builder.source());
 }
 
 QByteArray QSGShaderSourceBuilder::source() const
@@ -304,13 +312,10 @@ void QSGShaderSourceBuilder::addDefinition(const QByteArray &definition)
     const char *insertionPos = extensionPos ? extensionPos : (versionPos ? versionPos : input);
 
     // Construct a new shader string, inserting the definition
-    QByteArray newSource;
-    newSource.reserve(m_source.size() + definition.size() + 9);
-    newSource += QByteArray::fromRawData(input, insertionPos - input);
-    newSource += QByteArrayLiteral("#define ") + definition + QByteArrayLiteral("\n");
-    newSource += QByteArray::fromRawData(insertionPos, m_source.size() - (insertionPos - input));
-
-    m_source = newSource;
+    QByteArray newSource = QByteArray::fromRawData(input, insertionPos - input)
+            + "#define " + definition + '\n'
+            + QByteArray::fromRawData(insertionPos, m_source.size() - (insertionPos - input));
+    m_source = std::move(newSource);
 }
 
 void QSGShaderSourceBuilder::removeVersion()
@@ -376,9 +381,9 @@ QString QSGShaderSourceBuilder::resolveShaderPath(const QString &path) const
         int idx = path.lastIndexOf(QLatin1Char('.'));
         QString resolvedPath;
         if (idx != -1)
-            resolvedPath = path.left(idx)
-                         + QStringLiteral("_core")
-                         + path.right(path.length() - idx);
+            resolvedPath = path.leftRef(idx)
+                         + QLatin1String("_core")
+                         + path.rightRef(path.length() - idx);
         return resolvedPath;
     }
 }

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -55,7 +61,14 @@ DEFINE_OBJECT_VTABLE(Object);
 void Object::setInternalClass(InternalClass *ic)
 {
     d()->internalClass = ic;
-    ensureMemberData();
+    Q_ASSERT(ic && ic->vtable);
+    uint nInline = d()->vtable()->nInlineProperties;
+    if (ic->size <= nInline)
+        return;
+    bool hasMD = d()->memberData != nullptr;
+    uint requiredSize = ic->size - nInline;
+    if (!hasMD || (hasMD && d()->memberData->size < requiredSize))
+        d()->memberData = MemberData::allocate(ic->engine, requiredSize, d()->memberData);
 }
 
 void Object::getProperty(uint index, Property *p, PropertyAttributes *attrs) const
@@ -75,13 +88,14 @@ void Object::setProperty(uint index, const Property *p)
 
 bool Object::setPrototype(Object *proto)
 {
-    Heap::Object *pp = proto ? proto->d() : 0;
+    Heap::Object *p = proto ? proto->d() : 0;
+    Heap::Object *pp = p;
     while (pp) {
         if (pp == d())
             return false;
-        pp = pp->prototype;
+        pp = pp->prototype();
     }
-    d()->prototype = proto ? proto->d() : 0;
+    setInternalClass(internalClass()->changePrototype(p));
     return true;
 }
 
@@ -103,7 +117,8 @@ ReturnedValue Object::getValue(const Value &thisObject, const Value &v, Property
     Scope scope(f->engine());
     ScopedCallData callData(scope);
     callData->thisObject = thisObject;
-    return f->call(callData);
+    f->call(scope, callData);
+    return scope.result.asReturnedValue();
 }
 
 void Object::putValue(uint memberIndex, const Value &value)
@@ -122,7 +137,7 @@ void Object::putValue(uint memberIndex, const Value &value)
             ScopedCallData callData(scope, 1);
             callData->args[0] = value;
             callData->thisObject = this;
-            setter->call(callData);
+            setter->call(scope, callData);
             return;
         }
         goto reject;
@@ -147,7 +162,7 @@ void Object::defineDefaultProperty(const QString &name, const Value &value)
     defineDefaultProperty(s, value);
 }
 
-void Object::defineDefaultProperty(const QString &name, ReturnedValue (*code)(CallContext *), int argumentCount)
+void Object::defineDefaultProperty(const QString &name, void (*code)(const BuiltinFunction *, Scope &, CallData *), int argumentCount)
 {
     ExecutionEngine *e = engine();
     Scope scope(e);
@@ -158,7 +173,7 @@ void Object::defineDefaultProperty(const QString &name, ReturnedValue (*code)(Ca
     defineDefaultProperty(s, function);
 }
 
-void Object::defineDefaultProperty(String *name, ReturnedValue (*code)(CallContext *), int argumentCount)
+void Object::defineDefaultProperty(String *name, void (*code)(const BuiltinFunction *, Scope &, CallData *), int argumentCount)
 {
     ExecutionEngine *e = engine();
     Scope scope(e);
@@ -168,7 +183,8 @@ void Object::defineDefaultProperty(String *name, ReturnedValue (*code)(CallConte
     defineDefaultProperty(name, function);
 }
 
-void Object::defineAccessorProperty(const QString &name, ReturnedValue (*getter)(CallContext *), ReturnedValue (*setter)(CallContext *))
+void Object::defineAccessorProperty(const QString &name, void (*getter)(const BuiltinFunction *, Scope &, CallData *),
+                                    void (*setter)(const BuiltinFunction *, Scope &, CallData *))
 {
     ExecutionEngine *e = engine();
     Scope scope(e);
@@ -176,7 +192,8 @@ void Object::defineAccessorProperty(const QString &name, ReturnedValue (*getter)
     defineAccessorProperty(s, getter, setter);
 }
 
-void Object::defineAccessorProperty(String *name, ReturnedValue (*getter)(CallContext *), ReturnedValue (*setter)(CallContext *))
+void Object::defineAccessorProperty(String *name, void (*getter)(const BuiltinFunction *, Scope &, CallData *),
+                                    void (*setter)(const BuiltinFunction *, Scope &, CallData *))
 {
     ExecutionEngine *v4 = engine();
     QV4::Scope scope(v4);
@@ -204,25 +221,17 @@ void Object::markObjects(Heap::Base *that, ExecutionEngine *e)
 {
     Heap::Object *o = static_cast<Heap::Object *>(that);
 
-    if (o->inlineMemberSize) {
-        Value *v = o->propertyData(0);
-        for (uint i = 0; i < o->inlineMemberSize; ++i)
-            v[i].mark(e);
-    }
-
     if (o->memberData)
         o->memberData->mark(e);
     if (o->arrayData)
         o->arrayData->mark(e);
-    if (o->prototype)
-        o->prototype->mark(e);
-}
-
-void Object::ensureMemberData()
-{
-    QV4::InternalClass *ic = internalClass();
-    if (ic->size > d()->inlineMemberSize)
-        d()->memberData = MemberData::reallocate(ic->engine, d()->memberData, ic->size - d()->inlineMemberSize);
+    uint nInline = o->vtable()->nInlineProperties;
+    Value *v = reinterpret_cast<Value *>(o) + o->vtable()->inlinePropertyOffset;
+    const Value *end = v + nInline;
+    while (v < end) {
+        v->mark(e);
+        ++v;
+    }
 }
 
 void Object::insertMember(String *s, const Property *p, PropertyAttributes attributes)
@@ -245,7 +254,10 @@ void Object::getOwnProperty(String *name, PropertyAttributes *attrs, Property *p
     if (idx != UINT_MAX)
         return getOwnProperty(idx, attrs, p);
 
-    uint member = internalClass()->find(name);
+    name->makeIdentifier();
+    Identifier *id = name->identifier();
+
+    uint member = internalClass()->find(id);
     if (member < UINT_MAX) {
         *attrs = internalClass()->propertyData[member];
         if (p) {
@@ -287,15 +299,18 @@ Value *Object::getValueOrSetter(String *name, PropertyAttributes *attrs)
 {
     Q_ASSERT(name->asArrayIndex() == UINT_MAX);
 
+    name->makeIdentifier();
+    Identifier *id = name->identifier();
+
     Heap::Object *o = d();
     while (o) {
-        uint idx = o->internalClass->find(name);
+        uint idx = o->internalClass->find(id);
         if (idx < UINT_MAX) {
             *attrs = o->internalClass->propertyData[idx];
             return o->propertyData(attrs->isAccessor() ? idx + SetterOffset : idx);
         }
 
-        o = o->prototype;
+        o = o->prototype();
     }
     *attrs = Attr_Invalid;
     return 0;
@@ -318,7 +333,7 @@ Value *Object::getValueOrSetter(uint index, PropertyAttributes *attrs)
                 return reinterpret_cast<Value *>(0x1);
             }
         }
-        o = o->prototype;
+        o = o->prototype();
     }
     *attrs = Attr_Invalid;
     return 0;
@@ -362,7 +377,10 @@ bool Object::hasOwnProperty(String *name) const
     if (idx != UINT_MAX)
         return hasOwnProperty(idx);
 
-    if (internalClass()->find(name) < UINT_MAX)
+    name->makeIdentifier();
+    Identifier *id = name->identifier();
+
+    if (internalClass()->find(id) < UINT_MAX)
         return true;
     if (!query(name).isEmpty())
         return true;
@@ -383,14 +401,14 @@ bool Object::hasOwnProperty(uint index) const
     return false;
 }
 
-ReturnedValue Object::construct(const Managed *m, CallData *)
+void Object::construct(const Managed *m, Scope &scope, CallData *)
 {
-    return static_cast<const Object *>(m)->engine()->throwTypeError();
+    scope.result = static_cast<const Object *>(m)->engine()->throwTypeError();
 }
 
-ReturnedValue Object::call(const Managed *m, CallData *)
+void Object::call(const Managed *m, Scope &scope, CallData *)
 {
-    return static_cast<const Object *>(m)->engine()->throwTypeError();
+    scope.result = static_cast<const Object *>(m)->engine()->throwTypeError();
 }
 
 ReturnedValue Object::get(const Managed *m, String *name, bool *hasProperty)
@@ -419,8 +437,11 @@ PropertyAttributes Object::query(const Managed *m, String *name)
     if (idx != UINT_MAX)
         return queryIndexed(m, idx);
 
+    name->makeIdentifier();
+    Identifier *id = name->identifier();
+
     const Object *o = static_cast<const Object *>(m);
-    idx = o->internalClass()->find(name);
+    idx = o->internalClass()->find(id);
     if (idx < UINT_MAX)
         return o->internalClass()->propertyData[idx];
 
@@ -456,9 +477,18 @@ ReturnedValue Object::getLookup(const Managed *m, Lookup *l)
     PropertyAttributes attrs;
     ReturnedValue v = l->lookup(o, &attrs);
     if (v != Primitive::emptyValue().asReturnedValue()) {
+        l->proto = l->classList[0]->prototype;
         if (attrs.isData()) {
-            if (l->level == 0)
-                l->getter = Lookup::getter0;
+            Q_ASSERT(l->classList[0] == o->internalClass());
+            if (l->level == 0) {
+                uint nInline = o->d()->vtable()->nInlineProperties;
+                if (l->index < nInline)
+                    l->getter = Lookup::getter0Inline;
+                else {
+                    l->index -= nInline;
+                    l->getter = Lookup::getter0MemberData;
+                }
+                }
             else if (l->level == 1)
                 l->getter = Lookup::getter1;
             else if (l->level == 2)
@@ -493,7 +523,7 @@ void Object::setLookup(Managed *m, Lookup *l, const Value &value)
         if (idx != UINT_MAX && o->internalClass()->propertyData[idx].isData() && o->internalClass()->propertyData[idx].isWritable()) {
             l->classList[0] = o->internalClass();
             l->index = idx;
-            l->setter = Lookup::setter0;
+            l->setter = idx < o->d()->vtable()->nInlineProperties ? Lookup::setter0Inline : Lookup::setter0;
             *o->propertyData(idx) = value;
             return;
         }
@@ -610,12 +640,13 @@ ReturnedValue Object::internalGet(String *name, bool *hasProperty) const
     if (idx != UINT_MAX)
         return getIndexed(idx, hasProperty);
 
-    Scope scope(engine());
-    name->makeIdentifier(scope.engine);
+    name->makeIdentifier();
+    Identifier *id = name->identifier();
 
+    Scope scope(engine());
     ScopedObject o(scope, this);
     while (o) {
-        uint idx = o->internalClass()->find(name);
+        uint idx = o->internalClass()->find(id);
         if (idx < UINT_MAX) {
             if (hasProperty)
                 *hasProperty = true;
@@ -677,9 +708,10 @@ void Object::internalPut(String *name, const Value &value)
     if (idx != UINT_MAX)
         return putIndexed(idx, value);
 
-    name->makeIdentifier(engine());
+    name->makeIdentifier();
+    Identifier *id = name->identifier();
 
-    uint member = internalClass()->find(name);
+    uint member = internalClass()->find(id);
     Value *v = 0;
     PropertyAttributes attrs;
     if (member < UINT_MAX) {
@@ -738,7 +770,7 @@ void Object::internalPut(String *name, const Value &value)
         ScopedCallData callData(scope, 1);
         callData->args[0] = value;
         callData->thisObject = this;
-        setter->call(callData);
+        setter->call(scope, callData);
         return;
     }
 
@@ -747,9 +779,8 @@ void Object::internalPut(String *name, const Value &value)
 
   reject:
     if (engine()->current->strictMode) {
-        QString message = QStringLiteral("Cannot assign to read-only property \"");
-        message += name->toQString();
-        message += QLatin1Char('\"');
+        QString message = QLatin1String("Cannot assign to read-only property \"") +
+                name->toQString() + QLatin1Char('\"');
         engine()->throwTypeError(message);
     }
 }
@@ -809,7 +840,7 @@ void Object::internalPutIndexed(uint index, const Value &value)
         ScopedCallData callData(scope, 1);
         callData->args[0] = value;
         callData->thisObject = this;
-        setter->call(callData);
+        setter->call(scope, callData);
         return;
     }
 
@@ -831,9 +862,9 @@ bool Object::internalDeleteProperty(String *name)
     if (idx != UINT_MAX)
         return deleteIndexedProperty(idx);
 
-    name->makeIdentifier(engine());
+    name->makeIdentifier();
 
-    uint memberIdx = internalClass()->find(name);
+    uint memberIdx = internalClass()->find(name->identifier());
     if (memberIdx != UINT_MAX) {
         if (internalClass()->propertyData[memberIdx].isConfigurable()) {
             InternalClass::removeMember(this, name->identifier());
@@ -870,7 +901,7 @@ bool Object::__defineOwnProperty__(ExecutionEngine *engine, String *name, const 
         return __defineOwnProperty__(engine, idx, p, attrs);
 
     Scope scope(engine);
-    name->makeIdentifier(scope.engine);
+    name->makeIdentifier();
 
     uint memberIndex;
 
@@ -904,7 +935,7 @@ bool Object::__defineOwnProperty__(ExecutionEngine *engine, String *name, const 
     }
 
     // Clause 1
-    memberIndex = internalClass()->find(name);
+    memberIndex = internalClass()->find(name->identifier());
 
     if (memberIndex == UINT_MAX) {
         // clause 3
@@ -1119,6 +1150,49 @@ uint Object::getLength(const Managed *m)
     return v->toUInt32();
 }
 
+// 'var' is 'V' in 15.3.5.3.
+ReturnedValue Object::instanceOf(const Object *typeObject, const Value &var)
+{
+    QV4::ExecutionEngine *engine = typeObject->internalClass()->engine;
+
+    // 15.3.5.3, Assume F is a Function object.
+    const FunctionObject *function = typeObject->as<FunctionObject>();
+    if (!function)
+        return engine->throwTypeError();
+
+    Heap::FunctionObject *f = function->d();
+    if (function->isBoundFunction())
+        f = function->cast<BoundFunction>()->target();
+
+    // 15.3.5.3, 1: HasInstance can only be used on an object
+    const Object *lhs = var.as<Object>();
+    if (!lhs)
+        return Encode(false);
+
+    // 15.3.5.3, 2
+    const Object *o = f->protoProperty();
+    if (!o) // 15.3.5.3, 3
+        return engine->throwTypeError();
+
+    Heap::Object *v = lhs->d();
+
+    // 15.3.5.3, 4
+    while (v) {
+        // 15.3.5.3, 4, a
+        v = v->prototype();
+
+        // 15.3.5.3, 4, b
+        if (!v)
+            break; // will return false
+
+        // 15.3.5.3, 4, c
+        else if (o->d() == v)
+            return Encode(true);
+    }
+
+    return Encode(false);
+}
+
 bool Object::setArrayLength(uint newLen)
 {
     Q_ASSERT(isArrayObject());
@@ -1154,10 +1228,10 @@ void Object::initSparseArray()
 
 DEFINE_OBJECT_VTABLE(ArrayObject);
 
-Heap::ArrayObject::ArrayObject(const QStringList &list)
-    : Heap::Object()
+void Heap::ArrayObject::init(const QStringList &list)
 {
-    init();
+    Object::init();
+    commonInit();
     Scope scope(internalClass->engine);
     ScopedObject a(scope, this);
 

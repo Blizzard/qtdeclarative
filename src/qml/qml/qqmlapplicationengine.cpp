@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2013 Research In Motion.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 Research In Motion.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -51,8 +57,12 @@ QQmlApplicationEnginePrivate::~QQmlApplicationEnginePrivate()
 
 void QQmlApplicationEnginePrivate::cleanUp()
 {
+    Q_Q(QQmlApplicationEngine);
+    for (auto obj : qAsConst(objects))
+        obj->disconnect(q);
+
     qDeleteAll(objects);
-#ifndef QT_NO_TRANSLATION
+#if QT_CONFIG(translation)
     qDeleteAll(translators);
 #endif
 }
@@ -60,10 +70,9 @@ void QQmlApplicationEnginePrivate::cleanUp()
 void QQmlApplicationEnginePrivate::init()
 {
     Q_Q(QQmlApplicationEngine);
-    q->connect(&statusMapper, SIGNAL(mapped(QObject*)),
-            q, SLOT(_q_finishLoad(QObject*)));
     q->connect(q, SIGNAL(quit()), QCoreApplication::instance(), SLOT(quit()));
-#ifndef QT_NO_TRANSLATION
+    q->connect(q, &QQmlApplicationEngine::exit, QCoreApplication::instance(), &QCoreApplication::exit);
+#if QT_CONFIG(translation)
     QTranslator* qtTranslator = new QTranslator;
     if (qtTranslator->load(QLatin1String("qt_") + QLocale::system().name(), QLibraryInfo::location(QLibraryInfo::TranslationsPath)))
         QCoreApplication::installTranslator(qtTranslator);
@@ -75,7 +84,7 @@ void QQmlApplicationEnginePrivate::init()
 
 void QQmlApplicationEnginePrivate::loadTranslations(const QUrl &rootFile)
 {
-#ifndef QT_NO_TRANSLATION
+#if QT_CONFIG(translation)
     if (rootFile.scheme() != QLatin1String("file") && rootFile.scheme() != QLatin1String("qrc"))
         return;
 
@@ -106,29 +115,27 @@ void QQmlApplicationEnginePrivate::startLoad(const QUrl &url, const QByteArray &
         c->loadUrl(url);
 
     if (!c->isLoading()) {
-        _q_finishLoad(c);
+        finishLoad(c);
         return;
     }
-    statusMapper.setMapping(c, c);
-    q->connect(c, SIGNAL(statusChanged(QQmlComponent::Status)),
-        &statusMapper, SLOT(map()));
+    QObject::connect(c, &QQmlComponent::statusChanged, q, [this, c] { this->finishLoad(c); });
 }
 
-void QQmlApplicationEnginePrivate::_q_finishLoad(QObject *o)
+void QQmlApplicationEnginePrivate::finishLoad(QQmlComponent *c)
 {
     Q_Q(QQmlApplicationEngine);
-    QQmlComponent *c = qobject_cast<QQmlComponent *>(o);
-    if (!c)
-        return;
     switch (c->status()) {
     case QQmlComponent::Error:
         qWarning() << "QQmlApplicationEngine failed to load component";
         qWarning() << qPrintable(c->errorString());
         q->objectCreated(0, c->url());
         break;
-    case QQmlComponent::Ready:
-        objects << c->create();
-        q->objectCreated(objects.last(), c->url());
+    case QQmlComponent::Ready: {
+        auto newObj = c->create();
+        objects << newObj;
+        QObject::connect(newObj, &QObject::destroyed, q, [&](QObject *obj) { objects.removeAll(obj); });
+        q->objectCreated(objects.constLast(), c->url());
+        }
         break;
     case QQmlComponent::Loading:
     case QQmlComponent::Null:
@@ -183,9 +190,14 @@ void QQmlApplicationEnginePrivate::_q_finishLoad(QObject *o)
 /*!
   \fn QQmlApplicationEngine::objectCreated(QObject *object, const QUrl &url)
 
-  This signal is emitted when an object finishes loading. If loading was successful, \a object contains a pointer to the loaded object.
-  Otherwise the pointer is NULL. The \a url loaded is also provided, note that if a QString file path was initially passed to the
-  QQmlApplicationEngine, this url will be the equivalent of QUrl::fromLocalFile(filePath).
+  This signal is emitted when an object finishes loading. If loading was
+  successful, \a object contains a pointer to the loaded object, otherwise
+  the pointer is NULL.
+
+  The \a url to the component the \a object came from is also provided.
+
+  \note If the path to the component was provided as a QString containing a
+  relative path, the \a url will contain a fully resolved path to the file.
 */
 
 /*!
@@ -197,6 +209,7 @@ QQmlApplicationEngine::QQmlApplicationEngine(QObject *parent)
 {
     Q_D(QQmlApplicationEngine);
     d->init();
+    QJSEnginePrivate::addToDebugServer(this);
 }
 
 /*!
@@ -204,10 +217,8 @@ QQmlApplicationEngine::QQmlApplicationEngine(QObject *parent)
   This is provided as a convenience,  and is the same as using the empty constructor and calling load afterwards.
 */
 QQmlApplicationEngine::QQmlApplicationEngine(const QUrl &url, QObject *parent)
-    : QQmlEngine(*(new QQmlApplicationEnginePrivate(this)), parent)
+    : QQmlApplicationEngine(parent)
 {
-    Q_D(QQmlApplicationEngine);
-    d->init();
     load(url);
 }
 
@@ -220,11 +231,8 @@ QQmlApplicationEngine::QQmlApplicationEngine(const QUrl &url, QObject *parent)
   This is provided as a convenience, and is the same as using the empty constructor and calling load afterwards.
 */
 QQmlApplicationEngine::QQmlApplicationEngine(const QString &filePath, QObject *parent)
-    : QQmlEngine(*(new QQmlApplicationEnginePrivate(this)), parent)
+    : QQmlApplicationEngine(QUrl::fromUserInput(filePath, QLatin1String("."), QUrl::AssumeLocalFile), parent)
 {
-    Q_D(QQmlApplicationEngine);
-    d->init();
-    load(QUrl::fromLocalFile(filePath));
 }
 
 /*!
@@ -233,6 +241,7 @@ QQmlApplicationEngine::QQmlApplicationEngine(const QString &filePath, QObject *p
 QQmlApplicationEngine::~QQmlApplicationEngine()
 {
     Q_D(QQmlApplicationEngine);
+    QJSEnginePrivate::removeFromDebugServer(this);
     d->cleanUp();//Instantiated root objects must be deleted before the engine
 }
 
@@ -261,7 +270,7 @@ void QQmlApplicationEngine::load(const QUrl &url)
 void QQmlApplicationEngine::load(const QString &filePath)
 {
     Q_D(QQmlApplicationEngine);
-    d->startLoad(QUrl::fromLocalFile(filePath));
+    d->startLoad(QUrl::fromUserInput(filePath, QLatin1String("."), QUrl::AssumeLocalFile));
 }
 
 /*!
@@ -283,13 +292,26 @@ void QQmlApplicationEngine::loadData(const QByteArray &data, const QUrl &url)
   Returns a list of all the root objects instantiated by the
   QQmlApplicationEngine. This will only contain objects loaded via load() or a
   convenience constructor.
+
+  \note In Qt versions prior to 5.9, this function is marked as non-\c{const}.
 */
 
-QList<QObject *> QQmlApplicationEngine::rootObjects()
+QList<QObject *> QQmlApplicationEngine::rootObjects() const
 {
-    Q_D(QQmlApplicationEngine);
+    Q_D(const QQmlApplicationEngine);
     return d->objects;
 }
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+/*!
+    \overload
+    \internal
+*/
+QList<QObject *> QQmlApplicationEngine::rootObjects()
+{
+    return qAsConst(*this).rootObjects();
+}
+#endif // < Qt 6
 
 QT_END_NAMESPACE
 

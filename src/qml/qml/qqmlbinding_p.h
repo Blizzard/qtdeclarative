@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -55,7 +61,6 @@
 #include <QtCore/QObject>
 #include <QtCore/QMetaProperty>
 
-#include <private/qpointervaluepair_p.h>
 #include <private/qqmlabstractbinding_p.h>
 #include <private/qqmljavascriptexpression_p.h>
 
@@ -67,26 +72,23 @@ class Q_QML_PRIVATE_EXPORT QQmlBinding : public QQmlJavaScriptExpression,
 {
     friend class QQmlAbstractBinding;
 public:
-    QQmlBinding(const QString &, QObject *, QQmlContext *);
-    QQmlBinding(const QQmlScriptString &, QObject *, QQmlContext *);
-    QQmlBinding(const QString &, QObject *, QQmlContextData *);
-    QQmlBinding(const QString &, QObject *, QQmlContextData *,
-                const QString &url, quint16 lineNumber, quint16 columnNumber);
-    QQmlBinding(const QV4::Value &, QObject *, QQmlContextData *);
+    static QQmlBinding *create(const QQmlPropertyData *, const QQmlScriptString &, QObject *, QQmlContext *);
+    static QQmlBinding *create(const QQmlPropertyData *, const QString &, QObject *, QQmlContextData *,
+                               const QString &url = QString(), quint16 lineNumber = 0);
+    static QQmlBinding *create(const QQmlPropertyData *property, QV4::Function *function,
+                               QObject *obj, QQmlContextData *ctxt, QV4::ExecutionContext *scope);
     ~QQmlBinding();
 
     void setTarget(const QQmlProperty &);
-    void setTarget(QObject *, const QQmlPropertyData &);
+    void setTarget(QObject *, const QQmlPropertyData &, const QQmlPropertyData *valueType);
 
     void setNotifyOnValueChanged(bool);
 
-    // Inherited from QQmlJavaScriptExpression
-    virtual void refresh();
+    void refresh() Q_DECL_OVERRIDE;
 
-    // Inherited from QQmlAbstractBinding
-    virtual void setEnabled(bool, QQmlPropertyPrivate::WriteFlags flags = QQmlPropertyPrivate::DontRemoveBinding);
-    virtual QString expression() const;
-    void update(QQmlPropertyPrivate::WriteFlags flags = QQmlPropertyPrivate::DontRemoveBinding);
+    void setEnabled(bool, QQmlPropertyData::WriteFlags flags = QQmlPropertyData::DontRemoveBinding) Q_DECL_OVERRIDE;
+    QString expression() const Q_DECL_OVERRIDE;
+    void update(QQmlPropertyData::WriteFlags flags = QQmlPropertyData::DontRemoveBinding);
 
     typedef int Identifier;
     enum {
@@ -95,20 +97,26 @@ public:
 
     QVariant evaluate();
 
-    virtual QString expressionIdentifier();
-    virtual void expressionChanged();
+    QString expressionIdentifier() const override;
+    void expressionChanged() override;
+
+protected:
+    virtual void doUpdate(const DeleteWatcher &watcher,
+                          QQmlPropertyData::WriteFlags flags, QV4::Scope &scope) = 0;
+
+    void getPropertyData(QQmlPropertyData **propertyData, QQmlPropertyData *valueTypeData) const;
+    int getPropertyType() const;
+
+    bool slowWrite(const QQmlPropertyData &core, const QQmlPropertyData &valueTypeData,
+                   const QV4::Value &result, bool isUndefined, QQmlPropertyData::WriteFlags flags);
 
 private:
     inline bool updatingFlag() const;
     inline void setUpdatingFlag(bool);
     inline bool enabledFlag() const;
     inline void setEnabledFlag(bool);
-    QQmlPropertyData getPropertyData() const;
 
-    bool write(const QQmlPropertyData &core,
-                       const QV4::Value &result, bool isUndefined,
-                       QQmlPropertyPrivate::WriteFlags flags);
-
+    static QQmlBinding *newBinding(QQmlEnginePrivate *engine, const QQmlPropertyData *property);
 };
 
 bool QQmlBinding::updatingFlag() const

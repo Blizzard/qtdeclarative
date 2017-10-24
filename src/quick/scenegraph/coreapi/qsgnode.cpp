@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -106,6 +112,7 @@ static void qt_print_node_count()
     \value DirtyGeometry The geometry of a QSGGeometryNode has changed.
     \value DirtyMaterial The material of a QSGGeometryNode has changed.
     \value DirtyOpacity The opacity of a QSGOpacityNode has changed.
+    \value DirtySubtreeBlocked The subtree has been blocked.
 
     \sa QSGNode::markDirty()
  */
@@ -140,6 +147,7 @@ static void qt_print_node_count()
     \value TransformNodeType The type of QSGTransformNode
     \value ClipNodeType The type of QSGClipNode
     \value OpacityNodeType The type of QSGOpacityNode
+    \value RenderNodeType The type of QSGRenderNode
 
     \sa type()
  */
@@ -330,13 +338,6 @@ QSGNode::~QSGNode()
     QSGNode::UsePreprocess. The flag needs to be set before the node is added
     to the scene graph and will cause the preprocess() function to be called
     for every frame the node is rendered.
-
-    The preprocess function is called before the update pass that propagates
-    opacity and transformations through the scene graph. That means that
-    functions like QSGOpacityNode::combinedOpacity() and
-    QSGTransformNode::combinedMatrix() will not contain up-to-date values.
-    If such values are changed during the preprocess, these changes will be
-    propagated through the scene graph before it is rendered.
 
     \warning Beware of deleting nodes while they are being preprocessed. It is
     possible, with a small performance hit, to delete a single node during its
@@ -772,6 +773,18 @@ QSGBasicGeometryNode::~QSGBasicGeometryNode()
     \internal
  */
 
+/*!
+    \fn void QSGBasicGeometryNode::setRendererMatrix(const QMatrix4x4 *m)
+
+    \internal
+ */
+
+/*!
+    \fn void QSGBasicGeometryNode::setRendererClipList(const QSGClipNode *c)
+
+    \internal
+ */
+
 
 /*!
     Sets the geometry of this node to \a geometry.
@@ -779,7 +792,7 @@ QSGBasicGeometryNode::~QSGBasicGeometryNode()
     If the node has the flag QSGNode::OwnsGeometry set, it will also delete the
     geometry object it is pointing to. This flag is not set by default.
 
-    If the geometry is changed whitout calling setGeometry() again, the user
+    If the geometry is changed without calling setGeometry() again, the user
     must also mark the geometry as dirty using QSGNode::markDirty().
 
     \sa markDirty()
@@ -832,7 +845,7 @@ void QSGBasicGeometryNode::setGeometry(QSGGeometry *geometry)
 
     The geometry node supports two types of materials, the opaqueMaterial and the normal
     material. The opaqueMaterial is used when the accumulated scene graph opacity at the
-    time of rendering is 1. The primary usecase is to special case opaque rendering
+    time of rendering is 1. The primary use case is to special case opaque rendering
     to avoid an extra operation in the fragment shader can have significant performance
     impact on embedded graphics chips. The opaque material is optional.
 
@@ -874,7 +887,7 @@ QSGGeometryNode::QSGGeometryNode(QSGGeometryNodePrivate &dd)
     Deletes this geometry node.
 
     The flags QSGNode::OwnsMaterial, QSGNode::OwnsOpaqueMaterial and
-    QSGNode::OwnsGeometry decides weither the geometry node should also
+    QSGNode::OwnsGeometry decides whether the geometry node should also
     delete the materials and geometry. By default, these flags are disabled.
  */
 
@@ -948,7 +961,7 @@ void QSGGeometryNode::setRenderOrder(int order)
     Geometry nodes must have a material before they can be added to the
     scene graph.
 
-    If the material is changed whitout calling setMaterial() again, the user
+    If the material is changed without calling setMaterial() again, the user
     must also mark the material as dirty using QSGNode::markDirty().
 
  */
@@ -978,7 +991,7 @@ void QSGGeometryNode::setMaterial(QSGMaterial *material)
     allowed to set QSGMaterial::Blending to true and draw transparent
     pixels.
 
-    If the material is changed whitout calling setOpaqueMaterial()
+    If the material is changed without calling setOpaqueMaterial()
     again, the user must also mark the opaque material as dirty using
     QSGNode::markDirty().
 
@@ -1066,6 +1079,7 @@ void QSGGeometryNode::setInheritedOpacity(qreal opacity)
 
 QSGClipNode::QSGClipNode()
     : QSGBasicGeometryNode(ClipNodeType)
+    , m_is_rectangular(false)
 {
     Q_UNUSED(m_reserved);
 }
@@ -1101,6 +1115,8 @@ QSGClipNode::~QSGClipNode()
 
     When this hint is set and it is applicable, the clip region will be
     generated from clipRect() rather than geometry().
+
+    By default this property is \c false.
  */
 
 void QSGClipNode::setIsRectangular(bool rectHint)
@@ -1250,7 +1266,7 @@ QSGRootNode::QSGRootNode()
 QSGRootNode::~QSGRootNode()
 {
     while (!m_renderers.isEmpty())
-        m_renderers.last()->setRootNode(0);
+        m_renderers.constLast()->setRootNode(0);
     destroy(); // Must call destroy() here because markDirty() casts this to QSGRootNode.
 }
 
@@ -1358,7 +1374,7 @@ void QSGOpacityNode::setOpacity(qreal opacity)
 
     Returns this node's accumulated opacity.
 
-    This vaule is calculated during rendering and only stored
+    This value is calculated during rendering and only stored
     in the opacity node temporarily.
 
     \internal
@@ -1448,8 +1464,6 @@ void QSGNodeVisitor::visitChildren(QSGNode *n)
         visitNode(c);
 }
 
-
-
 #ifndef QT_NO_DEBUG_STREAM
 QDebug operator<<(QDebug d, const QSGGeometryNode *n)
 {
@@ -1466,15 +1480,15 @@ QDebug operator<<(QDebug d, const QSGGeometryNode *n)
     } else {
 
         switch (g->drawingMode()) {
-        case GL_TRIANGLE_STRIP: d << "strip"; break;
-        case GL_TRIANGLE_FAN: d << "fan"; break;
-        case GL_TRIANGLES: d << "triangles"; break;
+        case QSGGeometry::DrawTriangleStrip: d << "strip"; break;
+        case QSGGeometry::DrawTriangleFan: d << "fan"; break;
+        case QSGGeometry::DrawTriangles: d << "triangles"; break;
         default: break;
         }
 
         d << "#V:" << g->vertexCount() << "#I:" << g->indexCount();
 
-        if (g->attributeCount() > 0 && g->attributes()->type == GL_FLOAT) {
+        if (g->attributeCount() > 0 && g->attributes()->type == QSGGeometry::FloatType) {
             float x1 = 1e10, x2 = -1e10, y1=1e10, y2=-1e10;
             int stride = g->sizeOfVertex();
             for (int i = 0; i < g->vertexCount(); ++i) {
@@ -1571,6 +1585,7 @@ QDebug operator<<(QDebug d, const QSGRootNode *n)
         d << "RootNode(null)";
         return d;
     }
+    QDebugStateSaver saver(d);
     d << "RootNode" << hex << (const void *) n << (n->isSubtreeBlocked() ? "*BLOCKED*" : "");
 #ifdef QSG_RUNTIME_DESCRIPTION
     d << QSGNodePrivate::description(n);

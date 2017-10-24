@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -59,11 +65,12 @@ QQuickLoaderPrivate::~QQuickLoaderPrivate()
     disposeInitialPropertyValues();
 }
 
-void QQuickLoaderPrivate::itemGeometryChanged(QQuickItem *resizeItem, const QRectF &newGeometry, const QRectF &oldGeometry)
+void QQuickLoaderPrivate::itemGeometryChanged(QQuickItem *resizeItem, QQuickGeometryChange change,
+                                              const QRectF &oldGeometry)
 {
     if (resizeItem == item)
         _q_updateSize(false);
-    QQuickItemChangeListener::itemGeometryChanged(resizeItem, newGeometry, oldGeometry);
+    QQuickItemChangeListener::itemGeometryChanged(resizeItem, change, oldGeometry);
 }
 
 void QQuickLoaderPrivate::itemImplicitWidthChanged(QQuickItem *)
@@ -178,7 +185,7 @@ qreal QQuickLoaderPrivate::getImplicitHeight() const
     \l sourceComponent to \c undefined destroys the currently loaded object,
     freeing resources and leaving the Loader empty.
 
-    \section2 Loader sizing behavior
+    \section2 Loader Sizing Behavior
 
     If the source component is not an Item type, Loader does not
     apply any special sizing rules.  When used to load visual types,
@@ -210,7 +217,7 @@ qreal QQuickLoaderPrivate::getImplicitHeight() const
     \endtable
 
 
-    \section2 Receiving signals from loaded objects
+    \section2 Receiving Signals from Loaded Objects
 
     Any signals emitted from the loaded object can be received using the
     \l Connections type. For example, the following \c application.qml
@@ -231,7 +238,7 @@ qreal QQuickLoaderPrivate::getImplicitHeight() const
     its parent \l Item.
 
 
-    \section2 Focus and key events
+    \section2 Focus and Key Events
 
     Loader is a focus scope. Its \l {Item::}{focus} property must be set to
     \c true for any of its children to get the \e {active focus}. (See
@@ -259,10 +266,11 @@ qreal QQuickLoaderPrivate::getImplicitHeight() const
 
     Since \c {QtQuick 2.0}, Loader can also load non-visual components.
 
-    \section2 Using a Loader within a view delegate
+    \section2 Using a Loader within a View Delegate
 
     In some cases you may wish to use a Loader within a view delegate to improve delegate
     loading performance. This works well in most cases, but there is one important issue to
+    be aware of related to the \l{QtQml::Component#Creation Context}{creation context} of a Component.
 
     In the following example, the \c index context property inserted by the ListView into \c delegateComponent's
     context will be inaccessible to Text, as the Loader will use the creation context of \c myComponent as the parent
@@ -854,6 +862,11 @@ likelihood of glitches in animation.  When loading asynchronously the status
 will change to Loader.Loading.  Once the entire component has been created, the
 \l item will be available and the status will change to Loader.Ready.
 
+Changing the value of this property to \c false while an asynchronous load is in
+progress will force immediate, synchronous completion.  This allows beginning an
+asynchronous load and then forcing completion if the Loader content must be
+accessed before the asynchronous load has completed.
+
 To avoid seeing the items loading progressively set \c visible appropriately, e.g.
 
 \code
@@ -880,6 +893,19 @@ void QQuickLoader::setAsynchronous(bool a)
         return;
 
     d->asynchronous = a;
+
+    if (!d->asynchronous && isComponentComplete() && d->active) {
+        if (d->loadingFromSource && d->component && d->component->isLoading()) {
+            // Force a synchronous component load
+            QUrl currentSource = d->source;
+            d->clear();
+            d->source = currentSource;
+            loadFromSource();
+        } else if (d->incubator && d->incubator->isLoading()) {
+            d->incubator->forceCompletion();
+        }
+    }
+
     emit asynchronousChanged();
 }
 
@@ -946,7 +972,7 @@ QV4::ReturnedValue QQuickLoaderPrivate::extractInitialPropertyValues(QQmlV4Funct
         QV4::ScopedValue v(scope, (*args)[1]);
         if (!v->isObject() || v->as<QV4::ArrayObject>()) {
             *error = true;
-            qmlInfo(loader) << QQuickLoader::tr("setSource: value is not an object");
+            qmlWarning(loader) << QQuickLoader::tr("setSource: value is not an object");
         } else {
             *error = false;
             valuemap = v;

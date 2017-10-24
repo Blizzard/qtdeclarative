@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -33,7 +39,6 @@
 
 #include "qqmlcustomparser_p.h"
 
-#include "qqmlcompiler_p.h"
 #include <private/qqmltypecompiler_p.h>
 
 #include <QtCore/qdebug.h>
@@ -78,7 +83,7 @@ QT_BEGIN_NAMESPACE
     by \a data, which is a block of data previously returned by a call
     to compile().
 
-    Errors should be reported using qmlInfo(object).
+    Errors should be reported using qmlWarning(object).
 
     The \a object will be an instance of the TypeClass specified by QML_REGISTER_CUSTOM_TYPE.
 */
@@ -95,11 +100,7 @@ void QQmlCustomParser::clearErrors()
 */
 void QQmlCustomParser::error(const QV4::CompiledData::Location &location, const QString &description)
 {
-    QQmlError error;
-    error.setLine(location.line);
-    error.setColumn(location.column);
-    error.setDescription(description);
-    exceptions << error;
+    exceptions << QQmlCompileError(location, description);
 }
 
 struct StaticQtMetaObject : public QObject
@@ -131,7 +132,7 @@ int QQmlCustomParser::evaluateEnum(const QByteArray& script, bool *ok) const
     if (scope != QLatin1String("Qt")) {
         if (imports.isNull())
             return -1;
-        QQmlType *type = 0;
+        QQmlType type;
 
         if (imports.isT1()) {
             imports.asT1()->resolveType(scope, &type, 0, 0, 0);
@@ -141,7 +142,7 @@ int QQmlCustomParser::evaluateEnum(const QByteArray& script, bool *ok) const
                 type = result.type;
         }
 
-        return type ? type->enumValue(engine, QHashedCStringRef(enumValue.constData(), enumValue.length()), ok) : -1;
+        return type.enumValue(engine, QHashedCStringRef(enumValue.constData(), enumValue.length()), ok);
     }
 
     const QMetaObject *mo = StaticQtMetaObject::get();
@@ -160,12 +161,12 @@ int QQmlCustomParser::evaluateEnum(const QByteArray& script, bool *ok) const
 */
 const QMetaObject *QQmlCustomParser::resolveType(const QString& name) const
 {
-    QQmlType *qmltype = 0;
-    if (!validator->imports().resolveType(name, &qmltype, 0, 0, 0))
-        return 0;
-    if (!qmltype)
-        return 0;
-    return qmltype->metaObject();
+    if (!imports.isT1())
+        return nullptr;
+    QQmlType qmltype;
+    if (!imports.asT1()->resolveType(name, &qmltype, 0, 0, 0))
+        return nullptr;
+    return qmltype.metaObject();
 }
 
 QT_END_NAMESPACE

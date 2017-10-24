@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -48,7 +43,6 @@
 #include <QtQml/qqmlpropertyvaluesource.h>
 #include <QtQml/qqmlscriptstring.h>
 #include <QtQml/qqmlproperty.h>
-#include <private/qqmlcompiler_p.h>
 #include <private/qqmlcustomparser_p.h>
 
 QVariant myCustomVariantTypeConverter(const QString &data);
@@ -736,9 +730,19 @@ private:
 
 
 namespace MyNamespace {
+    Q_NAMESPACE
+    enum MyNSEnum {
+        Key1 = 1,
+        Key2,
+        Key5 = 5
+    };
+    Q_ENUM_NS(MyNSEnum);
+
     class MyNamespacedType : public QObject
     {
         Q_OBJECT
+        Q_PROPERTY(MyNamespace::MyNSEnum myEnum MEMBER m_myEnum)
+        MyNamespace::MyNSEnum m_myEnum = MyNSEnum::Key1;
     };
 
     class MySecondNamespacedType : public QObject
@@ -762,14 +766,14 @@ class MyCustomParserTypeParser : public QQmlCustomParser
 {
 public:
     virtual void verifyBindings(const QV4::CompiledData::Unit *, const QList<const QV4::CompiledData::Binding *> &) {}
-    virtual void applyBindings(QObject *, QQmlCompiledData *, const QList<const QV4::CompiledData::Binding *> &) {}
+    virtual void applyBindings(QObject *, QV4::CompiledData::CompilationUnit *, const QList<const QV4::CompiledData::Binding *> &) {}
 };
 
 class EnumSupportingCustomParser : public QQmlCustomParser
 {
 public:
     virtual void verifyBindings(const QV4::CompiledData::Unit *, const QList<const QV4::CompiledData::Binding *> &);
-    virtual void applyBindings(QObject *, QQmlCompiledData *, const QList<const QV4::CompiledData::Binding *> &) {}
+    virtual void applyBindings(QObject *, QV4::CompiledData::CompilationUnit *, const QList<const QV4::CompiledData::Binding *> &) {}
 };
 
 class MyParserStatus : public QObject, public QQmlParserStatus
@@ -1017,6 +1021,60 @@ public:
     }
 };
 
+class MyExtendedUncreateableBaseClass : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(bool prop1 READ prop1 WRITE setprop1)
+    Q_PROPERTY(bool prop2 READ prop2 WRITE setprop2 REVISION 1)
+    Q_PROPERTY(bool prop3 READ prop3 WRITE setprop3 REVISION 1)
+public:
+    explicit MyExtendedUncreateableBaseClass(QObject *parent = 0)
+        : QObject(parent), _prop1(false), _prop2(false), _prop3(false)
+    {
+    }
+
+    bool _prop1;
+    bool prop1() const { return _prop1; }
+    void setprop1(bool p) { _prop1 = p; }
+    bool _prop2;
+    bool prop2() const { return _prop2; }
+    void setprop2(bool p) { _prop2 = p; }
+    bool _prop3;
+    bool prop3() const { return _prop3; }
+    void setprop3(bool p) { _prop3 = p; }
+};
+
+class MyExtendedUncreateableBaseClassExtension : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(bool prop4 READ prop4 WRITE setprop4)
+public:
+    explicit MyExtendedUncreateableBaseClassExtension(QObject *parent = 0)
+        : QObject(parent), _prop4(false)
+    {
+    }
+
+    bool _prop4;
+    bool prop4() const { return _prop4; }
+    void setprop4(bool p) { _prop4 = p; }
+};
+
+class MyExtendedCreateableDerivedClass : public MyExtendedUncreateableBaseClass
+{
+    Q_OBJECT
+    Q_PROPERTY(bool prop5 READ prop5 WRITE setprop5)
+
+public:
+    MyExtendedCreateableDerivedClass(QObject *parent = 0)
+        : MyExtendedUncreateableBaseClass(parent), _prop5(false)
+    {
+    }
+
+    bool _prop5;
+    bool prop5() const { return _prop5; }
+    void setprop5(bool p) { _prop5 = p; }
+};
+
 class MyVersion2Class : public QObject
 {
     Q_OBJECT
@@ -1119,6 +1177,58 @@ public:
     static QObject *qmlAttachedProperties(QObject *parent) { return new QObject(parent); }
 };
 
+class MyArrayBufferTestClass : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QByteArray byteArrayProperty READ byteArrayProperty WRITE setByteArrayProperty NOTIFY byteArrayPropertyChanged)
+
+signals:
+    void byteArrayPropertyChanged();
+    void byteArraySignal(QByteArray arg);
+
+public:
+    QByteArray byteArrayPropertyValue;
+    QByteArray byteArrayProperty() const {
+        return byteArrayPropertyValue;
+    }
+    void setByteArrayProperty(const QByteArray &v) {
+        byteArrayPropertyValue = v;
+        emit byteArrayPropertyChanged();
+    }
+    Q_INVOKABLE void emitByteArraySignal(char begin, char num) {
+        byteArraySignal(byteArrayMethod_CountUp(begin, num));
+    }
+    Q_INVOKABLE int byteArrayMethod_Sum(QByteArray arg) {
+        int sum = 0;
+        for (int i = 0; i < arg.size(); ++i) {
+            sum += arg[i];
+        }
+        return sum;
+    }
+    Q_INVOKABLE QByteArray byteArrayMethod_CountUp(char begin, int num) {
+        QByteArray ret;
+        for (int i = 0; i < num; ++i) {
+            ret.push_back(begin++);
+        }
+        return ret;
+    }
+    Q_INVOKABLE bool byteArrayMethod_Overloaded(QByteArray) {
+        return true;
+    }
+    Q_INVOKABLE bool byteArrayMethod_Overloaded(int) {
+        return false;
+    }
+    Q_INVOKABLE bool byteArrayMethod_Overloaded(QString) {
+        return false;
+    }
+    Q_INVOKABLE bool byteArrayMethod_Overloaded(QJSValue) {
+        return false;
+    }
+    Q_INVOKABLE bool byteArrayMethod_Overloaded(QVariant) {
+        return false;
+    }
+};
+
 Q_DECLARE_METATYPE(MyEnum2Class::EnumB)
 Q_DECLARE_METATYPE(MyEnum1Class::EnumA)
 Q_DECLARE_METATYPE(Qt::TextFormat)
@@ -1147,7 +1257,7 @@ public:
     void setTarget(QObject *newTarget) { m_target = newTarget; }
 
     QPointer<QObject> m_target;
-    QQmlRefPointer<QQmlCompiledData> cdata;
+    QQmlRefPointer<QV4::CompiledData::CompilationUnit> compilationUnit;
     QList<const QV4::CompiledData::Binding*> bindings;
     QByteArray m_bindingData;
 };
@@ -1155,7 +1265,7 @@ public:
 class CustomBindingParser : public QQmlCustomParser
 {
     virtual void verifyBindings(const QV4::CompiledData::Unit *, const QList<const QV4::CompiledData::Binding *> &) {}
-    virtual void applyBindings(QObject *, QQmlCompiledData *, const QList<const QV4::CompiledData::Binding *> &);
+    virtual void applyBindings(QObject *, QV4::CompiledData::CompilationUnit *, const QList<const QV4::CompiledData::Binding *> &);
 };
 
 class SimpleObjectWithCustomParser : public QObject
@@ -1201,7 +1311,7 @@ private:
 class SimpleObjectCustomParser : public QQmlCustomParser
 {
     virtual void verifyBindings(const QV4::CompiledData::Unit *, const QList<const QV4::CompiledData::Binding *> &) {}
-    virtual void applyBindings(QObject *, QQmlCompiledData *, const QList<const QV4::CompiledData::Binding *> &);
+    virtual void applyBindings(QObject *, QV4::CompiledData::CompilationUnit *, const QList<const QV4::CompiledData::Binding *> &);
 };
 
 class RootObjectInCreationTester : public QObject
@@ -1216,6 +1326,26 @@ public:
 
     QObject *subObject() const { return obj; }
     void setSubObject(QObject *o) { obj = o; }
+
+private:
+    QObject *obj;
+};
+
+class LazyDeferredSubObject : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QObject *subObject READ subObject WRITE setSubObject NOTIFY subObjectChanged FINAL)
+    Q_CLASSINFO("DeferredPropertyNames", "subObject");
+public:
+    LazyDeferredSubObject()
+        : obj(0)
+    {}
+
+    QObject *subObject() const { if (!obj) qmlExecuteDeferred(const_cast<LazyDeferredSubObject *>(this)); return obj; }
+    void setSubObject(QObject *o) { if (obj == o) return; obj = o; emit subObjectChanged(); }
+
+signals:
+    void subObjectChanged();
 
 private:
     QObject *obj;

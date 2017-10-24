@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -35,7 +41,7 @@
 
 #include <QSharedPointer>
 #include <QMetaProperty>
-#include <qnumeric.h>
+#include <QtCore/private/qnumeric_p.h>
 #include <QDebug>
 
 #include <private/qqmlengine_p.h>
@@ -73,34 +79,6 @@ struct MetaPropertyData {
     QVector<QPair<QVariant, bool> > m_data;
 };
 
-static bool constructedMetaData(const QQmlVMEMetaData* data)
-{
-    return data->propertyCount == 0
-            && data->aliasCount == 0
-            && data->signalCount == 0
-            && data->methodCount == 0;
-}
-
-static QQmlVMEMetaData* fakeMetaData()
-{
-    QQmlVMEMetaData* data = new QQmlVMEMetaData;
-    data->propertyCount = 0;
-    data->aliasCount = 0;
-    data->signalCount = 0;
-    data->methodCount = 0;
-
-    return data;
-}
-
-static const QQmlVMEMetaData* vMEMetaDataForObject(QObject *object)
-{
-    QQmlVMEMetaObject *metaObject = QQmlVMEMetaObject::get(object);
-    if (metaObject)
-        return metaObject->metaData;
-
-    return fakeMetaData();
-}
-
 static QQmlPropertyCache *cacheForObject(QObject *object, QQmlEngine *engine)
 {
     QQmlVMEMetaObject *metaObject = QQmlVMEMetaObject::get(object);
@@ -119,7 +97,15 @@ QQmlDesignerMetaObject* QQmlDesignerMetaObject::getNodeInstanceMetaObject(QObjec
         return static_cast<QQmlDesignerMetaObject *>(parent);
 
     // we just create one and the ownership goes automatically to the object in nodeinstance see init method
-    return new QQmlDesignerMetaObject(object, engine);
+
+    QQmlData *ddata = QQmlData::get(object, false);
+
+    const bool hadVMEMetaObject = ddata ? ddata->hasVMEMetaObject : false;
+    QQmlDesignerMetaObject *mo = new QQmlDesignerMetaObject(object, engine);
+    //If our parent is not a VMEMetaObject we just set the flag to false again
+    if (ddata)
+        ddata->hasVMEMetaObject = hadVMEMetaObject;
+    return mo;
 }
 
 void QQmlDesignerMetaObject::init(QObject *object, QQmlEngine *engine)
@@ -134,39 +120,27 @@ void QQmlDesignerMetaObject::init(QObject *object, QQmlEngine *engine)
     QObjectPrivate *op = QObjectPrivate::get(object);
     op->metaObject = this;
 
-    m_cache = QQmlEnginePrivate::get(engine)->cache(this);
-
-    if (m_cache != cache) {
-        m_cache->addref();
-        cache->release();
-        cache = m_cache;
-    }
-
-    //If our parent is not a VMEMetaObject we just se the flag to false again
-    if (constructedMetaData(metaData))
-        QQmlData::get(object)->hasVMEMetaObject = false;
+    cache = QQmlEnginePrivate::get(engine)->cache(this);
 
     nodeInstanceMetaObjectList.insert(this, true);
     hasAssignedMetaObjectData = true;
 }
 
 QQmlDesignerMetaObject::QQmlDesignerMetaObject(QObject *object, QQmlEngine *engine)
-    : QQmlVMEMetaObject(object, cacheForObject(object, engine), vMEMetaDataForObject(object)),
+    : QQmlVMEMetaObject(QQmlEnginePrivate::getV4Engine(engine), object, cacheForObject(object, engine), /*qml compilation unit*/nullptr, /*qmlObjectId*/-1),
       m_context(engine->contextForObject(object)),
-      m_data(new MetaPropertyData),
-      m_cache(0)
+      m_data(new MetaPropertyData)
 {
     init(object, engine);
 
     QQmlData *ddata = QQmlData::get(object, false);
-
     //Assign cache to object
     if (ddata && ddata->propertyCache) {
         cache->setParent(ddata->propertyCache);
         cache->invalidate(engine, this);
         ddata->propertyCache->release();
-        ddata->propertyCache = m_cache;
-        m_cache->addref();
+        ddata->propertyCache = cache;
+        ddata->propertyCache->addref();
     }
 
 }
@@ -187,9 +161,9 @@ void QQmlDesignerMetaObject::createNewDynamicProperty(const QString &name)
     Q_UNUSED(id);
 
     //Updating cache
-    QQmlPropertyCache *oldParent = m_cache->parent();
+    QQmlPropertyCache *oldParent = cache->parent();
     QQmlEnginePrivate::get(m_context->engine())->cache(this)->invalidate(m_context->engine(), this);
-    m_cache->setParent(oldParent);
+    cache->setParent(oldParent);
 
     QQmlProperty property(myObject(), name, m_context);
     Q_ASSERT(property.isValid());
@@ -268,19 +242,19 @@ int QQmlDesignerMetaObject::metaCall(QObject *o, QMetaObject::Call call, int id,
     if (call == QMetaObject::WriteProperty
             && propertyById.userType() == QMetaType::QVariant
             && reinterpret_cast<QVariant *>(a[0])->type() == QVariant::Double
-            && qIsNaN(reinterpret_cast<QVariant *>(a[0])->toDouble())) {
+            && qt_is_nan(reinterpret_cast<QVariant *>(a[0])->toDouble())) {
         return -1;
     }
 
     if (call == QMetaObject::WriteProperty
             && propertyById.userType() == QMetaType::Double
-            && qIsNaN(*reinterpret_cast<double*>(a[0]))) {
+            && qt_is_nan(*reinterpret_cast<double*>(a[0]))) {
         return -1;
     }
 
     if (call == QMetaObject::WriteProperty
             && propertyById.userType() == QMetaType::Float
-            && qIsNaN(*reinterpret_cast<float*>(a[0]))) {
+            && qt_is_nan(*reinterpret_cast<float*>(a[0]))) {
         return -1;
     }
 

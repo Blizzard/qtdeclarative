@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2014 Klaralvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Sergio Martins <sergio.martins@kdab.com>
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 Klaralvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Sergio Martins <sergio.martins@kdab.com>
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the plugins of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -34,7 +29,9 @@
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
+#if QT_CONFIG(commandlineparser)
 #include <QCommandLineParser>
+#endif
 #include <QCoreApplication>
 
 #include <private/qv4value_p.h>
@@ -64,7 +61,8 @@ static bool lint_file(const QString &filename, bool silent)
     bool success = isJavaScript ? parser.parseProgram() : parser.parse();
 
     if (!success && !silent) {
-        foreach (const QQmlJS::DiagnosticMessage &m, parser.diagnosticMessages()) {
+        const auto diagnosticMessages = parser.diagnosticMessages();
+        for (const QQmlJS::DiagnosticMessage &m : diagnosticMessages) {
             qWarning("%s:%d : %s", qPrintable(filename), m.loc.startLine, qPrintable(m.message));
         }
     }
@@ -77,6 +75,7 @@ int main(int argv, char *argc[])
     QCoreApplication app(argv, argc);
     QCoreApplication::setApplicationName("qmllint");
     QCoreApplication::setApplicationVersion("1.0");
+#if QT_CONFIG(commandlineparser)
     QCommandLineParser parser;
     parser.setApplicationDescription(QLatin1String("QML syntax verifier"));
     parser.addHelpOption();
@@ -87,15 +86,23 @@ int main(int argv, char *argc[])
 
     parser.process(app);
 
-    if (parser.positionalArguments().isEmpty()) {
+    const auto positionalArguments = parser.positionalArguments();
+    if (positionalArguments.isEmpty()) {
         parser.showHelp(-1);
     }
 
     bool silent = parser.isSet(silentOption);
+#else
+    bool silent = false;
+#endif
     bool success = true;
-    foreach (const QString &filename, parser.positionalArguments()) {
+#if QT_CONFIG(commandlineparser)
+    for (const QString &filename : positionalArguments)
+#else
+    const auto arguments = app.arguments();
+    for (const QString &filename : arguments)
+#endif
         success &= lint_file(filename, silent);
-    }
 
     return success ? 0 : -1;
 }

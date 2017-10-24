@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -40,6 +46,7 @@
 #include <private/qrawfont_p.h>
 #include <QtGui/qguiapplication.h>
 #include <qdir.h>
+#include <qsgrendernode.h>
 
 #include <private/qquickprofiler_p.h>
 #include <QElapsedTimer>
@@ -59,15 +66,18 @@ QSGDistanceFieldGlyphCache::QSGDistanceFieldGlyphCache(QSGDistanceFieldGlyphCach
     QRawFontPrivate *fontD = QRawFontPrivate::get(font);
     m_glyphCount = fontD->fontEngine->glyphCount();
 
-    m_doubleGlyphResolution = qt_fontHasNarrowOutlines(font) && m_glyphCount < QT_DISTANCEFIELD_HIGHGLYPHCOUNT;
+    m_doubleGlyphResolution = qt_fontHasNarrowOutlines(font) && m_glyphCount < QT_DISTANCEFIELD_HIGHGLYPHCOUNT();
 
     m_referenceFont = font;
     // we set the same pixel size as used by the distance field internally.
     // this allows us to call pathForGlyph once and reuse the result.
     m_referenceFont.setPixelSize(QT_DISTANCEFIELD_BASEFONTSIZE(m_doubleGlyphResolution) * QT_DISTANCEFIELD_SCALE(m_doubleGlyphResolution));
     Q_ASSERT(m_referenceFont.isValid());
-
+#if QT_CONFIG(opengl)
     m_coreProfile = (c->format().profile() == QSurfaceFormat::CoreProfile);
+#else
+    Q_UNUSED(c)
+#endif
 }
 
 QSGDistanceFieldGlyphCache::~QSGDistanceFieldGlyphCache()
@@ -112,7 +122,7 @@ void QSGDistanceFieldGlyphCache::populate(const QVector<glyph_t> &glyphs)
     int count = glyphs.count();
     for (int i = 0; i < count; ++i) {
         glyph_t glyphIndex = glyphs.at(i);
-        if ((int) glyphIndex >= glyphCount()) {
+        if ((int) glyphIndex >= glyphCount() && glyphCount() > 0) {
             qWarning("Warning: distance-field glyph is not available with index %d", glyphIndex);
             continue;
         }
@@ -179,14 +189,15 @@ void QSGDistanceFieldGlyphCache::update()
     int count = m_pendingGlyphs.size();
     if (profileFrames)
         renderTime = qsg_render_timer.nsecsElapsed();
-    Q_QUICK_SG_PROFILE_RECORD(QQuickProfiler::SceneGraphAdaptationLayerFrame);
+    Q_QUICK_SG_PROFILE_RECORD(QQuickProfiler::SceneGraphAdaptationLayerFrame,
+                              QQuickProfiler::SceneGraphAdaptationLayerGlyphRender);
 
     m_pendingGlyphs.reset();
 
     storeGlyphs(distanceFields);
 
 #if defined(QSG_DISTANCEFIELD_CACHE_DEBUG)
-    foreach (Texture texture, m_textures)
+    for (Texture texture : qAsConst(m_textures))
         saveTexture(texture.textureId, texture.size.width(), texture.size.height());
 #endif
 
@@ -200,6 +211,7 @@ void QSGDistanceFieldGlyphCache::update()
                 int((now - (renderTime / 1000000))));
     }
     Q_QUICK_SG_PROFILE_END_WITH_PAYLOAD(QQuickProfiler::SceneGraphAdaptationLayerFrame,
+                                        QQuickProfiler::SceneGraphAdaptationLayerGlyphStore,
                                         (qint64)count);
 }
 
@@ -285,7 +297,7 @@ void QSGDistanceFieldGlyphCache::markGlyphsToRender(const QVector<glyph_t> &glyp
         m_pendingGlyphs.add(glyphs.at(i));
 }
 
-void QSGDistanceFieldGlyphCache::updateTexture(GLuint oldTex, GLuint newTex, const QSize &newTexSize)
+void QSGDistanceFieldGlyphCache::updateTexture(uint oldTex, uint newTex, const QSize &newTexSize)
 {
     int count = m_textures.count();
     for (int i = 0; i < count; ++i) {
@@ -503,6 +515,13 @@ void QSGNodeVisitorEx::visitChildren(QSGNode *node)
             visitChildren(child);
             break;
         }
+        case QSGNode::RenderNodeType: {
+            QSGRenderNode *r = static_cast<QSGRenderNode*>(child);
+            if (visit(r))
+                visitChildren(r);
+            endVisit(r);
+            break;
+        }
         default:
             Q_UNREACHABLE();
             break;
@@ -510,4 +529,45 @@ void QSGNodeVisitorEx::visitChildren(QSGNode *node)
     }
 }
 
+#ifndef QT_NO_DEBUG_STREAM
+QDebug operator<<(QDebug debug, const QSGGuiThreadShaderEffectManager::ShaderInfo::InputParameter &p)
+{
+    QDebugStateSaver saver(debug);
+    debug.space();
+    debug << p.semanticName << "semindex" << p.semanticIndex;
+    return debug;
+}
+
+QDebug operator<<(QDebug debug, const QSGGuiThreadShaderEffectManager::ShaderInfo::Variable &v)
+{
+    QDebugStateSaver saver(debug);
+    debug.space();
+    debug << v.name;
+    switch (v.type) {
+    case QSGGuiThreadShaderEffectManager::ShaderInfo::Constant:
+        debug << "cvar" << "offset" << v.offset << "size" << v.size;
+        break;
+    case QSGGuiThreadShaderEffectManager::ShaderInfo::Sampler:
+        debug << "sampler" << "bindpoint" << v.bindPoint;
+        break;
+    case QSGGuiThreadShaderEffectManager::ShaderInfo::Texture:
+        debug << "texture" << "bindpoint" << v.bindPoint;
+        break;
+    default:
+        break;
+    }
+    return debug;
+}
+
+QDebug operator<<(QDebug debug, const QSGShaderEffectNode::VariableData &vd)
+{
+    QDebugStateSaver saver(debug);
+    debug.space();
+    debug << vd.specialType;
+    return debug;
+}
+#endif
+
 QT_END_NAMESPACE
+
+#include "moc_qsgadaptationlayer_p.cpp"

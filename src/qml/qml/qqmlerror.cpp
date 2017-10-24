@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -37,6 +43,8 @@
 #include <QtCore/qdebug.h>
 #include <QtCore/qfile.h>
 #include <QtCore/qstringlist.h>
+#include <QtCore/qvector.h>
+#include <QtCore/qpointer.h>
 
 #include <private/qv4errorobject_p.h>
 
@@ -78,11 +86,12 @@ public:
     QString description;
     quint16 line;
     quint16 column;
-    QObject *object;
+    QtMsgType messageType;
+    QPointer<QObject> object;
 };
 
 QQmlErrorPrivate::QQmlErrorPrivate()
-: line(0), column(0), object()
+: line(0), column(0), messageType(QtMsgType::QtWarningMsg), object()
 {
 }
 
@@ -112,12 +121,14 @@ QQmlError &QQmlError::operator=(const QQmlError &other)
         delete d;
         d = 0;
     } else {
-        if (!d) d = new QQmlErrorPrivate;
+        if (!d)
+            d = new QQmlErrorPrivate;
         d->url = other.d->url;
         d->description = other.d->description;
         d->line = other.d->line;
         d->column = other.d->column;
         d->object = other.d->object;
+        d->messageType = other.d->messageType;
     }
     return *this;
 }
@@ -143,8 +154,9 @@ bool QQmlError::isValid() const
 */
 QUrl QQmlError::url() const
 {
-    if (d) return d->url;
-    else return QUrl();
+    if (d)
+        return d->url;
+    return QUrl();
 }
 
 /*!
@@ -152,7 +164,8 @@ QUrl QQmlError::url() const
 */
 void QQmlError::setUrl(const QUrl &url)
 {
-    if (!d) d = new QQmlErrorPrivate;
+    if (!d)
+        d = new QQmlErrorPrivate;
     d->url = url;
 }
 
@@ -161,8 +174,9 @@ void QQmlError::setUrl(const QUrl &url)
 */
 QString QQmlError::description() const
 {
-    if (d) return d->description;
-    else return QString();
+    if (d)
+        return d->description;
+    return QString();
 }
 
 /*!
@@ -170,7 +184,8 @@ QString QQmlError::description() const
 */
 void QQmlError::setDescription(const QString &description)
 {
-    if (!d) d = new QQmlErrorPrivate;
+    if (!d)
+        d = new QQmlErrorPrivate;
     d->description = description;
 }
 
@@ -179,8 +194,9 @@ void QQmlError::setDescription(const QString &description)
 */
 int QQmlError::line() const
 {
-    if (d) return qmlSourceCoordinate(d->line);
-    else return -1;
+    if (d)
+        return qmlSourceCoordinate(d->line);
+    return -1;
 }
 
 /*!
@@ -188,7 +204,8 @@ int QQmlError::line() const
 */
 void QQmlError::setLine(int line)
 {
-    if (!d) d = new QQmlErrorPrivate;
+    if (!d)
+        d = new QQmlErrorPrivate;
     d->line = qmlSourceCoordinate(line);
 }
 
@@ -197,8 +214,9 @@ void QQmlError::setLine(int line)
 */
 int QQmlError::column() const
 {
-    if (d) return qmlSourceCoordinate(d->column);
-    else return -1;
+    if (d)
+        return qmlSourceCoordinate(d->column);
+    return -1;
 }
 
 /*!
@@ -206,7 +224,8 @@ int QQmlError::column() const
 */
 void QQmlError::setColumn(int column)
 {
-    if (!d) d = new QQmlErrorPrivate;
+    if (!d)
+        d = new QQmlErrorPrivate;
     d->column = qmlSourceCoordinate(column);
 }
 
@@ -218,8 +237,9 @@ void QQmlError::setColumn(int column)
  */
 QObject *QQmlError::object() const
 {
-    if (d) return d->object;
-    else return 0;
+    if (d)
+        return d->object;
+    return 0;
 }
 
 /*!
@@ -227,8 +247,34 @@ QObject *QQmlError::object() const
  */
 void QQmlError::setObject(QObject *object)
 {
-    if (!d) d = new QQmlErrorPrivate;
+    if (!d)
+        d = new QQmlErrorPrivate;
     d->object = object;
+}
+
+/*!
+    \since 5.9
+
+    Returns the message type.
+ */
+QtMsgType QQmlError::messageType() const
+{
+    if (d)
+        return d->messageType;
+    return QtMsgType::QtWarningMsg;
+}
+
+/*!
+    \since 5.9
+
+    Sets the \a messageType for this message. The message type determines which
+    QDebug handlers are responsible for recieving the message.
+ */
+void QQmlError::setMessageType(QtMsgType messageType)
+{
+    if (!d)
+        d = new QQmlErrorPrivate;
+    d->messageType = messageType;
 }
 
 /*!
@@ -242,9 +288,9 @@ QString QQmlError::toString() const
     int l(line());
 
     if (u.isEmpty() || (u.isLocalFile() && u.path().isEmpty()))
-        rv = QLatin1String("<Unknown File>");
+        rv += QLatin1String("<Unknown File>");
     else
-        rv = u.toString();
+        rv += u.toString();
 
     if (l != -1) {
         rv += QLatin1Char(':') + QString::number(l);
@@ -278,15 +324,15 @@ QDebug operator<<(QDebug debug, const QQmlError &error)
         if (f.open(QIODevice::ReadOnly)) {
             QByteArray data = f.readAll();
             QTextStream stream(data, QIODevice::ReadOnly);
-#ifndef QT_NO_TEXTCODEC
+#if QT_CONFIG(textcodec)
             stream.setCodec("UTF-8");
 #endif
             const QString code = stream.readAll();
-            const QStringList lines = code.split(QLatin1Char('\n'));
+            const auto lines = code.splitRef(QLatin1Char('\n'));
 
             if (lines.count() >= error.line()) {
-                const QString &line = lines.at(error.line() - 1);
-                debug << "\n    " << qPrintable(line);
+                const QStringRef &line = lines.at(error.line() - 1);
+                debug << "\n    " << line.toLocal8Bit().constData();
 
                 if(error.column() > 0) {
                     int column = qMax(0, error.column() - 1);

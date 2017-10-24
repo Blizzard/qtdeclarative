@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -113,6 +108,7 @@ private slots:
     void bindTypeToJSValue();
     void customParserTypes();
     void rootAsQmlComponent();
+    void rootItemIsComponent();
     void inlineQmlComponents();
     void idProperty();
     void autoNotifyConnection();
@@ -193,6 +189,11 @@ private slots:
     void subclassedUncreateableRevision_data();
     void subclassedUncreateableRevision();
 
+    void subclassedExtendedUncreateableRevision_data();
+    void subclassedExtendedUncreateableRevision();
+
+    void uncreatableTypesAsProperties();
+
     void propertyInit();
     void remoteLoadCrash();
     void signalWithDefaultArg();
@@ -246,14 +247,24 @@ private slots:
     void propertyCacheInSync();
 
     void rootObjectInCreationNotForSubObjects();
+    void lazyDeferredSubObject();
 
     void noChildEvents();
 
     void earlyIdObjectAccess();
 
-    void dataAlignment();
-
     void deleteSingletons();
+
+    void arrayBuffer_data();
+    void arrayBuffer();
+
+    void defaultListProperty();
+    void namespacedPropertyTypes();
+
+    void qmlTypeCanBeResolvedByName_data();
+    void qmlTypeCanBeResolvedByName();
+
+    void concurrentLoadQmlDir();
 
 private:
     QQmlEngine engine;
@@ -495,6 +506,7 @@ void tst_qqmllanguage::errors_data()
     QTest::newRow("invalidAlias.8") << "invalidAlias.8.qml" << "invalidAlias.8.errors.txt" << false;
     QTest::newRow("invalidAlias.9") << "invalidAlias.9.qml" << "invalidAlias.9.errors.txt" << false;
     QTest::newRow("invalidAlias.10") << "invalidAlias.10.qml" << "invalidAlias.10.errors.txt" << false;
+    QTest::newRow("invalidAlias.11") << "invalidAlias.11.qml" << "invalidAlias.11.errors.txt" << false;
 
     QTest::newRow("invalidAttachedProperty.1") << "invalidAttachedProperty.1.qml" << "invalidAttachedProperty.1.errors.txt" << false;
     QTest::newRow("invalidAttachedProperty.2") << "invalidAttachedProperty.2.qml" << "invalidAttachedProperty.2.errors.txt" << false;
@@ -684,9 +696,7 @@ void tst_qqmllanguage::assignBasicTypes()
     QCOMPARE(object->vectorProperty(), QVector3D(10, 1, 2.2f));
     QCOMPARE(object->vector2Property(), QVector2D(2, 3));
     QCOMPARE(object->vector4Property(), QVector4D(10, 1, 2.2f, 2.3f));
-    QCOMPARE(object->quaternionProperty(), QQuaternion(4, 5, 6, 7));
-    QUrl encoded;
-    encoded.setEncodedUrl("main.qml?with%3cencoded%3edata", QUrl::TolerantMode);
+    const QUrl encoded = QUrl::fromEncoded("main.qml?with%3cencoded%3edata", QUrl::TolerantMode);
     QCOMPARE(object->urlProperty(), component.url().resolved(encoded));
     QVERIFY(object->objectProperty() != 0);
     MyTypeObject *child = qobject_cast<MyTypeObject *>(object->objectProperty());
@@ -1164,8 +1174,7 @@ void tst_qqmllanguage::bindTypeToJSValue()
     } {
         MyQmlObject *object = root->findChild<MyQmlObject *>("urlProperty");
         QJSValue value = object->qjsvalue();
-        QUrl encoded;
-        encoded.setEncodedUrl("main.qml?with%3cencoded%3edata", QUrl::TolerantMode);
+        const QUrl encoded = QUrl::fromEncoded("main.qml?with%3cencoded%3edata", QUrl::TolerantMode);
         QCOMPARE(value.toString(), component.url().resolved(encoded).toString());
     } {
         MyQmlObject *object = root->findChild<MyQmlObject *>("objectProperty");
@@ -1199,6 +1208,19 @@ void tst_qqmllanguage::rootAsQmlComponent()
     QVERIFY(object != 0);
     QCOMPARE(object->property("x"), QVariant(11));
     QCOMPARE(object->getChildren()->count(), 2);
+}
+
+void tst_qqmllanguage::rootItemIsComponent()
+{
+    QQmlComponent component(&engine, testFileUrl("rootItemIsComponent.qml"));
+    VERIFY_ERRORS(0);
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY(qobject_cast<QQmlComponent*>(root.data()));
+    QScopedPointer<QObject> other(qobject_cast<QQmlComponent*>(root.data())->create());
+    QVERIFY(!other.isNull());
+    QQmlContext *context = qmlContext(other.data());
+    QVERIFY(context);
+    QCOMPARE(context->nameForObject(other.data()), QStringLiteral("blah"));
 }
 
 // Tests that components can be specified inline
@@ -1385,7 +1407,6 @@ void tst_qqmllanguage::dynamicObjectProperties()
     }
     {
     QQmlComponent component(&engine, testFileUrl("dynamicObjectProperties.2.qml"));
-    QEXPECT_FAIL("", "QTBUG-10822", Abort);
     VERIFY_ERRORS(0);
     QObject *object = component.create();
     QVERIFY(object != 0);
@@ -1795,6 +1816,48 @@ void tst_qqmllanguage::aliasProperties()
 
         delete object;
     }
+
+    // Nested aliases with a qml file
+    {
+        QQmlComponent component(&engine, testFileUrl("alias.12.qml"));
+        VERIFY_ERRORS(0);
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY(!object.isNull());
+
+        QPointer<QObject> subObject = qvariant_cast<QObject*>(object->property("referencingSubObject"));
+        QVERIFY(!subObject.isNull());
+
+        QVERIFY(subObject->property("success").toBool());
+    }
+
+    // Nested aliases with a qml file with reverse ordering
+    {
+        // This is known to fail at the moment.
+        QQmlComponent component(&engine, testFileUrl("alias.13.qml"));
+        VERIFY_ERRORS(0);
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY(!object.isNull());
+
+        QPointer<QObject> subObject = qvariant_cast<QObject*>(object->property("referencingSubObject"));
+        QVERIFY(!subObject.isNull());
+
+        QVERIFY(subObject->property("success").toBool());
+    }
+
+    // "Nested" aliases within an object that require iterative resolution
+    {
+        // This is known to fail at the moment.
+        QQmlComponent component(&engine, testFileUrl("alias.14.qml"));
+        VERIFY_ERRORS(0);
+
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY(!object.isNull());
+
+        QPointer<QObject> subObject = qvariant_cast<QObject*>(object->property("referencingSubObject"));
+        QVERIFY(!subObject.isNull());
+
+        QVERIFY(subObject->property("success").toBool());
+    }
 }
 
 // QTBUG-13374 Test that alias properties and signals can coexist
@@ -2066,9 +2129,14 @@ void tst_qqmllanguage::scriptStringWithoutSourceCode()
         QQmlTypeData *td = eng->typeLoader.getType(url);
         Q_ASSERT(td);
 
-        QV4::CompiledData::Unit *qmlUnit = td->compiledData()->compilationUnit->data;
-        Q_ASSERT(qmlUnit);
-        const QV4::CompiledData::Object *rootObject = qmlUnit->objectAt(qmlUnit->indexOfRootObject);
+        const QV4::CompiledData::Unit *readOnlyQmlUnit = td->compilationUnit()->data;
+        Q_ASSERT(readOnlyQmlUnit);
+        QV4::CompiledData::Unit *qmlUnit = reinterpret_cast<QV4::CompiledData::Unit *>(malloc(readOnlyQmlUnit->unitSize));
+        memcpy(qmlUnit, readOnlyQmlUnit, readOnlyQmlUnit->unitSize);
+        qmlUnit->flags &= ~QV4::CompiledData::Unit::StaticData;
+        td->compilationUnit()->data = qmlUnit;
+
+        const QV4::CompiledData::Object *rootObject = qmlUnit->objectAt(/*root object*/0);
         QCOMPARE(qmlUnit->stringAt(rootObject->inheritedTypeNameIndex), QString("MyTypeObject"));
         quint32 i;
         for (i = 0; i < rootObject->nBindings; ++i) {
@@ -2544,7 +2612,7 @@ void tst_qqmllanguage::basicRemote_data()
 
     QTest::newRow("no need for qmldir") << QUrl(serverdir+"Test.qml") << "" << "";
     QTest::newRow("absent qmldir") << QUrl(serverdir+"/noqmldir/Test.qml") << "" << "";
-    QTest::newRow("need qmldir") << QUrl(serverdir+"TestLocal.qml") << "" << "";
+    QTest::newRow("need qmldir") << QUrl(serverdir+"TestNamed.qml") << "" << "";
 }
 
 void tst_qqmllanguage::basicRemote()
@@ -2583,6 +2651,8 @@ void tst_qqmllanguage::importsRemote_data()
     QTest::newRow("remote import with subdir") << "import \""+serverdir+"\"\nTestSubDir {}" << "QQuickText"
         << "";
     QTest::newRow("remote import with local") << "import \""+serverdir+"\"\nTestLocal {}" << "QQuickImage"
+        << "";
+    QTest::newRow("remote import with qualifier") << "import \""+serverdir+"\" as NS\nNS.NamedLocal {}" << "QQuickImage"
         << "";
     QTest::newRow("wrong remote import with undeclared local") << "import \""+serverdir+"\"\nWrongTestLocal {}" << ""
         << "WrongTestLocal is not a type";
@@ -2890,7 +2960,7 @@ void tst_qqmllanguage::importIncorrectCase()
     QCOMPARE(errors.count(), 1);
 
     const QString expectedError = isCaseSensitiveFileSystem(dataDirectory()) ?
-        QStringLiteral("File not found") :
+        QStringLiteral("No such file or directory") :
         QStringLiteral("File name case mismatch");
     QCOMPARE(errors.at(0).description(), expectedError);
 
@@ -3162,6 +3232,70 @@ void tst_qqmllanguage::subclassedUncreateableRevision()
     QVERIFY(base);
     QCOMPARE(base->property(prop.toLatin1()).toBool(), true);
     delete obj;
+}
+
+void tst_qqmllanguage::subclassedExtendedUncreateableRevision_data()
+{
+    QTest::addColumn<QString>("version");
+    QTest::addColumn<QString>("prop");
+    QTest::addColumn<bool>("shouldWork");
+
+    QTest::newRow("prop1 exists in 1.0") << "1.0" << "prop1" << true;
+    QTest::newRow("prop2 does not exist in 1.0") << "1.0" << "prop2" << false;
+    QTest::newRow("prop3 does not exist in 1.0") << "1.0" << "prop3" << false;
+    QTest::newRow("prop4 exists in 1.0") << "1.0" << "prop4" << true;
+    QTest::newRow("prop5 exists in 1.0") << "1.0" << "prop5" << true;
+
+    QTest::newRow("prop1 exists in 1.1") << "1.1" << "prop1" << true;
+    QTest::newRow("prop2 exists in 1.1") << "1.1" << "prop2" << true;
+    QTest::newRow("prop3 exists in 1.1") << "1.1" << "prop3" << true;
+    QTest::newRow("prop4 exists in 1.1") << "1.1" << "prop4" << true;
+    QTest::newRow("prop5 exists in 1.1") << "1.1" << "prop5" << true;
+}
+
+void tst_qqmllanguage::subclassedExtendedUncreateableRevision()
+{
+    QFETCH(QString, version);
+    QFETCH(QString, prop);
+    QFETCH(bool, shouldWork);
+
+    {
+        QQmlEngine engine;
+        QString qml = QString("import QtQuick 2.0\nimport Test %1\nMyExtendedUncreateableBaseClass {}").arg(version);
+        QQmlComponent c(&engine);
+        QTest::ignoreMessage(QtWarningMsg, "QQmlComponent: Component is not ready");
+        c.setData(qml.toUtf8(), QUrl::fromLocalFile(QDir::currentPath()));
+        QObject *obj = c.create();
+        QCOMPARE(obj, static_cast<QObject*>(0));
+        QCOMPARE(c.errors().count(), 1);
+        QCOMPARE(c.errors().first().description(), QString("Cannot create MyExtendedUncreateableBaseClass"));
+    }
+
+    QQmlEngine engine;
+    QString qml = QString("import QtQuick 2.0\nimport Test %1\nMyExtendedCreateableDerivedClass {\n%3: true\n}").arg(version).arg(prop);
+    QQmlComponent c(&engine);
+    if (!shouldWork)
+        QTest::ignoreMessage(QtWarningMsg, "QQmlComponent: Component is not ready");
+    c.setData(qml.toUtf8(), QUrl::fromLocalFile(QDir::currentPath()));
+    QObject *obj = c.create();
+    if (!shouldWork) {
+        QCOMPARE(obj, static_cast<QObject*>(0));
+        return;
+    }
+
+    QVERIFY(obj);
+    MyExtendedUncreateableBaseClass *base = qobject_cast<MyExtendedUncreateableBaseClass*>(obj);
+    QVERIFY(base);
+    QCOMPARE(base->property(prop.toLatin1()).toBool(), true);
+    delete obj;
+}
+
+void tst_qqmllanguage::uncreatableTypesAsProperties()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("uncreatableTypeAsProperty.qml"));
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
 }
 
 void tst_qqmllanguage::initTestCase()
@@ -3869,12 +4003,11 @@ void tst_qqmllanguage::compositeSingletonInstantiateError()
     VERIFY_ERRORS("singletonTest9.error.txt");
 }
 
-// Having a composite singleton type as dynamic property type fails
-// (like C++ singleton)
+// Having a composite singleton type as dynamic property type is allowed
 void tst_qqmllanguage::compositeSingletonDynamicPropertyError()
 {
     QQmlComponent component(&engine, testFile("singletonTest10.qml"));
-    VERIFY_ERRORS("singletonTest10.error.txt");
+    VERIFY_ERRORS(0);
 }
 
 // Having a composite singleton type as dynamic signal parameter succeeds
@@ -4062,7 +4195,7 @@ void tst_qqmllanguage::preservePropertyCacheOnGroupObjects()
     QVERIFY(subCache);
     QQmlPropertyData *pd = subCache->property(QStringLiteral("newProperty"), /*object*/0, /*context*/0);
     QVERIFY(pd);
-    QCOMPARE(pd->propType, qMetaTypeId<int>());
+    QCOMPARE(pd->propType(), qMetaTypeId<int>());
 }
 
 void tst_qqmllanguage::propertyCacheInSync()
@@ -4110,6 +4243,21 @@ void tst_qqmllanguage::rootObjectInCreationNotForSubObjects()
     QVERIFY(!ddata->rootObjectInCreation);
 }
 
+// QTBUG-63036
+void tst_qqmllanguage::lazyDeferredSubObject()
+{
+    QQmlComponent component(&engine, testFile("lazyDeferredSubObject.qml"));
+    VERIFY_ERRORS(0);
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
+
+    QObject *subObject = qvariant_cast<QObject *>(object->property("subObject"));
+    QVERIFY(subObject);
+
+    QCOMPARE(object->objectName(), QStringLiteral("custom"));
+    QCOMPARE(subObject->objectName(), QStringLiteral("custom"));
+}
+
 void tst_qqmllanguage::noChildEvents()
 {
     QQmlComponent component(&engine);
@@ -4128,14 +4276,6 @@ void tst_qqmllanguage::earlyIdObjectAccess()
     QVERIFY(o->property("success").toBool());
 }
 
-void tst_qqmllanguage::dataAlignment()
-{
-    QVERIFY(sizeof(QQmlVMEMetaData) % sizeof(int) == 0);
-    QVERIFY(sizeof(QQmlVMEMetaData::AliasData) % sizeof(int) == 0);
-    QVERIFY(sizeof(QQmlVMEMetaData::PropertyData) % sizeof(int) == 0);
-    QVERIFY(sizeof(QQmlVMEMetaData::MethodData) % sizeof(int) == 0);
-}
-
 void tst_qqmllanguage::deleteSingletons()
 {
     QPointer<QObject> singleton;
@@ -4152,6 +4292,82 @@ void tst_qqmllanguage::deleteSingletons()
         QVERIFY(singleton.data() != 0);
     }
     QVERIFY(singleton.data() == 0);
+}
+
+void tst_qqmllanguage::arrayBuffer_data()
+{
+    QTest::addColumn<QString>("file");
+    QTest::newRow("arraybuffer_property_get") << "arraybuffer_property_get.qml";
+    QTest::newRow("arraybuffer_property_set") << "arraybuffer_property_set.qml";
+    QTest::newRow("arraybuffer_signal_arg") << "arraybuffer_signal_arg.qml";
+    QTest::newRow("arraybuffer_method_arg") << "arraybuffer_method_arg.qml";
+    QTest::newRow("arraybuffer_method_return") << "arraybuffer_method_return.qml";
+    QTest::newRow("arraybuffer_method_overload") << "arraybuffer_method_overload.qml";
+}
+
+void tst_qqmllanguage::arrayBuffer()
+{
+    QFETCH(QString, file);
+    QQmlComponent component(&engine, testFile(file));
+    VERIFY_ERRORS(0);
+    QObject *object = component.create();
+    QVERIFY(object != 0);
+    QCOMPARE(object->property("ok").toBool(), true);
+}
+
+void tst_qqmllanguage::defaultListProperty()
+{
+    QQmlComponent component(&engine, testFileUrl("defaultListProperty.qml"));
+    VERIFY_ERRORS(0);
+    QScopedPointer<QObject> o(component.create());
+}
+
+void tst_qqmllanguage::namespacedPropertyTypes()
+{
+    QQmlComponent component(&engine, testFileUrl("namespacedPropertyTypes.qml"));
+    VERIFY_ERRORS(0);
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(!o.isNull());
+}
+
+void tst_qqmllanguage::qmlTypeCanBeResolvedByName_data()
+{
+    QTest::addColumn<QUrl>("componentUrl");
+
+    // Built-in C++ types
+    QTest::newRow("C++ - Anonymous") << testFileUrl("quickTypeByName_anon.qml");
+    QTest::newRow("C++ - Named") << testFileUrl("quickTypeByName_named.qml");
+
+    // Composite types with a qmldir
+    QTest::newRow("QML - Anonymous - qmldir") << testFileUrl("compositeTypeByName_anon_qmldir.qml");
+    QTest::newRow("QML - Named - qmldir") << testFileUrl("compositeTypeByName_named_qmldir.qml");
+}
+
+void tst_qqmllanguage::qmlTypeCanBeResolvedByName()
+{
+    QFETCH(QUrl, componentUrl);
+
+    QQmlEngine engine;
+    QQmlComponent component(&engine, componentUrl);
+    VERIFY_ERRORS(0);
+    QTest::ignoreMessage(QtMsgType::QtWarningMsg, "[object Object]"); // a bit crude, but it will do
+
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(!o.isNull());
+}
+
+void tst_qqmllanguage::concurrentLoadQmlDir()
+{
+    ThreadedTestHTTPServer server(dataDirectory());
+    QString serverdir = server.urlString("/lib/");
+    engine.setImportPathList(QStringList(defaultImportPathList) << serverdir);
+
+    QQmlComponent component(&engine, testFileUrl("concurrentLoad_main.qml"));
+    QTRY_VERIFY(component.isReady());
+    VERIFY_ERRORS(0);
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(!o.isNull());
+    engine.setImportPathList(defaultImportPathList);
 }
 
 QTEST_MAIN(tst_qqmllanguage)

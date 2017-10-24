@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -52,6 +47,8 @@
 #include "../../shared/util.h"
 #include "../shared/viewtestutil.h"
 #include "../shared/visualtestutil.h"
+
+#include <math.h>
 
 using namespace QQuickViewTestUtil;
 using namespace QQuickVisualTestUtil;
@@ -144,6 +141,9 @@ private slots:
     void qtbug42716();
     void qtbug53464();
     void addCustomAttribute();
+    void movementDirection_data();
+    void movementDirection();
+    void removePath();
 };
 
 class TestObject : public QObject
@@ -1636,8 +1636,8 @@ void tst_QQuickPathView::creationContext()
     QVERIFY(rootItem);
     QVERIFY(rootItem->property("count").toInt() > 0);
 
-    QQuickItem *item;
-    QVERIFY(item = findItem<QQuickItem>(rootItem, "listItem", 0));
+    QQuickItem *item = findItem<QQuickItem>(rootItem, "listItem", 0);
+    QVERIFY(item);
     QCOMPARE(item->property("text").toString(), QString("Hello!"));
 }
 
@@ -1688,7 +1688,8 @@ void tst_QQuickPathView::currentOffsetOnInsertion()
     QCOMPARE(currentIndexSpy.count(), 1);
 
     // currentIndex is now 1
-    QVERIFY(item = findItem<QQuickRectangle>(pathview, "wrapper", 1));
+    item = findItem<QQuickRectangle>(pathview, "wrapper", 1);
+    QVERIFY(item);
 
     // verify that current item (item 1) is still at offset 0.5
     QCOMPARE(item->position() + offset, start);
@@ -1700,7 +1701,8 @@ void tst_QQuickPathView::currentOffsetOnInsertion()
     QCOMPARE(currentIndexSpy.count(), 2);
 
     // currentIndex is now 2
-    QVERIFY(item = findItem<QQuickRectangle>(pathview, "wrapper", 2));
+    item = findItem<QQuickRectangle>(pathview, "wrapper", 2);
+    QVERIFY(item);
 
     // verify that current item (item 2) is still at offset 0.5
     QCOMPARE(item->position() + offset, start);
@@ -1712,7 +1714,8 @@ void tst_QQuickPathView::currentOffsetOnInsertion()
     QCOMPARE(currentIndexSpy.count(), 3);
 
     // currentIndex is now 1
-    QVERIFY(item = findItem<QQuickRectangle>(pathview, "wrapper", 1));
+    item = findItem<QQuickRectangle>(pathview, "wrapper", 1);
+    QVERIFY(item);
 
     // verify that current item (item 1) is still at offset 0.5
     QCOMPARE(item->position() + offset, start);
@@ -2436,6 +2439,85 @@ void tst_QQuickPathView::addCustomAttribute()
     const QScopedPointer<QQuickView> window(createView());
     window->setSource(testFileUrl("customAttribute.qml"));
     window->show();
+}
+
+void tst_QQuickPathView::movementDirection_data()
+{
+    QTest::addColumn<QQuickPathView::MovementDirection>("movementdirection");
+    QTest::addColumn<int>("toidx");
+    QTest::addColumn<qreal>("fromoffset");
+    QTest::addColumn<qreal>("tooffset");
+
+    QTest::newRow("default-shortest") << QQuickPathView::Shortest << 3 << 8.0 << 5.0;
+    QTest::newRow("negative") << QQuickPathView::Negative << 2 << 0.0 << 6.0;
+    QTest::newRow("positive") << QQuickPathView::Positive << 3 << 8.0 << 5.0;
+
+}
+
+static void verify_offsets(QQuickPathView *pathview, int toidx, qreal fromoffset, qreal tooffset)
+{
+    pathview->setCurrentIndex(toidx);
+    bool started = false;
+    qreal first, second;
+    QTest::qWait(100);
+    first = pathview->offset();
+    while (1) {
+        QTest::qWait(10); // highlightMoveDuration: 1000
+        second = pathview->offset();
+        if (!started && second != first) { // animation started
+            started = true;
+            break;
+        }
+    }
+
+    if (tooffset > fromoffset) {
+        QVERIFY(fromoffset <= first);
+        QVERIFY(first <= second);
+        QVERIFY(second <= tooffset);
+    } else {
+        QVERIFY(fromoffset >= first);
+        QVERIFY(first >= second);
+        QVERIFY(second >= tooffset);
+    }
+    QTRY_COMPARE(pathview->offset(), tooffset);
+}
+
+void tst_QQuickPathView::movementDirection()
+{
+    QFETCH(QQuickPathView::MovementDirection, movementdirection);
+    QFETCH(int, toidx);
+    QFETCH(qreal, fromoffset);
+    QFETCH(qreal, tooffset);
+
+    QScopedPointer<QQuickView> window(createView());
+    QQuickViewTestUtil::moveMouseAway(window.data());
+    window->setSource(testFileUrl("movementDirection.qml"));
+    window->show();
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window.data()));
+    QCOMPARE(window.data(), qGuiApp->focusWindow());
+
+    QQuickPathView *pathview = window->rootObject()->findChild<QQuickPathView*>("view");
+    QVERIFY(pathview != 0);
+    QVERIFY(pathview->offset() == 0.0);
+    QVERIFY(pathview->currentIndex() == 0);
+    pathview->setMovementDirection(movementdirection);
+    QVERIFY(pathview->movementDirection() == movementdirection);
+
+    verify_offsets(pathview, toidx, fromoffset, tooffset);
+}
+
+void tst_QQuickPathView::removePath()
+{
+    QScopedPointer<QQuickView> window(createView());
+    window->setSource(testFileUrl("removePath.qml"));
+    window->show();
+
+    QQuickPathView *pathview = qobject_cast<QQuickPathView*>(window->rootObject());
+    QVERIFY(pathview != 0);
+
+    QVERIFY(QMetaObject::invokeMethod(pathview, "removePath"));
+    QVERIFY(QMetaObject::invokeMethod(pathview, "setPath"));
 }
 
 QTEST_MAIN(tst_QQuickPathView)

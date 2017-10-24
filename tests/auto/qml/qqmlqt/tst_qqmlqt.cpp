@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -51,6 +46,15 @@
 #include <QFont>
 #include "../../shared/util.h"
 
+// Copied from tst_qdatetime.cpp
+#ifdef Q_OS_WIN
+# include <qt_windows.h>
+# include <time.h>
+#  if defined(Q_OS_WINRT)
+#    define tzset()
+#  endif
+#endif
+
 class tst_qqmlqt : public QQmlDataTest
 {
     Q_OBJECT
@@ -58,6 +62,7 @@ public:
     tst_qqmlqt() {}
 
 private slots:
+    void initTestCase();
     void enums();
     void rgba();
     void hsla();
@@ -91,11 +96,73 @@ private slots:
     void atob();
     void fontFamilies();
     void quit();
+    void exit();
     void resolvedUrl();
+    void later_data();
+    void later();
+    void qtObjectContents();
+
+    void timeRoundtrip_data();
+    void timeRoundtrip();
 
 private:
     QQmlEngine engine;
 };
+
+// for callLater()
+class TestElement : public QQuickItem
+{
+    Q_OBJECT
+public:
+    TestElement() : m_intptr(new int) {}
+    ~TestElement() { delete m_intptr; }
+
+    Q_INVOKABLE void dangerousFunction() {
+        delete m_intptr;
+        m_intptr = new int;
+        *m_intptr = 5;
+    }
+private:
+    int *m_intptr;
+};
+
+// for callLater()
+class TestModuleApi : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(int intProp READ intProp WRITE setIntProp NOTIFY intPropChanged)
+
+public:
+    TestModuleApi() : m_int(0) {}
+    ~TestModuleApi() {}
+
+    int intProp() const { return m_int; }
+    void setIntProp(int v) { m_int = v; emit intPropChanged(); }
+
+    Q_INVOKABLE void testFunc() { ++m_int; emit intPropChanged(); }
+    Q_INVOKABLE void resetIntProp() { m_int = 0; emit intPropChanged(); }
+
+signals:
+    void intPropChanged();
+
+private:
+    int m_int;
+};
+
+static QObject *test_module_api_factory(QQmlEngine *engine, QJSEngine *scriptEngine)
+{
+   Q_UNUSED(engine)
+   Q_UNUSED(scriptEngine)
+   TestModuleApi *api = new TestModuleApi;
+   return api;
+}
+
+void tst_qqmlqt::initTestCase()
+{
+    QQmlDataTest::initTestCase();
+    qmlRegisterSingletonType<TestModuleApi>("LaterImports", 1, 0, "SingletonType", test_module_api_factory);
+    qmlRegisterType<TestElement>("LaterImports", 1, 0, "TestElement");
+}
 
 void tst_qqmlqt::enums()
 {
@@ -818,8 +885,6 @@ void tst_qqmlqt::dateTimeFormattingVariants_data()
 
     QTime time(11, 16, 39, 755);
     temporary = QDateTime(QDate(1970,1,1), time);
-    QTest::newRow("formatDate, qtime") << "formatDate" << QVariant::fromValue(time) << (QStringList() << temporary.date().toString(Qt::DefaultLocaleShortDate) << temporary.date().toString(Qt::DefaultLocaleLongDate) << temporary.date().toString("ddd MMMM d yy"));
-    QTest::newRow("formatDateTime, qtime") << "formatDateTime" << QVariant::fromValue(time) << (QStringList() << temporary.toString(Qt::DefaultLocaleShortDate) << temporary.toString(Qt::DefaultLocaleLongDate) << temporary.toString("M/d/yy H:m:s a"));
     QTest::newRow("formatTime, qtime") << "formatTime" << QVariant::fromValue(time) << (QStringList() << temporary.time().toString(Qt::DefaultLocaleShortDate) << temporary.time().toString(Qt::DefaultLocaleLongDate) << temporary.time().toString("H:m:s a") << temporary.time().toString("hh:mm:ss.zzz"));
 
     QDate date(2011,5,31);
@@ -926,6 +991,20 @@ void tst_qqmlqt::quit()
     delete object;
 }
 
+void tst_qqmlqt::exit()
+{
+    QQmlComponent component(&engine, testFileUrl("exit.qml"));
+
+    QSignalSpy spy(&engine, &QQmlEngine::exit);
+    QObject *object = component.create();
+    QVERIFY(object != Q_NULLPTR);
+    QCOMPARE(spy.count(), 1);
+    QList<QVariant> arguments = spy.takeFirst();
+    QVERIFY(arguments.at(0).toInt() == object->property("returnCode").toInt());
+
+    delete object;
+}
+
 void tst_qqmlqt::resolvedUrl()
 {
     QQmlComponent component(&engine, testFileUrl("resolvedUrl.qml"));
@@ -937,6 +1016,250 @@ void tst_qqmlqt::resolvedUrl()
     QCOMPARE(object->property("isString").toBool(), true);
 
     delete object;
+}
+
+void tst_qqmlqt::later_data()
+{
+    QTest::addColumn<QString>("function");
+    QTest::addColumn<QStringList>("expectedWarnings");
+    QTest::addColumn<QStringList>("propNames");
+    QTest::addColumn<QVariantList>("values");
+
+    QVariant vtrue = QVariant(true);
+
+    QTest::newRow("callLater from onCompleted")
+            << QString()
+            << QStringList()
+            << (QStringList() << "test1_1" << "test2_1" << "processEvents" << "test1_2" << "test2_2")
+            << (QVariantList() << vtrue << vtrue << QVariant() << vtrue << vtrue);
+
+    QTest::newRow("trigger Qt.callLater() via repeater")
+            << QString(QLatin1String("test2"))
+            << QStringList()
+            << (QStringList() << "processEvents" << "test2_2")
+            << (QVariantList() << QVariant() << vtrue);
+
+    QTest::newRow("recursive Qt.callLater()")
+            << QString(QLatin1String("test3"))
+            << QStringList()
+            << (QStringList() << "processEvents" << "test3_1" << "processEvents" << "test3_2" << "processEvents" << "test3_3")
+            << (QVariantList() << QVariant() << vtrue << QVariant() << vtrue << QVariant() << vtrue);
+
+    QTest::newRow("nonexistent function")
+            << QString(QLatin1String("test4"))
+            << (QStringList() << QString(testFileUrl("later.qml").toString() + QLatin1String(":70: ReferenceError: functionThatDoesNotExist is not defined")))
+            << QStringList()
+            << QVariantList();
+
+    QTest::newRow("callLater with different args")
+            << QString(QLatin1String("test5"))
+            << QStringList()
+            << (QStringList() << "processEvents" << "test5_1")
+            << (QVariantList() << QVariant() << vtrue);
+
+    QTest::newRow("delayed call ordering")
+            << QString(QLatin1String("test6"))
+            << QStringList()
+            << (QStringList() << "processEvents" << "test6_1")
+            << (QVariantList() << QVariant() << vtrue);
+
+    QTest::newRow("invoke module api invokable")
+            << QString(QLatin1String("test9"))
+            << QStringList()
+            << (QStringList() << "processEvents" << "test9_1" << "processEvents")
+            << (QVariantList() << QVariant() << QVariant(1) << QVariant());
+
+    QTest::newRow("invoke function of deleted QObject via callLater() causing deletion")
+            << QString(QLatin1String("test10"))
+            << (QStringList() << QString(testFileUrl("LaterComponent.qml").toString() + QLatin1String(":8: ReferenceError: dangerousFunction is not defined (exception occurred during delayed function evaluation)")))
+            << (QStringList() << "processEvents" << "test10_1" << "processEvents")
+            << (QVariantList() << QVariant() << QVariant(0) << QVariant());
+
+    QTest::newRow("invoke function of deleted QObject via callLater() after deletion")
+            << QString(QLatin1String("test11"))
+            << QStringList()
+            << (QStringList() << "collectGarbage" << "processEvents" << "test11_1" << "processEvents")
+            << (QVariantList() << QVariant() << QVariant() << QVariant(1) << QVariant());
+
+    QTest::newRow("invoke function which has no script origin")
+            << QString(QLatin1String("test14"))
+            << QStringList()
+            << (QStringList() << "collectGarbage")
+            << (QVariantList() << QVariant());
+}
+
+void tst_qqmlqt::later()
+{
+    QFETCH(QString, function);
+    QFETCH(QStringList, expectedWarnings);
+    QFETCH(QStringList, propNames);
+    QFETCH(QVariantList, values);
+
+    foreach (const QString &w, expectedWarnings)
+        QTest::ignoreMessage(QtWarningMsg, qPrintable(w));
+
+    QQmlComponent component(&engine, testFileUrl("later.qml"));
+    QObject *root = component.create();
+    QVERIFY(root != 0);
+
+    if (!function.isEmpty())
+        QMetaObject::invokeMethod(root, qPrintable(function));
+
+    for (int i = 0; i < propNames.size(); ++i) {
+        if (propNames.at(i) == QLatin1String("processEvents")) {
+            QCoreApplication::sendPostedEvents(0, QEvent::DeferredDelete);
+            QCoreApplication::processEvents();
+        } else if (propNames.at(i) == QLatin1String("collectGarbage")) {
+            engine.collectGarbage();
+        } else {
+            QCOMPARE(root->property(qPrintable(propNames.at(i))), values.at(i));
+        }
+    }
+
+    delete root;
+}
+
+void tst_qqmlqt::qtObjectContents()
+{
+    struct StaticQtMetaObject : public QObject
+    {
+        static const QMetaObject *get()
+        { return &staticQtMetaObject; }
+    };
+
+    QQmlComponent component(&engine, testFileUrl("qtObjectContents.qml"));
+
+    QObject *object = component.create();
+    QVERIFY(object != 0);
+
+    QVERIFY(object->property("values").canConvert<QJSValue>());
+    QVariantMap values = object->property("values").value<QJSValue>().toVariant().toMap();
+
+    QSet<const char *> keys;
+    int uniqueKeys = 0;
+    const QMetaObject *qtMetaObject = StaticQtMetaObject::get();
+    for (int ii = 0; ii < qtMetaObject->enumeratorCount(); ++ii) {
+        QMetaEnum enumerator = qtMetaObject->enumerator(ii);
+        for (int jj = 0; jj < enumerator.keyCount(); ++jj) {
+            auto key = enumerator.key(jj);
+//            qDebug() << "key:" << key;
+            if (!keys.contains(key)) {
+                ++uniqueKeys;
+                keys.insert(key);
+            }
+            QVERIFY(values.contains(key));
+            QVariant value = values.value(key);
+            QVERIFY(value.canConvert<int>());
+            QCOMPARE(value.toInt(), enumerator.value(jj));
+        }
+    }
+    QVERIFY(values.contains("Asynchronous"));
+    QCOMPARE(values.value("Asynchronous").toInt(), 0);
+    ++uniqueKeys;
+    QVERIFY(values.contains("Synchronous"));
+    QCOMPARE(values.value("Synchronous").toInt(), 1);
+    ++uniqueKeys;
+    QCOMPARE(values.count(), uniqueKeys);
+
+    delete object;
+}
+
+class TimeProvider: public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QTime time READ time WRITE setTime NOTIFY timeChanged)
+
+public:
+    TimeProvider(const QTime &t)
+        : m_getTime(t)
+    {}
+
+    QTime time() const { return m_getTime; }
+    void setTime(const QTime &t) { m_putTime = t; emit timeChanged(); }
+
+signals:
+    void timeChanged();
+
+public:
+    QTime m_getTime, m_putTime;
+};
+
+class TimeZoneSwitch
+{
+public:
+    TimeZoneSwitch(const char *newZone)
+        : doChangeZone(qstrcmp(newZone, "localtime") == 0)
+    {
+        if (!doChangeZone)
+            return;
+
+        hadOldZone = qEnvironmentVariableIsSet("TZ");
+        if (hadOldZone) {
+            oldZone = qgetenv("TZ");
+        }
+        qputenv("TZ", newZone);
+        tzset();
+    }
+
+    ~TimeZoneSwitch()
+    {
+        if (!doChangeZone)
+            return;
+
+        if (hadOldZone)
+            qputenv("TZ", oldZone);
+        else
+            qunsetenv("TZ");
+        tzset();
+    }
+
+private:
+    bool doChangeZone;
+    bool hadOldZone;
+    QByteArray oldZone;
+};
+
+void tst_qqmlqt::timeRoundtrip_data()
+{
+    QTest::addColumn<QTime>("time");
+
+    // Local timezone:
+    QTest::newRow("localtime") << QTime(0, 0, 0);
+
+    // No DST:
+    QTest::newRow("UTC") << QTime(0, 0, 0);
+    QTest::newRow("Europe/Amsterdam") << QTime(1, 0, 0);
+    QTest::newRow("Asia/Jakarta") << QTime(7, 0, 0);
+
+    // DST:
+    QTest::newRow("Namibia/Windhoek") << QTime(1, 0, 0);
+    QTest::newRow("Australia/Adelaide") << QTime(10, 0, 0);
+    QTest::newRow("Australia/Hobart") << QTime(10, 0, 0);
+    QTest::newRow("Pacific/Auckland") << QTime(12, 0, 0);
+    QTest::newRow("Pacific/Samoa") << QTime(13, 0, 0);
+}
+
+void tst_qqmlqt::timeRoundtrip()
+{
+#ifdef Q_OS_WIN
+    QSKIP("On Windows, the DateObject doesn't handle DST transitions correctly when the timezone is not localtime."); // I.e.: for this test.
+#endif
+
+    TimeZoneSwitch tzs(QTest::currentDataTag());
+    QFETCH(QTime, time);
+
+    TimeProvider tp(time);
+
+    QQmlEngine eng;
+    eng.rootContext()->setContextProperty(QLatin1String("tp"), &tp);
+    QQmlComponent component(&eng, testFileUrl("timeRoundtrip.qml"));
+    QObject *obj = component.create();
+    QVERIFY(obj != 0);
+
+    // QML reads m_getTime and saves the result as m_putTime; this should come out the same, without
+    // any perturbation (e.g. by DST effects) from converting from QTime to V4's Date and back
+    // again.
+    QCOMPARE(tp.m_getTime, tp.m_putTime);
 }
 
 QTEST_MAIN(tst_qqmlqt)

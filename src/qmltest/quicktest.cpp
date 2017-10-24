@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -138,7 +144,7 @@ void handleCompileErrors(const QFileInfo &fi, QQuickView *view)
     QTextStream str(&message);
     str << "\n  " << QDir::toNativeSeparators(fi.absoluteFilePath()) << " produced "
         << errors.size() << " error(s):\n";
-    foreach (const QQmlError &e, errors) {
+    for (const QQmlError &e : errors) {
         str << "    ";
         if (e.url().isLocalFile()) {
             str << QDir::toNativeSeparators(e.url().toLocalFile());
@@ -152,11 +158,12 @@ void handleCompileErrors(const QFileInfo &fi, QQuickView *view)
     str << "  Working directory: " << QDir::toNativeSeparators(QDir::current().absolutePath()) << '\n';
     if (QQmlEngine *engine = view->engine()) {
         str << "  View: " << view->metaObject()->className() << ", import paths:\n";
-        foreach (const QString &i, engine->importPathList())
+        const auto importPaths = engine->importPathList();
+        for (const QString &i : importPaths)
             str << "    '" << QDir::toNativeSeparators(i) << "'\n";
         const QStringList pluginPaths = engine->pluginPathList();
         str << "  Plugin paths:\n";
-        foreach (const QString &p, pluginPaths)
+        for (const QString &p : pluginPaths)
             str << "    '" << QDir::toNativeSeparators(p) << "'\n";
     }
     qWarning("%s", qPrintable(message));
@@ -259,7 +266,7 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
 
     QuickTestResult::parseArgs(testArgC, testArgV.data());
 
-#ifndef QT_NO_TRANSLATION
+#if QT_CONFIG(translation)
     QTranslator translator;
     if (!translationFile.isEmpty()) {
         if (translator.load(translationFile)) {
@@ -268,6 +275,11 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
             qWarning("Could not load the translation file '%s'.", qPrintable(translationFile));
         }
     }
+#endif
+
+#ifdef Q_OS_ANDROID
+    if (testPath.isEmpty())
+        testPath = QLatin1String(":/");
 #endif
 
     // Determine where to look for the test data.
@@ -332,11 +344,11 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
                      &eventLoop, SLOT(quit()));
     view->rootContext()->setContextProperty
         (QLatin1String("qtest"), QTestRootObject::instance()); // Deprecated. Use QTestRootObject from Qt.test.qtestroot instead
-    foreach (const QString &path, imports)
+    for (const QString &path : qAsConst(imports))
         view->engine()->addImportPath(path);
-    foreach (const QString &path, pluginPaths)
+    for (const QString &path : qAsConst(pluginPaths))
         view->engine()->addPluginPath(path);
-    foreach (const QString &file, files) {
+    for (const QString &file : qAsConst(files)) {
         const QFileInfo fi(file);
         if (!fi.exists())
             continue;
@@ -346,7 +358,7 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
         QTestRootObject::instance()->init();
         QString path = fi.absoluteFilePath();
         if (path.startsWith(QLatin1String(":/")))
-            view->setSource(QUrl(QLatin1String("qrc:") + path.mid(2)));
+            view->setSource(QUrl(QLatin1String("qrc:") + path.midRef(2)));
         else
             view->setSource(QUrl::fromLocalFile(path));
 
@@ -366,9 +378,6 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
             // and then wait for quit indication.
             view->setFramePosition(QPoint(50, 50));
             if (view->size().isEmpty()) { // Avoid hangs with empty windows.
-                qWarning().nospace()
-                    << "Test '" << QDir::toNativeSeparators(path) << "' has invalid size "
-                    << view->size() << ", resizing.";
                 view->resize(200, 200);
             }
             view->show();

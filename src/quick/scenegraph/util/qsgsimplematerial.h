@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -42,9 +48,9 @@ template <typename State>
 class QSGSimpleMaterialShader : public QSGMaterialShader
 {
 public:
-    void initialize() {
+    void initialize() override {
         QSGMaterialShader::initialize();
-
+#if QT_CONFIG(opengl)
         m_id_matrix = program()->uniformLocation(uniformMatrixName());
         if (m_id_matrix < 0) {
             qFatal("QSGSimpleMaterialShader does not implement 'uniform highp mat4 %s;' in its vertex shader",
@@ -61,14 +67,15 @@ public:
         } else {
             m_id_opacity = -1;
         }
-
+#endif
         resolveUniforms();
     }
 
+    // ### Qt 6: make both virtual and fix docs
     const char *uniformMatrixName() const { return "qt_Matrix"; }
     const char *uniformOpacityName() const { return "qt_Opacity"; }
 
-    void updateState(const RenderState &state, QSGMaterial *newMaterial, QSGMaterial *oldMaterial);
+    void updateState(const RenderState &state, QSGMaterial *newMaterial, QSGMaterial *oldMaterial) override;
 
     virtual void updateState(const State *newState, const State *oldState) = 0;
 
@@ -76,7 +83,7 @@ public:
 
     virtual QList<QByteArray> attributes() const = 0;
 
-    char const *const *attributeNames() const
+    char const *const *attributeNames() const override
     {
         if (m_attribute_pointers.size())
             return m_attribute_pointers.constData();
@@ -143,8 +150,8 @@ public:
     {
     }
 
-    QSGMaterialShader *createShader() const { return m_func(); }
-    QSGMaterialType *type() const { return &m_type; }
+    QSGMaterialShader *createShader() const override { return m_func(); }
+    QSGMaterialType *type() const override { return &m_type; }
 
     State *state() { return &m_state; }
     const State *state() const { return &m_state; }
@@ -191,11 +198,14 @@ QSGMaterialType QSGSimpleMaterial<State>::m_type;
 template <typename State>
 Q_INLINE_TEMPLATE void QSGSimpleMaterialShader<State>::updateState(const RenderState &state, QSGMaterial *newMaterial, QSGMaterial *oldMaterial)
 {
+#if QT_CONFIG(opengl)
     if (state.isMatrixDirty())
         program()->setUniformValue(m_id_matrix, state.combinedMatrix());
     if (state.isOpacityDirty() && m_id_opacity >= 0)
         program()->setUniformValue(m_id_opacity, state.opacity());
-
+#else
+    Q_UNUSED(state)
+#endif
     State *ns = static_cast<QSGSimpleMaterial<State> *>(newMaterial)->state();
     State *old = 0;
     if (oldMaterial)

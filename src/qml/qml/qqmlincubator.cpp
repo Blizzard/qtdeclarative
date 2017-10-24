@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -35,14 +41,10 @@
 #include "qqmlcomponent.h"
 #include "qqmlincubator_p.h"
 
-#include "qqmlcompiler_p.h"
 #include "qqmlexpression_p.h"
 #include "qqmlmemoryprofiler_p.h"
 #include "qqmlobjectcreator_p.h"
 
-// XXX TODO
-//   - check that the Component.onCompleted behavior is the same as 4.8 in the synchronous and
-//     async if nested cases
 void QQmlEnginePrivate::incubate(QQmlIncubator &i, QQmlContextData *forContext)
 {
     QExplicitlySharedDataPointer<QQmlIncubatorPrivate> p(i.d);
@@ -59,8 +61,8 @@ void QQmlEnginePrivate::incubate(QQmlIncubator &i, QQmlContextData *forContext)
         QExplicitlySharedDataPointer<QQmlIncubatorPrivate> parentIncubator;
         QQmlContextData *cctxt = forContext;
         while (cctxt) {
-            if (cctxt->activeVMEData) {
-                parentIncubator = (QQmlIncubatorPrivate *)cctxt->activeVMEData;
+            if (cctxt->incubator) {
+                parentIncubator = cctxt->incubator;
                 break;
             }
             cctxt = cctxt->parent;
@@ -126,7 +128,7 @@ QQmlIncubationController *QQmlEngine::incubationController() const
 
 QQmlIncubatorPrivate::QQmlIncubatorPrivate(QQmlIncubator *q, QQmlIncubator::IncubationMode m)
     : q(q), status(QQmlIncubator::Null), mode(m), isAsynchronous(false), progress(Execute),
-      result(0), compiledData(0), waitingOnMe(0)
+      result(0), enginePriv(0), waitingOnMe(0)
 {
 }
 
@@ -137,22 +139,17 @@ QQmlIncubatorPrivate::~QQmlIncubatorPrivate()
 
 void QQmlIncubatorPrivate::clear()
 {
+    compilationUnit = nullptr;
     if (next.isInList()) {
         next.remove();
-        Q_ASSERT(compiledData);
-        QQmlEnginePrivate *enginePriv = QQmlEnginePrivate::get(compiledData->engine);
-        compiledData->release();
-        compiledData = 0;
         enginePriv->incubatorCount--;
         QQmlIncubationController *controller = enginePriv->incubationController;
         if (controller)
              controller->incubatingObjectCountChanged(enginePriv->incubatorCount);
-    } else if (compiledData) {
-        compiledData->release();
-        compiledData = 0;
     }
+    enginePriv = 0;
     if (!rootContext.isNull()) {
-        rootContext->activeVMEData = 0;
+        rootContext->incubator = 0;
         rootContext = 0;
     }
 
@@ -206,7 +203,7 @@ public:
     }
 
 protected:
-    virtual void timerEvent(QTimerEvent *) {
+    void timerEvent(QTimerEvent *) override {
         incubateFor(5);
     }
 };
@@ -272,21 +269,20 @@ void QQmlIncubatorPrivate::forceCompletion(QQmlInstantiationInterrupt &i)
 
 void QQmlIncubatorPrivate::incubate(QQmlInstantiationInterrupt &i)
 {
-    if (!compiledData)
+    if (!compilationUnit)
         return;
 
-    QML_MEMORY_SCOPE_URL(compiledData->url());
+    QML_MEMORY_SCOPE_URL(compilationUnit->url());
 
     QExplicitlySharedDataPointer<QQmlIncubatorPrivate> protectThis(this);
 
     QRecursionWatcher<QQmlIncubatorPrivate, &QQmlIncubatorPrivate::recursion> watcher(this);
-
-    QQmlEngine *engine = compiledData->engine;
-    QQmlEnginePrivate *enginePriv = QQmlEnginePrivate::get(engine);
+    // get a copy of the engine pointer as it might get reset;
+    QQmlEnginePrivate *enginePriv = this->enginePriv;
 
     if (!vmeGuard.isOK()) {
         QQmlError error;
-        error.setUrl(compiledData->url());
+        error.setUrl(compilationUnit->url());
         error.setDescription(QQmlComponent::tr("Object destroyed during incubation"));
         errors << error;
         progress = QQmlIncubatorPrivate::Completed;
@@ -379,6 +375,23 @@ finishIncubate:
     } else if (!creator.isNull()) {
         vmeGuard.guard(creator.data());
     }
+}
+
+void QQmlIncubatorPrivate::cancel(QObject *object, QQmlContext *context)
+{
+    if (!context)
+        context = qmlContext(object);
+    if (!context)
+        return;
+
+    QQmlContextData *data = QQmlContextData::get(context);
+    QQmlIncubatorPrivate *p = data->incubator;
+    if (!p)
+        return;
+
+    p->vmeGuard.unguard(object);
+    if (!p->creator.isNull())
+        p->creator->cancel(object);
 }
 
 /*!
@@ -557,17 +570,16 @@ void QQmlIncubator::clear()
     if (s == Null)
         return;
 
-    QQmlEnginePrivate *enginePriv = 0;
+    QQmlEnginePrivate *enginePriv = d->enginePriv;
     if (s == Loading) {
-        Q_ASSERT(d->compiledData);
-        enginePriv = QQmlEnginePrivate::get(d->compiledData->engine);
+        Q_ASSERT(d->compilationUnit);
         if (d->result) d->result->deleteLater();
         d->result = 0;
     }
 
     d->clear();
 
-    Q_ASSERT(d->compiledData == 0);
+    Q_ASSERT(d->compilationUnit.isNull());
     Q_ASSERT(d->waitingOnMe.data() == 0);
     Q_ASSERT(d->waitingFor.isEmpty());
 
@@ -707,7 +719,7 @@ QQmlIncubator::Status QQmlIncubatorPrivate::calculateStatus() const
         return QQmlIncubator::Error;
     else if (result && progress == QQmlIncubatorPrivate::Completed && waitingFor.isEmpty())
         return QQmlIncubator::Ready;
-    else if (compiledData)
+    else if (compilationUnit)
         return QQmlIncubator::Loading;
     else
         return QQmlIncubator::Null;

@@ -15,13 +15,3 @@ OTHER_FILES += data/checkbuttons.qml \
     data/pushbutton.qml \
     data/statictext.qml \
     data/ignored.qml \
-
-CONFIG += parallel_test
-
-wince*: {
-    accessneeded.files = $$QT.widgets.plugins/accessible/*.dll
-    accessneeded.path = accessible
-    DEPLOYMENT += accessneeded
-}
-
-DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0

@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -53,7 +48,8 @@ public:
     TestItem(QQuickItem *parent = 0)
         : QQuickItem(parent), focused(false), pressCount(0), releaseCount(0)
         , wheelCount(0), acceptIncomingTouchEvents(true)
-        , touchEventReached(false) {}
+        , touchEventReached(false), timestamp(0)
+        , lastWheelEventPos(0, 0), lastWheelEventGlobalPos(0, 0) {}
 
     bool focused;
     int pressCount;
@@ -61,6 +57,9 @@ public:
     int wheelCount;
     bool acceptIncomingTouchEvents;
     bool touchEventReached;
+    ulong timestamp;
+    QPoint lastWheelEventPos;
+    QPoint lastWheelEventGlobalPos;
 protected:
     virtual void focusInEvent(QFocusEvent *) { Q_ASSERT(!focused); focused = true; }
     virtual void focusOutEvent(QFocusEvent *) { Q_ASSERT(focused); focused = false; }
@@ -70,7 +69,13 @@ protected:
         touchEventReached = true;
         event->setAccepted(acceptIncomingTouchEvents);
     }
-    virtual void wheelEvent(QWheelEvent *event) { event->accept(); ++wheelCount; }
+    virtual void wheelEvent(QWheelEvent *event) {
+        event->accept();
+        ++wheelCount;
+        timestamp = event->timestamp();
+        lastWheelEventPos = event->pos();
+        lastWheelEventGlobalPos = event->globalPos();
+    }
 };
 
 class TestWindow: public QQuickWindow
@@ -172,7 +177,11 @@ private slots:
     void contains_data();
     void contains();
 
+    void childAt();
+
     void ignoreButtonPressNotInAcceptedMouseButtons();
+
+    void shortcutOverride();
 
 private:
 
@@ -1422,25 +1431,34 @@ void tst_qquickitem::wheelEvent()
 
     const bool shouldReceiveWheelEvents = visible && enabled;
 
+    const int width = 200;
+    const int height = 200;
+
     QQuickWindow window;
-    window.resize(200, 200);
+    window.resize(width, height);
     window.show();
     QTest::qWaitForWindowExposed(&window);
 
     TestItem *item = new TestItem;
-    item->setSize(QSizeF(200, 100));
+    item->setSize(QSizeF(width, height));
     item->setParentItem(window.contentItem());
 
     item->setEnabled(enabled);
     item->setVisible(visible);
 
-    QWheelEvent event(QPoint(100, 50), -120, Qt::NoButton, Qt::NoModifier, Qt::Vertical);
+    QPoint localPoint(width / 2, height / 2);
+    QPoint globalPoint = window.mapToGlobal(localPoint);
+    QWheelEvent event(localPoint, globalPoint, -120, Qt::NoButton, Qt::NoModifier, Qt::Vertical);
+    event.setTimestamp(123456UL);
     event.setAccepted(false);
     QGuiApplication::sendEvent(&window, &event);
 
     if (shouldReceiveWheelEvents) {
         QVERIFY(event.isAccepted());
         QCOMPARE(item->wheelCount, 1);
+        QCOMPARE(item->timestamp, 123456UL);
+        QCOMPARE(item->lastWheelEventPos, localPoint);
+        QCOMPARE(item->lastWheelEventGlobalPos, globalPoint);
     } else {
         QVERIFY(!event.isAccepted());
         QCOMPARE(item->wheelCount, 0);
@@ -1774,56 +1792,56 @@ static void gc(QQmlEngine &engine)
 
 void tst_qquickitem::visualParentOwnership()
 {
-    QQuickView view;
-    view.setSource(testFileUrl("visualParentOwnership.qml"));
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("visualParentOwnership.qml"));
 
-    QQuickItem *root = qobject_cast<QQuickItem*>(view.rootObject());
+    QScopedPointer<QQuickItem> root(qobject_cast<QQuickItem*>(component.create()));
     QVERIFY(root);
 
     QVariant newObject;
     {
-        QVERIFY(QMetaObject::invokeMethod(root, "createItemWithoutParent", Q_RETURN_ARG(QVariant, newObject)));
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "createItemWithoutParent", Q_RETURN_ARG(QVariant, newObject)));
         QPointer<QQuickItem> newItem = qvariant_cast<QQuickItem*>(newObject);
         QVERIFY(!newItem.isNull());
 
         QVERIFY(!newItem->parent());
         QVERIFY(!newItem->parentItem());
 
-        newItem->setParentItem(root);
+        newItem->setParentItem(root.data());
 
-        gc(*view.engine());
+        gc(engine);
 
         QVERIFY(!newItem.isNull());
         newItem->setParentItem(0);
 
-        gc(*view.engine());
+        gc(engine);
         QVERIFY(newItem.isNull());
     }
     {
-        QVERIFY(QMetaObject::invokeMethod(root, "createItemWithoutParent", Q_RETURN_ARG(QVariant, newObject)));
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "createItemWithoutParent", Q_RETURN_ARG(QVariant, newObject)));
         QPointer<QQuickItem> firstItem = qvariant_cast<QQuickItem*>(newObject);
         QVERIFY(!firstItem.isNull());
 
-        firstItem->setParentItem(root);
+        firstItem->setParentItem(root.data());
 
-        QVERIFY(QMetaObject::invokeMethod(root, "createItemWithoutParent", Q_RETURN_ARG(QVariant, newObject)));
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "createItemWithoutParent", Q_RETURN_ARG(QVariant, newObject)));
         QPointer<QQuickItem> secondItem = qvariant_cast<QQuickItem*>(newObject);
         QVERIFY(!firstItem.isNull());
 
         secondItem->setParentItem(firstItem);
 
-        gc(*view.engine());
+        gc(engine);
 
         delete firstItem;
 
         root->setProperty("keepAliveProperty", newObject);
 
-        gc(*view.engine());
+        gc(engine);
         QVERIFY(!secondItem.isNull());
 
         root->setProperty("keepAliveProperty", QVariant());
 
-        gc(*view.engine());
+        gc(engine);
         QVERIFY(secondItem.isNull());
     }
 }
@@ -1973,6 +1991,47 @@ void tst_qquickitem::contains()
     QCOMPARE(result.toBool(), contains);
 }
 
+void tst_qquickitem::childAt()
+{
+    QQuickView view;
+    view.setSource(testFileUrl("childAtRectangle.qml"));
+    QQuickItem *root = qobject_cast<QQuickItem*>(view.rootObject());
+
+    int found = 0;
+    for (int i = 0; i < 16; i++)
+    {
+        if (root->childAt(i, 0))
+            found++;
+    }
+    QCOMPARE(found, 16);
+
+    found = 0;
+    for (int i = 0; i < 16; i++)
+    {
+        if (root->childAt(0, i))
+            found++;
+    }
+    QCOMPARE(found, 16);
+
+    found = 0;
+    for (int i = 0; i < 2; i++)
+    {
+        if (root->childAt(18 + i, 0))
+            found++;
+    }
+    QCOMPARE(found, 1);
+
+    found = 0;
+    for (int i = 0; i < 16; i++)
+    {
+        if (root->childAt(18, i))
+            found++;
+    }
+    QCOMPARE(found, 1);
+
+    QVERIFY(!root->childAt(19,19));
+}
+
 void tst_qquickitem::ignoreButtonPressNotInAcceptedMouseButtons()
 {
     // Verify the fix for QTBUG-31861
@@ -1993,6 +2052,39 @@ void tst_qquickitem::ignoreButtonPressNotInAcceptedMouseButtons()
 
     QCOMPARE(item.pressCount, 1);
     QCOMPARE(item.releaseCount, 1);
+}
+
+void tst_qquickitem::shortcutOverride()
+{
+    QQuickView view;
+    view.setSource(testFileUrl("shortcutOverride.qml"));
+    ensureFocus(&view);
+
+    QCOMPARE(view.rootObject()->property("escapeHandlerActivationCount").toInt(), 0);
+    QCOMPARE(view.rootObject()->property("shortcutActivationCount").toInt(), 0);
+
+    QQuickItem *escapeItem = view.rootObject()->property("escapeItem").value<QQuickItem*>();
+    QVERIFY(escapeItem);
+    QVERIFY(escapeItem->hasActiveFocus());
+
+    // escapeItem's onEscapePressed handler should accept the first escape press event.
+    QTest::keyPress(&view, Qt::Key_Escape);
+    QCOMPARE(view.rootObject()->property("escapeHandlerActivationCount").toInt(), 1);
+    QCOMPARE(view.rootObject()->property("shortcutActivationCount").toInt(), 0);
+    // Now it shouldn't have focus, so it can't handle the next escape press event.
+    QVERIFY(!escapeItem->hasActiveFocus());
+
+    QTest::keyRelease(&view, Qt::Key_Escape);
+    QCOMPARE(view.rootObject()->property("escapeHandlerActivationCount").toInt(), 1);
+    QCOMPARE(view.rootObject()->property("shortcutActivationCount").toInt(), 0);
+
+    QTest::keyPress(&view, Qt::Key_Escape);
+    QCOMPARE(view.rootObject()->property("escapeHandlerActivationCount").toInt(), 1);
+    QCOMPARE(view.rootObject()->property("shortcutActivationCount").toInt(), 1);
+
+    QTest::keyRelease(&view, Qt::Key_Escape);
+    QCOMPARE(view.rootObject()->property("escapeHandlerActivationCount").toInt(), 1);
+    QCOMPARE(view.rootObject()->property("shortcutActivationCount").toInt(), 1);
 }
 
 QTEST_MAIN(tst_qquickitem)

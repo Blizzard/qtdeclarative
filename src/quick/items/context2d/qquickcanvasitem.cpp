@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -37,9 +43,11 @@
 #include <private/qquickcanvascontext_p.h>
 #include <private/qquickcontext2d_p.h>
 #include <private/qquickcontext2dtexture_p.h>
-#include <qsgsimpletexturenode.h>
+#include <private/qsgadaptationlayer_p.h>
+#include <qsgtextureprovider.h>
 #include <QtQuick/private/qquickpixmapcache_p.h>
 #include <QtGui/QGuiApplication>
+#include <qsgtextureprovider.h>
 
 #include <qqmlinfo.h>
 #include <private/qqmlengine_p.h>
@@ -49,27 +57,15 @@
 #include <private/qv4value_p.h>
 #include <private/qv4functionobject_p.h>
 #include <private/qv4scopedvalue_p.h>
+#include <private/qv4qobjectwrapper_p.h>
 
 QT_BEGIN_NAMESPACE
-
-class QQuickCanvasNode : public QSGSimpleTextureNode
-{
-public:
-    QQuickCanvasNode() {
-        qsgnode_set_description(this, QStringLiteral("canvasnode"));
-        setOwnsTexture(false);
-    }
-
-    ~QQuickCanvasNode() {
-        delete texture();
-    }
-};
 
 class QQuickCanvasTextureProvider : public QSGTextureProvider
 {
 public:
-    QQuickCanvasNode *node;
-    QSGTexture *texture() const Q_DECL_OVERRIDE { return node ? node->texture() : 0; }
+    QSGTexture *tex;
+    QSGTexture *texture() const Q_DECL_OVERRIDE { return tex; }
     void fireTextureChanged() { emit textureChanged(); }
 };
 
@@ -180,7 +176,8 @@ public:
     QUrl baseUrl;
     QMap<int, QV4::PersistentValue> animationCallbacks;
     mutable QQuickCanvasTextureProvider *textureProvider;
-    QQuickCanvasNode *node;
+    QSGInternalImageNode *node;
+    QSGTexture *nodeTexture;
 };
 
 QQuickCanvasItemPrivate::QQuickCanvasItemPrivate()
@@ -196,6 +193,7 @@ QQuickCanvasItemPrivate::QQuickCanvasItemPrivate()
     , renderStrategy(QQuickCanvasItem::Immediate)
     , textureProvider(0)
     , node(0)
+    , nodeTexture(0)
 {
     implicitAntialiasing = true;
 }
@@ -249,17 +247,18 @@ QQuickCanvasItemPrivate::~QQuickCanvasItemPrivate()
     The Canvas item supports two render targets: \c Canvas.Image and
     \c Canvas.FramebufferObject.
 
-    The \c Canvas.Image render target is a \a QImage object.  This render
-    target supports background thread rendering, allowing complex or long
-    running painting to be executed without blocking the UI.
+    The \c Canvas.Image render target is a \a QImage object. This render target
+    supports background thread rendering, allowing complex or long running
+    painting to be executed without blocking the UI. This is the only render
+    target that is supported by all Qt Quick backends.
 
     The Canvas.FramebufferObject render target utilizes OpenGL hardware
     acceleration rather than rendering into system memory, which in many cases
-    results in faster rendering. Canvas.FramebufferObject relies on the
-    OpenGL extensions \c GL_EXT_framebuffer_multisample and
-    \c GL_EXT_framebuffer_blit for antialiasing. It will also use more
-    graphics memory when rendering strategy is anything other than
-    Canvas.Cooperative.
+    results in faster rendering. Canvas.FramebufferObject relies on the OpenGL
+    extensions \c GL_EXT_framebuffer_multisample and \c GL_EXT_framebuffer_blit
+    for antialiasing. It will also use more graphics memory when rendering
+    strategy is anything other than Canvas.Cooperative. Framebuffer objects may
+    not be available with Qt Quick backends other than OpenGL.
 
     The default render target is Canvas.Image and the default renderStrategy is
     Canvas.Immediate.
@@ -294,7 +293,14 @@ QQuickCanvasItemPrivate::~QQuickCanvasItemPrivate()
     and can be used directly in \l {ShaderEffect}{ShaderEffects} and other
     classes that consume texture providers.
 
-    \sa Context2D
+    \note In general large canvases, frequent updates, and animation should be
+    avoided with the Canvas.Image render target. This is because with
+    accelerated graphics APIs each update will lead to a texture upload. Also,
+    if possible, prefer QQuickPaintedItem and implement drawing in C++ via
+    QPainter instead of the more expensive and likely less performing
+    JavaScript and Context2D approach.
+
+    \sa Context2D QQuickPaintedItem
 */
 
 QQuickCanvasItem::QQuickCanvasItem(QQuickItem *parent)
@@ -350,7 +356,7 @@ void QQuickCanvasItem::setContextType(const QString &contextType)
         return;
 
     if (d->context) {
-        qmlInfo(this) << "Canvas already initialized with a different context type";
+        qmlWarning(this) << "Canvas already initialized with a different context type";
         return;
     }
 
@@ -513,7 +519,7 @@ void QQuickCanvasItem::setRenderTarget(QQuickCanvasItem::RenderTarget target)
     Q_D(QQuickCanvasItem);
     if (d->renderTarget != target) {
         if (d->context) {
-            qmlInfo(this) << "Canvas:renderTarget not changeble once context is active.";
+            qmlWarning(this) << "Canvas:renderTarget not changeble once context is active.";
             return;
         }
 
@@ -557,7 +563,7 @@ void QQuickCanvasItem::setRenderStrategy(QQuickCanvasItem::RenderStrategy strate
     Q_D(QQuickCanvasItem);
     if (d->renderStrategy != strategy) {
         if (d->context) {
-            qmlInfo(this) << "Canvas:renderStrategy not changeable once context is active.";
+            qmlWarning(this) << "Canvas:renderStrategy not changeable once context is active.";
             return;
         }
         d->renderStrategy = strategy;
@@ -634,6 +640,21 @@ void QQuickCanvasItem::releaseResources()
         QQuickWindowQObjectCleanupJob::schedule(window(), d->textureProvider);
         d->textureProvider = 0;
     }
+    if (d->nodeTexture) {
+        QQuickWindowQObjectCleanupJob::schedule(window(), d->nodeTexture);
+        d->nodeTexture = 0;
+    }
+}
+
+bool QQuickCanvasItem::event(QEvent *event)
+{
+    switch (event->type()) {
+    case QEvent::PolishRequest:
+        polish();
+        return true;
+    default:
+        return QQuickItem::event(event);
+    }
 }
 
 void QQuickCanvasItem::invalidateSceneGraph()
@@ -645,6 +666,14 @@ void QQuickCanvasItem::invalidateSceneGraph()
     d->node = 0; // managed by the scene graph, just reset the pointer
     delete d->textureProvider;
     d->textureProvider = 0;
+    delete d->nodeTexture;
+    d->nodeTexture = 0;
+}
+
+void QQuickCanvasItem::schedulePolish()
+{
+    auto polishRequestEvent = new QEvent(QEvent::PolishRequest);
+    QCoreApplication::postEvent(this, polishRequestEvent);
 }
 
 void QQuickCanvasItem::componentComplete()
@@ -702,10 +731,10 @@ void QQuickCanvasItem::updatePolish()
         QV4::ScopedCallData callData(scope, 1);
         callData->thisObject = QV4::QObjectWrapper::wrap(v4, this);
 
-        foreach (int key, animationCallbacks.keys()) {
-            QV4::ScopedFunctionObject f(scope, animationCallbacks.value(key).value());
-            callData->args[0] = QV4::Primitive::fromUInt32(QDateTime::currentDateTimeUtc().toTime_t());
-            f->call(callData);
+        for (auto it = animationCallbacks.cbegin(), end = animationCallbacks.cend(); it != end; ++it) {
+            QV4::ScopedFunctionObject f(scope, it.value().value());
+            callData->args[0] = QV4::Primitive::fromUInt32(QDateTime::currentMSecsSinceEpoch() / 1000);
+            f->call(scope, callData);
         }
     }
     else {
@@ -732,16 +761,16 @@ QSGNode *QQuickCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData
 
     if (!d->context || d->canvasWindow.size().isEmpty()) {
         if (d->textureProvider) {
-            d->textureProvider->node = 0;
+            d->textureProvider->tex = 0;
             d->textureProvider->fireTextureChanged();
         }
         delete oldNode;
         return 0;
     }
 
-    QQuickCanvasNode *node = static_cast<QQuickCanvasNode*>(oldNode);
+    QSGInternalImageNode *node = static_cast<QSGInternalImageNode *>(oldNode);
     if (!node) {
-        node = new QQuickCanvasNode();
+        node = QQuickWindowPrivate::get(window())->context->sceneGraphContext()->createInternalImageNode();
         d->node = node;
     }
 
@@ -758,22 +787,26 @@ QSGNode *QQuickCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData
 
     QQuickContext2D *ctx = qobject_cast<QQuickContext2D *>(d->context);
     QQuickContext2DTexture *factory = ctx->texture();
-    QSGTexture *texture = factory->textureForNextFrame(node->texture(), window());
+    QSGTexture *texture = factory->textureForNextFrame(d->nodeTexture, window());
     if (!texture) {
         delete node;
         d->node = 0;
+        d->nodeTexture = 0;
         if (d->textureProvider) {
-            d->textureProvider->node = 0;
+            d->textureProvider->tex = 0;
             d->textureProvider->fireTextureChanged();
         }
         return 0;
     }
 
+    d->nodeTexture = texture;
     node->setTexture(texture);
-    node->setRect(QRectF(QPoint(0, 0), d->canvasWindow.size()));
+    node->setTargetRect(QRectF(QPoint(0, 0), d->canvasWindow.size()));
+    node->setInnerTargetRect(QRectF(QPoint(0, 0), d->canvasWindow.size()));
+    node->update();
 
     if (d->textureProvider) {
-        d->textureProvider->node = node;
+        d->textureProvider->tex = d->nodeTexture;
         d->textureProvider->fireTextureChanged();
     }
     return node;
@@ -793,14 +826,17 @@ QSGTextureProvider *QQuickCanvasItem::textureProvider() const
         return QQuickItem::textureProvider();
 
     Q_D(const QQuickCanvasItem);
+#if QT_CONFIG(opengl)
     QQuickWindow *w = window();
-    if (!w || !w->openglContext() || QThread::currentThread() != w->openglContext()->thread()) {
+    if (!w || !w->isSceneGraphInitialized()
+            || QThread::currentThread() != QQuickWindowPrivate::get(w)->context->thread()) {
         qWarning("QQuickCanvasItem::textureProvider: can only be queried on the rendering thread of an exposed window");
         return 0;
     }
+#endif
     if (!d->textureProvider)
         d->textureProvider = new QQuickCanvasTextureProvider;
-    d->textureProvider->node = d->node;
+    d->textureProvider->tex = d->nodeTexture;
     return d->textureProvider;
 }
 
@@ -828,13 +864,13 @@ void QQuickCanvasItem::getContext(QQmlV4Function *args)
     QV4::Scope scope(args->v4engine());
     QV4::ScopedString str(scope, (*args)[0]);
     if (!str) {
-        qmlInfo(this) << "getContext should be called with a string naming the required context type";
+        qmlWarning(this) << "getContext should be called with a string naming the required context type";
         args->setReturnValue(QV4::Encode::null());
         return;
     }
 
     if (!d->available) {
-        qmlInfo(this) << "Unable to use getContext() at this time, please wait for available: true";
+        qmlWarning(this) << "Unable to use getContext() at this time, please wait for available: true";
         args->setReturnValue(QV4::Encode::null());
         return;
     }
@@ -847,7 +883,7 @@ void QQuickCanvasItem::getContext(QQmlV4Function *args)
             return;
         }
 
-        qmlInfo(this) << "Canvas already initialized with a different context type";
+        qmlWarning(this) << "Canvas already initialized with a different context type";
         args->setReturnValue(QV4::Encode::null());
         return;
     }
@@ -859,7 +895,7 @@ void QQuickCanvasItem::getContext(QQmlV4Function *args)
 }
 
 /*!
-    \qmlmethod long QtQuick::Canvas::requestAnimationFrame(callback)
+    \qmlmethod int QtQuick::Canvas::requestAnimationFrame(callback)
 
     This function schedules callback to be invoked before composing the Qt Quick
     scene.
@@ -870,7 +906,7 @@ void QQuickCanvasItem::requestAnimationFrame(QQmlV4Function *args)
     QV4::Scope scope(args->v4engine());
     QV4::ScopedFunctionObject f(scope, (*args)[0]);
     if (!f) {
-        qmlInfo(this) << "requestAnimationFrame should be called with an animation callback function";
+        qmlWarning(this) << "requestAnimationFrame should be called with an animation callback function";
         args->setReturnValue(QV4::Encode::null());
         return;
     }
@@ -881,14 +917,15 @@ void QQuickCanvasItem::requestAnimationFrame(QQmlV4Function *args)
 
     d->animationCallbacks.insert(++id, QV4::PersistentValue(scope.engine, f->asReturnedValue()));
 
+    // QTBUG-55778: Calling polish directly here can lead to a polish loop
     if (isVisible())
-        polish();
+        schedulePolish();
 
     args->setReturnValue(QV4::Encode(id));
 }
 
 /*!
-    \qmlmethod QtQuick::Canvas::cancelRequestAnimationFrame(long handle)
+    \qmlmethod QtQuick::Canvas::cancelRequestAnimationFrame(int handle)
 
     This function will cancel the animation callback referenced by \a handle.
 */
@@ -898,7 +935,7 @@ void QQuickCanvasItem::cancelRequestAnimationFrame(QQmlV4Function *args)
     QV4::Scope scope(args->v4engine());
     QV4::ScopedValue v(scope, (*args)[0]);
     if (!v->isInteger()) {
-        qmlInfo(this) << "cancelRequestAnimationFrame should be called with an animation callback id";
+        qmlWarning(this) << "cancelRequestAnimationFrame should be called with an animation callback id";
         args->setReturnValue(QV4::Encode::null());
         return;
     }
@@ -1073,14 +1110,38 @@ bool QQuickCanvasItem::isImageLoaded(const QUrl& url) const
 QImage QQuickCanvasItem::toImage(const QRectF& rect) const
 {
     Q_D(const QQuickCanvasItem);
-    if (d->context) {
-        if (rect.isEmpty())
-            return d->context->toImage(canvasWindow());
-        else
-            return d->context->toImage(rect);
-    }
 
-    return QImage();
+    if (!d->context)
+        return QImage();
+
+    const QRectF &rectSource = rect.isEmpty() ? canvasWindow() : rect;
+    const qreal dpr = window() ? window()->effectiveDevicePixelRatio() : qreal(1);
+    const QRectF rectScaled(rectSource.topLeft() * dpr, rectSource.size() * dpr);
+
+    QImage image = d->context->toImage(rectScaled);
+    image.setDevicePixelRatio(dpr);
+    return image;
+}
+
+static const char* mimeToType(const QString &mime)
+{
+    const QLatin1String imagePrefix("image/");
+    if (!mime.startsWith(imagePrefix))
+        return nullptr;
+    const QStringRef mimeExt = mime.midRef(imagePrefix.size());
+    if (mimeExt == QLatin1String("png"))
+        return "png";
+    else if (mimeExt == QLatin1String("bmp"))
+        return "bmp";
+    else if (mimeExt == QLatin1String("jpeg"))
+        return "jpeg";
+    else if (mimeExt == QLatin1String("x-portable-pixmap"))
+        return "ppm";
+    else if (mimeExt == QLatin1String("tiff"))
+        return "tiff";
+    else if (mimeExt == QLatin1String("xpm"))
+        return "xpm";
+    return nullptr;
 }
 
 /*!
@@ -1100,27 +1161,14 @@ QString QQuickCanvasItem::toDataURL(const QString& mimeType) const
         QByteArray ba;
         QBuffer buffer(&ba);
         buffer.open(QIODevice::WriteOnly);
-        QString mime = mimeType.toLower();
-        QString type;
-        if (mime == QLatin1String("image/png")) {
-            type = QStringLiteral("PNG");
-        } else if (mime == QLatin1String("image/bmp"))
-            type = QStringLiteral("BMP");
-        else if (mime == QLatin1String("image/jpeg"))
-            type = QStringLiteral("JPEG");
-        else if (mime == QLatin1String("image/x-portable-pixmap"))
-            type = QStringLiteral("PPM");
-        else if (mime == QLatin1String("image/tiff"))
-            type = QStringLiteral("TIFF");
-        else if (mime == QLatin1String("image/xpm"))
-            type = QStringLiteral("XPM");
-        else
+        const QString mime = mimeType.toLower();
+        const char* type = mimeToType(mime);
+        if (!type)
             return QStringLiteral("data:,");
 
-        image.save(&buffer, type.toLatin1());
+        image.save(&buffer, type);
         buffer.close();
-        QString dataUrl = QStringLiteral("data:%1;base64,%2");
-        return dataUrl.arg(mime).arg(QLatin1String(ba.toBase64().constData()));
+        return QLatin1String("data:") + mime + QLatin1String(";base64,") + QLatin1String(ba.toBase64().constData());
     }
     return QStringLiteral("data:,");
 }
@@ -1204,3 +1252,5 @@ QRect QQuickCanvasItem::tiledRect(const QRectF &window, const QSize &tileSize)
 */
 
 QT_END_NAMESPACE
+
+#include "moc_qquickcanvasitem_p.cpp"

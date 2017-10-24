@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -38,9 +44,9 @@
 #include <private/qqmlbinding_p.h>
 #include <private/qqmlglobal_p.h>
 
-#include <QtCore/qstringbuilder.h>
 #include <QtCore/qstringlist.h>
 #include <QtCore/qdebug.h>
+#include <QtCore/qvector.h>
 
 #include <private/qobject_p.h>
 #include <qqmlinfo.h>
@@ -299,7 +305,7 @@ void QQuickStateGroup::componentComplete()
     for (int ii = 0; ii < d->states.count(); ++ii) {
         QQuickState *state = d->states.at(ii);
         if (!state->isNamed())
-            state->setName(QLatin1String("anonymousState") % QString::number(++d->unnamedCount));
+            state->setName(QLatin1String("anonymousState") + QString::number(++d->unnamedCount));
     }
 
     if (d->updateAutoState()) {
@@ -373,28 +379,29 @@ QQuickTransition *QQuickStateGroupPrivate::findTransition(const QString &from, c
                       (t->fromState() == QLatin1String("*") &&
                        t->toState() == QLatin1String("*"))))
                 break;
-            QStringList fromState;
-            QStringList toState;
+            const QString fromStateStr = t->fromState();
+            const QString toStateStr = t->toState();
 
-            fromState = t->fromState().split(QLatin1Char(','));
+            QVector<QStringRef> fromState = fromStateStr.splitRef(QLatin1Char(','));
             for (int jj = 0; jj < fromState.count(); ++jj)
                 fromState[jj] = fromState.at(jj).trimmed();
-            toState = t->toState().split(QLatin1Char(','));
+            QVector<QStringRef> toState = toStateStr.splitRef(QLatin1Char(','));
             for (int jj = 0; jj < toState.count(); ++jj)
                 toState[jj] = toState.at(jj).trimmed();
             if (ii == 1)
                 qSwap(fromState, toState);
             int tScore = 0;
-            if (fromState.contains(from))
+            const QString asterisk = QStringLiteral("*");
+            if (fromState.contains(QStringRef(&from)))
                 tScore += 2;
-            else if (fromState.contains(QLatin1String("*")))
+            else if (fromState.contains(QStringRef(&asterisk)))
                 tScore += 1;
             else
                 continue;
 
-            if (toState.contains(to))
+            if (toState.contains(QStringRef(&to)))
                 tScore += 2;
-            else if (toState.contains(QLatin1String("*")))
+            else if (toState.contains(QStringRef(&asterisk)))
                 tScore += 1;
             else
                 continue;
@@ -431,7 +438,7 @@ void QQuickStateGroupPrivate::setCurrentStateInternal(const QString &state,
     }
 
     if (applyingState) {
-        qmlInfo(q) << "Can't apply a state change as part of a state definition.";
+        qmlWarning(q) << "Can't apply a state change as part of a state definition.";
         return;
     }
 
@@ -507,3 +514,4 @@ void QQuickStateGroup::stateAboutToComplete()
 QT_END_NAMESPACE
 
 
+#include "moc_qquickstategroup_p.cpp"

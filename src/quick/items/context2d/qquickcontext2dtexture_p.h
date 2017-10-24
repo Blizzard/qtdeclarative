@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -45,13 +51,17 @@
 // We mean it.
 //
 
+#include <private/qtquickglobal_p.h>
+
+QT_REQUIRE_CONFIG(quick_canvas);
+
 #include <QtQuick/qsgtexture.h>
 #include "qquickcanvasitem_p.h"
 #include "qquickcontext2d_p.h"
-
-#include <QOpenGLContext>
-#include <QOpenGLFramebufferObject>
-
+#if QT_CONFIG(opengl)
+# include <QOpenGLContext>
+# include <QOpenGLFramebufferObject>
+#endif
 #include <QtCore/QMutex>
 #include <QtCore/QWaitCondition>
 #include <QtCore/QThread>
@@ -114,12 +124,13 @@ public:
 
     // Called during sync() on the scene graph thread while GUI is blocked.
     virtual QSGTexture *textureForNextFrame(QSGTexture *lastFrame, QQuickWindow *window) = 0;
-    bool event(QEvent *e);
-
+    bool event(QEvent *e) override;
+#if QT_CONFIG(opengl)
     void initializeOpenGL(QOpenGLContext *gl, QOffscreenSurface *s) {
         m_gl = gl;
         m_surface = s;
     }
+#endif
 
 Q_SIGNALS:
     void textureChanged();
@@ -146,8 +157,9 @@ protected:
 
     QList<QQuickContext2DTile*> m_tiles;
     QQuickContext2D *m_context;
-
+#if QT_CONFIG(opengl)
     QOpenGLContext *m_gl;
+#endif
     QSurface *m_surface;
 
     QQuickContext2D::State m_state;
@@ -156,6 +168,7 @@ protected:
     QSize m_canvasSize;
     QSize m_tileSize;
     QRect m_canvasWindow;
+    qreal m_canvasDevicePixelRatio;
 
     QMutex m_mutex;
     QWaitCondition m_condition;
@@ -168,7 +181,7 @@ protected:
     uint m_painting : 1;
     uint m_onCustomThread : 1; // Not GUI and not SGRender
 };
-
+#if QT_CONFIG(opengl)
 class QQuickContext2DFBOTexture : public QQuickContext2DTexture
 {
     Q_OBJECT
@@ -203,7 +216,7 @@ private:
     GLuint m_displayTextures[2];
     int m_displayTexture;
 };
-
+#endif
 class QSGPlainTexture;
 class QQuickContext2DImageTexture : public QQuickContext2DTexture
 {
@@ -213,17 +226,17 @@ public:
     QQuickContext2DImageTexture();
     ~QQuickContext2DImageTexture();
 
-    virtual QQuickCanvasItem::RenderTarget renderTarget() const;
+    QQuickCanvasItem::RenderTarget renderTarget() const override;
 
-    virtual QQuickContext2DTile* createTile() const;
-    virtual QPaintDevice* beginPainting();
-    virtual void endPainting();
-    virtual void compositeTile(QQuickContext2DTile* tile);
+    QQuickContext2DTile* createTile() const override;
+    QPaintDevice* beginPainting() override;
+    void endPainting() override;
+    void compositeTile(QQuickContext2DTile* tile) override;
 
-    virtual QSGTexture *textureForNextFrame(QSGTexture *lastFrame, QQuickWindow *window);
+    QSGTexture *textureForNextFrame(QSGTexture *lastFrame, QQuickWindow *window) override;
 
 public Q_SLOTS:
-    virtual void grabImage(const QRectF& region = QRectF());
+    void grabImage(const QRectF& region = QRectF()) override;
 
 private:
     QImage m_image;

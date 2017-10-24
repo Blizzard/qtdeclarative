@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -62,7 +68,7 @@ QQuickTextNodeEngine::BinaryTreeNodeKey::BinaryTreeNodeKey(BinaryTreeNode *node)
 QQuickTextNodeEngine::BinaryTreeNode::BinaryTreeNode(const QGlyphRun &g,
                                                      SelectionState selState,
                                                      const QRectF &brect,
-                                                     const QQuickTextNode::Decorations &decs,
+                                                     const Decorations &decs,
                                                      const QColor &c,
                                                      const QColor &bc,
                                                      const QPointF &pos, qreal a)
@@ -84,7 +90,7 @@ QQuickTextNodeEngine::BinaryTreeNode::BinaryTreeNode(const QGlyphRun &g,
 
 
 void QQuickTextNodeEngine::BinaryTreeNode::insert(QVarLengthArray<BinaryTreeNode, 16> *binaryTree, const QGlyphRun &glyphRun, SelectionState selectionState,
-                                             QQuickTextNode::Decorations decorations, const QColor &textColor,
+                                             Decorations decorations, const QColor &textColor,
                                              const QColor &backgroundColor, const QPointF &position)
 {
     QRectF searchRect = glyphRun.boundingRect();
@@ -93,10 +99,10 @@ void QQuickTextNodeEngine::BinaryTreeNode::insert(QVarLengthArray<BinaryTreeNode
     if (qFuzzyIsNull(searchRect.width()) || qFuzzyIsNull(searchRect.height()))
         return;
 
-    decorations |= (glyphRun.underline() ? QQuickTextNode::Underline : QQuickTextNode::NoDecoration);
-    decorations |= (glyphRun.overline()  ? QQuickTextNode::Overline  : QQuickTextNode::NoDecoration);
-    decorations |= (glyphRun.strikeOut() ? QQuickTextNode::StrikeOut : QQuickTextNode::NoDecoration);
-    decorations |= (backgroundColor.isValid() ? QQuickTextNode::Background : QQuickTextNode::NoDecoration);
+    decorations |= (glyphRun.underline() ? Decoration::Underline : Decoration::NoDecoration);
+    decorations |= (glyphRun.overline()  ? Decoration::Overline  : Decoration::NoDecoration);
+    decorations |= (glyphRun.strikeOut() ? Decoration::StrikeOut : Decoration::NoDecoration);
+    decorations |= (backgroundColor.isValid() ? Decoration::Background : Decoration::NoDecoration);
 
     qreal ascent = glyphRun.rawFont().ascent();
     insert(binaryTree, BinaryTreeNode(glyphRun,
@@ -231,7 +237,7 @@ void QQuickTextNodeEngine::processCurrentLine()
     SelectionState currentSelectionState = Unselected;
     QRectF currentRect;
 
-    QQuickTextNode::Decorations currentDecorations = QQuickTextNode::NoDecoration;
+    Decorations currentDecorations = Decoration::NoDecoration;
     qreal underlineOffset = 0.0;
     qreal underlineThickness = 0.0;
 
@@ -265,7 +271,7 @@ void QQuickTextNodeEngine::processCurrentLine()
                 currentSelectionState = node->selectionState;
 
             // Update decorations
-            if (currentDecorations != QQuickTextNode::NoDecoration) {
+            if (currentDecorations != Decoration::NoDecoration) {
                 decorationRect.setY(m_position.y() + m_currentLine.y());
                 decorationRect.setHeight(m_currentLine.height());
 
@@ -273,16 +279,16 @@ void QQuickTextNodeEngine::processCurrentLine()
                     decorationRect.setRight(node->boundingRect.left());
 
                 TextDecoration textDecoration(currentSelectionState, decorationRect, lastColor);
-                if (currentDecorations & QQuickTextNode::Underline)
+                if (currentDecorations & Decoration::Underline)
                     pendingUnderlines.append(textDecoration);
 
-                if (currentDecorations & QQuickTextNode::Overline)
+                if (currentDecorations & Decoration::Overline)
                     pendingOverlines.append(textDecoration);
 
-                if (currentDecorations & QQuickTextNode::StrikeOut)
+                if (currentDecorations & Decoration::StrikeOut)
                     pendingStrikeOuts.append(textDecoration);
 
-                if (currentDecorations & QQuickTextNode::Background)
+                if (currentDecorations & Decoration::Background)
                     m_backgrounds.append(qMakePair(decorationRect, lastBackgroundColor));
             }
 
@@ -338,7 +344,7 @@ void QQuickTextNodeEngine::processCurrentLine()
                 // If previous item(s) had underline and current does not, then we add the
                 // pending lines to the lists and likewise for overlines and strikeouts
                 if (!pendingUnderlines.isEmpty()
-                        && !(node->decorations & QQuickTextNode::Underline)) {
+                        && !(node->decorations & Decoration::Underline)) {
                     addTextDecorations(pendingUnderlines, underlineOffset, underlineThickness);
 
                     pendingUnderlines.clear();
@@ -371,19 +377,19 @@ void QQuickTextNodeEngine::processCurrentLine()
 
                 // Merge current values with previous. Prefer greatest thickness
                 QRawFont rawFont = node->glyphRun.rawFont();
-                if (node->decorations & QQuickTextNode::Underline) {
+                if (node->decorations & Decoration::Underline) {
                     if (rawFont.lineThickness() > underlineThickness) {
                         underlineThickness = rawFont.lineThickness();
                         underlineOffset = rawFont.underlinePosition();
                     }
                 }
 
-                if (node->decorations & QQuickTextNode::Overline) {
+                if (node->decorations & Decoration::Overline) {
                     overlineOffset = -rawFont.ascent();
                     overlineThickness = rawFont.lineThickness();
                 }
 
-                if (node->decorations & QQuickTextNode::StrikeOut) {
+                if (node->decorations & Decoration::StrikeOut) {
                     strikeOutThickness = rawFont.lineThickness();
                     strikeOutOffset = rawFont.ascent() / -3.0;
                 }
@@ -417,7 +423,10 @@ void QQuickTextNodeEngine::addImage(const QRectF &rect, const QImage &image, qre
     QRectF searchRect = rect;
     if (layoutPosition == QTextFrameFormat::InFlow) {
         if (m_currentLineTree.isEmpty()) {
-            searchRect.moveTopLeft(m_position + m_currentLine.position() + QPointF(0,1));
+            if (m_currentTextDirection == Qt::RightToLeft)
+                searchRect.moveTopRight(m_position + m_currentLine.rect().topRight() + QPointF(0, 1));
+            else
+                searchRect.moveTopLeft(m_position + m_currentLine.position() + QPointF(0,1));
         } else {
             const BinaryTreeNode *lastNode = m_currentLineTree.data() + m_currentLineTree.size() - 1;
             if (lastNode->glyphRun.isRightToLeft()) {
@@ -489,7 +498,7 @@ void QQuickTextNodeEngine::addUnselectedGlyphs(const QGlyphRun &glyphRun)
     BinaryTreeNode::insert(&m_currentLineTree,
                            glyphRun,
                            Unselected,
-                           QQuickTextNode::NoDecoration,
+                           Decoration::NoDecoration,
                            m_textColor,
                            m_backgroundColor,
                            m_position);
@@ -501,7 +510,7 @@ void QQuickTextNodeEngine::addSelectedGlyphs(const QGlyphRun &glyphRun)
     BinaryTreeNode::insert(&m_currentLineTree,
                            glyphRun,
                            Selected,
-                           QQuickTextNode::NoDecoration,
+                           Decoration::NoDecoration,
                            m_textColor,
                            m_backgroundColor,
                            m_position);
@@ -728,10 +737,13 @@ void QQuickTextNodeEngine::mergeProcessedNodes(QList<BinaryTreeNode *> *regularN
             QVector<QPointF> glyphPositions = glyphRun.positions();
             glyphPositions.reserve(count);
 
+            QRectF glyphBoundingRect = glyphRun.boundingRect();
+
             for (int j = 1; j < nodes.size(); ++j) {
                 BinaryTreeNode *otherNode = nodes.at(j);
                 glyphIndexes += otherNode->glyphRun.glyphIndexes();
                 primaryNode->ranges += otherNode->ranges;
+                glyphBoundingRect = glyphBoundingRect.united(otherNode->boundingRect);
 
                 QVector<QPointF> otherPositions = otherNode->glyphRun.positions();
                 for (int k = 0; k < otherPositions.size(); ++k)
@@ -743,6 +755,7 @@ void QQuickTextNodeEngine::mergeProcessedNodes(QList<BinaryTreeNode *> *regularN
 
             glyphRun.setGlyphIndexes(glyphIndexes);
             glyphRun.setPositions(glyphPositions);
+            glyphRun.setBoundingRect(glyphBoundingRect);
         }
     }
 }
@@ -937,10 +950,12 @@ void QQuickTextNodeEngine::mergeFormats(QTextLayout *textLayout, QVarLengthArray
 void QQuickTextNodeEngine::addTextBlock(QTextDocument *textDocument, const QTextBlock &block, const QPointF &position, const QColor &textColor, const QColor &anchorColor, int selectionStart, int selectionEnd)
 {
     Q_ASSERT(textDocument);
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
     int preeditLength = block.isValid() ? block.layout()->preeditAreaText().length() : 0;
     int preeditPosition = block.isValid() ? block.layout()->preeditAreaPosition() : -1;
 #endif
+
+    setCurrentTextDirection(block.textDirection());
 
     QVarLengthArray<QTextLayout::FormatRange> colorChanges;
     mergeFormats(block.layout(), &colorChanges);
@@ -1055,7 +1070,7 @@ void QQuickTextNodeEngine::addTextBlock(QTextDocument *textDocument, const QText
                 setTextColor(textColor);
 
             int fragmentEnd = textPos + fragment.length();
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
             if (preeditPosition >= 0
                     && (preeditPosition + block.position()) >= textPos
                     && (preeditPosition + block.position()) <= fragmentEnd) {
@@ -1077,7 +1092,7 @@ void QQuickTextNodeEngine::addTextBlock(QTextDocument *textDocument, const QText
         ++blockIterator;
     }
 
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
     if (preeditLength >= 0 && textPos <= block.position() + preeditPosition) {
         setPosition(blockPosition);
         textPos = block.position() + preeditPosition;

@@ -1,48 +1,44 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <qtest.h>
-#include <QSignalSpy>
-#include <QTimer>
-#include <QHostAddress>
-#include <QDebug>
-#include <QThread>
-
-#include <QtQml/qqmlengine.h>
 
 #include "debugutil_p.h"
 #include "qqmldebugtestservice.h"
 
 #include <private/qqmldebugconnector_p.h>
+#include <private/qqmldebugconnection_p.h>
+
+#include <QtTest/qtest.h>
+#include <QtTest/qsignalspy.h>
+#include <QtCore/qtimer.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qthread.h>
+#include <QtNetwork/qhostaddress.h>
+#include <QtQml/qqmlengine.h>
 
 #define PORT 13770
 #define STR_PORT "13770"
@@ -68,10 +64,20 @@ private slots:
 void tst_QQmlDebugClient::initTestCase()
 {
     QQmlDebugConnector::setPluginKey(QLatin1String("QQmlDebugServer"));
+    QQmlDebugConnector::setServices(QStringList()
+                                    << QStringLiteral("tst_QQmlDebugClient::handshake()"));
     QTest::ignoreMessage(QtWarningMsg,
                          "QML debugger: Cannot set plugin key after loading the plugin.");
 
     m_service = new QQmlDebugTestService("tst_QQmlDebugClient::handshake()");
+
+    foreach (const QString &service, QQmlDebuggingEnabler::debuggerServices())
+        QCOMPARE(QQmlDebugConnector::instance()->service(service), (QQmlDebugService *)0);
+    foreach (const QString &service, QQmlDebuggingEnabler::inspectorServices())
+        QCOMPARE(QQmlDebugConnector::instance()->service(service), (QQmlDebugService *)0);
+    foreach (const QString &service, QQmlDebuggingEnabler::profilerServices())
+        QCOMPARE(QQmlDebugConnector::instance()->service(service), (QQmlDebugService *)0);
+
     const QString waitingMsg = QString("QML Debugger: Waiting for connection on port %1...").arg(PORT);
     QTest::ignoreMessage(QtDebugMsg, waitingMsg.toLatin1().constData());
     QQmlDebuggingEnabler::startTcpDebugServer(PORT);
@@ -144,7 +150,9 @@ void tst_QQmlDebugClient::parallelConnect()
     QTest::ignoreMessage(QtWarningMsg, "QML Debugger: Another client is already connected.");
     // will connect & immediately disconnect
     connection2.connectToHost("127.0.0.1", PORT);
-    QTRY_COMPARE(connection2.state(), QAbstractSocket::UnconnectedState);
+    QTest::ignoreMessage(QtWarningMsg, "QQmlDebugConnection: Did not get handshake answer in time");
+    QVERIFY(!connection2.waitForConnected(1000));
+    QVERIFY(!connection2.isConnected());
     QVERIFY(m_conn->isConnected());
 }
 
@@ -155,7 +163,6 @@ void tst_QQmlDebugClient::sequentialConnect()
 
     m_conn->close();
     QVERIFY(!m_conn->isConnected());
-    QCOMPARE(m_conn->state(), QAbstractSocket::UnconnectedState);
 
     // Make sure that the disconnect is actually delivered to the server
     QTest::qWait(100);

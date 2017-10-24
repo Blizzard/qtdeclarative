@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -36,17 +42,19 @@
 
 #include <QtCore/qdatetime.h>
 #include <QtCore/qmath.h>
-#include <QtCore/qnumeric.h>
+#include <QtCore/private/qnumeric_p.h>
 #include <QtCore/qthreadstorage.h>
 
+#include <math.h>
 #include <cmath>
 
 using namespace QV4;
 
 DEFINE_OBJECT_VTABLE(MathObject);
 
-Heap::MathObject::MathObject()
+void Heap::MathObject::init()
 {
+    Object::init();
     Scope scope(internalClass->engine);
     ScopedObject m(scope, this);
 
@@ -74,243 +82,250 @@ Heap::MathObject::MathObject()
     m->defineDefaultProperty(QStringLiteral("pow"), QV4::MathObject::method_pow, 2);
     m->defineDefaultProperty(QStringLiteral("random"), QV4::MathObject::method_random, 0);
     m->defineDefaultProperty(QStringLiteral("round"), QV4::MathObject::method_round, 1);
+    m->defineDefaultProperty(QStringLiteral("sign"), QV4::MathObject::method_sign, 1);
     m->defineDefaultProperty(QStringLiteral("sin"), QV4::MathObject::method_sin, 1);
     m->defineDefaultProperty(QStringLiteral("sqrt"), QV4::MathObject::method_sqrt, 1);
     m->defineDefaultProperty(QStringLiteral("tan"), QV4::MathObject::method_tan, 1);
 }
 
-/* copies the sign from y to x and returns the result */
-static double copySign(double x, double y)
+static Q_ALWAYS_INLINE double copySign(double x, double y)
 {
-    uchar *xch = (uchar *)&x;
-    uchar *ych = (uchar *)&y;
-    if (QSysInfo::ByteOrder == QSysInfo::BigEndian)
-        xch[0] = (xch[0] & 0x7f) | (ych[0] & 0x80);
-    else
-        xch[7] = (xch[7] & 0x7f) | (ych[7] & 0x80);
-    return x;
+    return ::copysign(x, y);
 }
 
-ReturnedValue MathObject::method_abs(CallContext *context)
+void MathObject::method_abs(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    if (!context->argc())
-        return Encode(qSNaN());
+    if (!callData->argc)
+        RETURN_RESULT(Encode(qt_qnan()));
 
-    if (context->args()[0].isInteger()) {
-        int i = context->args()[0].integerValue();
-        return Encode(i < 0 ? - i : i);
+    if (callData->args[0].isInteger()) {
+        int i = callData->args[0].integerValue();
+        RETURN_RESULT(Encode(i < 0 ? - i : i));
     }
 
-    double v = context->args()[0].toNumber();
+    double v = callData->args[0].toNumber();
     if (v == 0) // 0 | -0
-        return Encode(0);
+        RETURN_RESULT(Encode(0));
 
-    return Encode(v < 0 ? -v : v);
+    RETURN_RESULT(Encode(v < 0 ? -v : v));
 }
 
-ReturnedValue MathObject::method_acos(CallContext *context)
+void MathObject::method_acos(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double v = context->argc() ? context->args()[0].toNumber() : 2;
+    double v = callData->argc ? callData->args[0].toNumber() : 2;
     if (v > 1)
-        return Encode(qSNaN());
+        RETURN_RESULT(Encode(qt_qnan()));
 
-    return Encode(std::acos(v));
+    RETURN_RESULT(Encode(std::acos(v)));
 }
 
-ReturnedValue MathObject::method_asin(CallContext *context)
+void MathObject::method_asin(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double v = context->argc() ? context->args()[0].toNumber() : 2;
+    double v = callData->argc ? callData->args[0].toNumber() : 2;
     if (v > 1)
-        return Encode(qSNaN());
+        RETURN_RESULT(Encode(qt_qnan()));
     else
-        return Encode(std::asin(v));
+        RETURN_RESULT(Encode(std::asin(v)));
 }
 
-ReturnedValue MathObject::method_atan(CallContext *context)
+void MathObject::method_atan(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double v = context->argc() ? context->args()[0].toNumber() : qSNaN();
+    double v = callData->argc ? callData->args[0].toNumber() : qt_qnan();
     if (v == 0.0)
-        return Encode(v);
+        RETURN_RESULT(Encode(v));
     else
-        return Encode(std::atan(v));
+        RETURN_RESULT(Encode(std::atan(v)));
 }
 
-ReturnedValue MathObject::method_atan2(CallContext *context)
+void MathObject::method_atan2(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double v1 = context->argc() ? context->args()[0].toNumber() : qSNaN();
-    double v2 = context->argc() > 1 ? context->args()[1].toNumber() : qSNaN();
+    double v1 = callData->argc ? callData->args[0].toNumber() : qt_qnan();
+    double v2 = callData->argc > 1 ? callData->args[1].toNumber() : qt_qnan();
 
-    if ((v1 < 0) && qIsFinite(v1) && qIsInf(v2) && (copySign(1.0, v2) == 1.0))
-        return Encode(copySign(0, -1.0));
+    if ((v1 < 0) && qt_is_finite(v1) && qt_is_inf(v2) && (copySign(1.0, v2) == 1.0))
+        RETURN_RESULT(Encode(copySign(0, -1.0)));
 
     if ((v1 == 0.0) && (v2 == 0.0)) {
         if ((copySign(1.0, v1) == 1.0) && (copySign(1.0, v2) == -1.0)) {
-            return Encode(M_PI);
+            RETURN_RESULT(Encode(M_PI));
         } else if ((copySign(1.0, v1) == -1.0) && (copySign(1.0, v2) == -1.0)) {
-            return Encode(-M_PI);
+            RETURN_RESULT(Encode(-M_PI));
         }
     }
-    return Encode(std::atan2(v1, v2));
+    RETURN_RESULT(Encode(std::atan2(v1, v2)));
 }
 
-ReturnedValue MathObject::method_ceil(CallContext *context)
+void MathObject::method_ceil(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double v = context->argc() ? context->args()[0].toNumber() : qSNaN();
+    double v = callData->argc ? callData->args[0].toNumber() : qt_qnan();
     if (v < 0.0 && v > -1.0)
-        return Encode(copySign(0, -1.0));
+        RETURN_RESULT(Encode(copySign(0, -1.0)));
     else
-        return Encode(std::ceil(v));
+        RETURN_RESULT(Encode(std::ceil(v)));
 }
 
-ReturnedValue MathObject::method_cos(CallContext *context)
+void MathObject::method_cos(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double v = context->argc() ? context->args()[0].toNumber() : qSNaN();
-    return Encode(std::cos(v));
+    double v = callData->argc ? callData->args[0].toNumber() : qt_qnan();
+    RETURN_RESULT(Encode(std::cos(v)));
 }
 
-ReturnedValue MathObject::method_exp(CallContext *context)
+void MathObject::method_exp(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double v = context->argc() ? context->args()[0].toNumber() : qSNaN();
-    if (qIsInf(v)) {
+    double v = callData->argc ? callData->args[0].toNumber() : qt_qnan();
+    if (qt_is_inf(v)) {
         if (copySign(1.0, v) == -1.0)
-            return Encode(0);
+            RETURN_RESULT(Encode(0));
         else
-            return Encode(qInf());
+            RETURN_RESULT(Encode(qt_inf()));
     } else {
-        return Encode(std::exp(v));
+        RETURN_RESULT(Encode(std::exp(v)));
     }
 }
 
-ReturnedValue MathObject::method_floor(CallContext *context)
+void MathObject::method_floor(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double v = context->argc() ? context->args()[0].toNumber() : qSNaN();
-    return Encode(std::floor(v));
+    double v = callData->argc ? callData->args[0].toNumber() : qt_qnan();
+    RETURN_RESULT(Encode(std::floor(v)));
 }
 
-ReturnedValue MathObject::method_log(CallContext *context)
+void MathObject::method_log(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double v = context->argc() ? context->args()[0].toNumber() : qSNaN();
+    double v = callData->argc ? callData->args[0].toNumber() : qt_qnan();
     if (v < 0)
-        return Encode(qSNaN());
+        RETURN_RESULT(Encode(qt_qnan()));
     else
-        return Encode(std::log(v));
+        RETURN_RESULT(Encode(std::log(v)));
 }
 
-ReturnedValue MathObject::method_max(CallContext *context)
+void MathObject::method_max(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double mx = -qInf();
-    for (int i = 0; i < context->argc(); ++i) {
-        double x = context->args()[i].toNumber();
+    double mx = -qt_inf();
+    for (int i = 0; i < callData->argc; ++i) {
+        double x = callData->args[i].toNumber();
         if (x > mx || std::isnan(x))
             mx = x;
     }
-    return Encode(mx);
+    RETURN_RESULT(Encode(mx));
 }
 
-ReturnedValue MathObject::method_min(CallContext *context)
+void MathObject::method_min(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double mx = qInf();
-    for (int i = 0; i < context->argc(); ++i) {
-        double x = context->args()[i].toNumber();
+    double mx = qt_inf();
+    for (int i = 0; i < callData->argc; ++i) {
+        double x = callData->args[i].toNumber();
         if ((x == 0 && mx == x && copySign(1.0, x) == -1.0)
                 || (x < mx) || std::isnan(x)) {
             mx = x;
         }
     }
-    return Encode(mx);
+    RETURN_RESULT(Encode(mx));
 }
 
-ReturnedValue MathObject::method_pow(CallContext *context)
+void MathObject::method_pow(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double x = context->argc() > 0 ? context->args()[0].toNumber() : qSNaN();
-    double y = context->argc() > 1 ? context->args()[1].toNumber() : qSNaN();
+    double x = callData->argc > 0 ? callData->args[0].toNumber() : qt_qnan();
+    double y = callData->argc > 1 ? callData->args[1].toNumber() : qt_qnan();
 
     if (std::isnan(y))
-        return Encode(qSNaN());
+        RETURN_RESULT(Encode(qt_qnan()));
 
     if (y == 0) {
-        return Encode(1);
+        RETURN_RESULT(Encode(1));
     } else if (((x == 1) || (x == -1)) && std::isinf(y)) {
-        return Encode(qSNaN());
+        RETURN_RESULT(Encode(qt_qnan()));
     } else if (((x == 0) && copySign(1.0, x) == 1.0) && (y < 0)) {
-        return Encode(qInf());
+        RETURN_RESULT(Encode(qInf()));
     } else if ((x == 0) && copySign(1.0, x) == -1.0) {
         if (y < 0) {
             if (std::fmod(-y, 2.0) == 1.0)
-                return Encode(-qInf());
+                RETURN_RESULT(Encode(-qt_inf()));
             else
-                return Encode(qInf());
+                RETURN_RESULT(Encode(qt_inf()));
         } else if (y > 0) {
             if (std::fmod(y, 2.0) == 1.0)
-                return Encode(copySign(0, -1.0));
+                RETURN_RESULT(Encode(copySign(0, -1.0)));
             else
-                return Encode(0);
+                RETURN_RESULT(Encode(0));
         }
     }
 
 #ifdef Q_OS_AIX
-    else if (qIsInf(x) && copySign(1.0, x) == -1.0) {
+    else if (qt_is_inf(x) && copySign(1.0, x) == -1.0) {
         if (y > 0) {
             if (std::fmod(y, 2.0) == 1.0)
-                return Encode(-qInf());
+                RETURN_RESULT(Encode(-qt_inf()));
             else
-                return Encode(qInf());
+                RETURN_RESULT(Encode(qt_inf()));
         } else if (y < 0) {
             if (std::fmod(-y, 2.0) == 1.0)
-                return Encode(copySign(0, -1.0));
+                RETURN_RESULT(Encode(copySign(0, -1.0)));
             else
-                return Encode(0);
+                RETURN_RESULT(Encode(0));
         }
     }
 #endif
     else {
-        return Encode(std::pow(x, y));
+        RETURN_RESULT(Encode(std::pow(x, y)));
     }
     // ###
-    return Encode(qSNaN());
+    RETURN_RESULT(Encode(qt_qnan()));
 }
 
 Q_GLOBAL_STATIC(QThreadStorage<bool *>, seedCreatedStorage);
 
-ReturnedValue MathObject::method_random(CallContext *context)
+void MathObject::method_random(const BuiltinFunction *, Scope &scope, CallData *)
 {
     if (!seedCreatedStorage()->hasLocalData()) {
         int msecs = QTime(0,0,0).msecsTo(QTime::currentTime());
         Q_ASSERT(msecs >= 0);
-        qsrand(uint(uint(msecs) ^ reinterpret_cast<quintptr>(context)));
+        qsrand(uint(uint(msecs) ^ reinterpret_cast<quintptr>(scope.engine)));
         seedCreatedStorage()->setLocalData(new bool(true));
     }
     // rand()/qrand() return a value where the upperbound is RAND_MAX inclusive. So, instead of
     // dividing by RAND_MAX (which would return 0..RAND_MAX inclusive), we divide by RAND_MAX + 1.
     qint64 upperLimit = qint64(RAND_MAX) + 1;
-    return Encode(qrand() / double(upperLimit));
+    RETURN_RESULT(Encode(qrand() / double(upperLimit)));
 }
 
-ReturnedValue MathObject::method_round(CallContext *context)
+void MathObject::method_round(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double v = context->argc() ? context->args()[0].toNumber() : qSNaN();
+    double v = callData->argc ? callData->args[0].toNumber() : qt_qnan();
     v = copySign(std::floor(v + 0.5), v);
-    return Encode(v);
+    RETURN_RESULT(Encode(v));
 }
 
-ReturnedValue MathObject::method_sin(CallContext *context)
+void MathObject::method_sign(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double v = context->argc() ? context->args()[0].toNumber() : qSNaN();
-    return Encode(std::sin(v));
+    double v = callData->argc ? callData->args[0].toNumber() : qt_qnan();
+
+    if (std::isnan(v))
+        RETURN_RESULT(Encode(qt_qnan()));
+
+    if (qIsNull(v))
+        RETURN_RESULT(Encode(v));
+
+    RETURN_RESULT(Encode(std::signbit(v) ? -1 : 1));
 }
 
-ReturnedValue MathObject::method_sqrt(CallContext *context)
+void MathObject::method_sin(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double v = context->argc() ? context->args()[0].toNumber() : qSNaN();
-    return Encode(std::sqrt(v));
+    double v = callData->argc ? callData->args[0].toNumber() : qt_qnan();
+    RETURN_RESULT(Encode(std::sin(v)));
 }
 
-ReturnedValue MathObject::method_tan(CallContext *context)
+void MathObject::method_sqrt(const BuiltinFunction *, Scope &scope, CallData *callData)
 {
-    double v = context->argc() ? context->args()[0].toNumber() : qSNaN();
+    double v = callData->argc ? callData->args[0].toNumber() : qt_qnan();
+    RETURN_RESULT(Encode(std::sqrt(v)));
+}
+
+void MathObject::method_tan(const BuiltinFunction *, Scope &scope, CallData *callData)
+{
+    double v = callData->argc ? callData->args[0].toNumber() : qt_qnan();
     if (v == 0.0)
-        return Encode(v);
+        RETURN_RESULT(Encode(v));
     else
-        return Encode(std::tan(v));
+        RETURN_RESULT(Encode(std::tan(v)));
 }
 

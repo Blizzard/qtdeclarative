@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -39,7 +45,6 @@
 #include <QtQuick/private/qsgrenderer_p.h>
 #include <qsgsimplerectnode.h>
 
-#include "qopenglframebufferobject.h"
 #include "qmath.h"
 #include <QtQuick/private/qsgtexture_p.h>
 #include <QtCore/QRunnable>
@@ -59,7 +64,7 @@ public:
     {
     }
 
-    QSGTexture *texture() const {
+    QSGTexture *texture() const override {
         sourceTexture->setMipmapFiltering(mipmapFiltering);
         sourceTexture->setFiltering(filtering);
         sourceTexture->setHorizontalWrapMode(horizontalWrap);
@@ -263,6 +268,8 @@ QSGTextureProvider *QQuickShaderEffectSource::textureProvider() const
     Modifying this property makes most sense when the item is used as a
     source texture of a \l ShaderEffect.
 
+    The default value is \c{ShaderEffectSource.ClampToEdge}.
+
     \list
     \li ShaderEffectSource.ClampToEdge - GL_CLAMP_TO_EDGE both horizontally and vertically
     \li ShaderEffectSource.RepeatHorizontally - GL_REPEAT horizontally, GL_CLAMP_TO_EDGE vertically
@@ -301,11 +308,11 @@ QQuickItem *QQuickShaderEffectSource::sourceItem() const
     return m_sourceItem;
 }
 
-void QQuickShaderEffectSource::itemGeometryChanged(QQuickItem *item, const QRectF &newRect, const QRectF &oldRect)
+void QQuickShaderEffectSource::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &)
 {
     Q_ASSERT(item == m_sourceItem);
     Q_UNUSED(item);
-    if (newRect.size() != oldRect.size())
+    if (change.sizeChange())
         update();
 }
 
@@ -672,7 +679,7 @@ QSGNode *QQuickShaderEffectSource::updatePaintNode(QSGNode *oldNode, UpdatePaint
     m_texture->setDevicePixelRatio(d->window->effectiveDevicePixelRatio());
     m_texture->setSize(textureSize);
     m_texture->setRecursive(m_recursive);
-    m_texture->setFormat(GLenum(m_format));
+    m_texture->setFormat(m_format);
     m_texture->setHasMipmaps(m_mipmap);
     m_texture->setMirrorHorizontal(m_textureMirroring & MirrorHorizontally);
     m_texture->setMirrorVertical(m_textureMirroring & MirrorVertically);
@@ -701,9 +708,9 @@ QSGNode *QQuickShaderEffectSource::updatePaintNode(QSGNode *oldNode, UpdatePaint
         return 0;
     }
 
-    QSGImageNode *node = static_cast<QSGImageNode *>(oldNode);
+    QSGInternalImageNode *node = static_cast<QSGInternalImageNode *>(oldNode);
     if (!node) {
-        node = d->sceneGraphContext()->createImageNode();
+        node = d->sceneGraphContext()->createInternalImageNode();
         node->setFlag(QSGNode::UsePreprocess);
         node->setTexture(m_texture);
         QQuickShaderSourceAttachedNode *attached = new QQuickShaderSourceAttachedNode;
@@ -749,5 +756,6 @@ void QQuickShaderEffectSource::itemChange(ItemChange change, const ItemChangeDat
 }
 
 #include "qquickshadereffectsource.moc"
+#include "moc_qquickshadereffectsource_p.cpp"
 
 QT_END_NAMESPACE

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -58,7 +64,7 @@ public:
     bool *m_wasDeleted;
 
 protected:
-    void finished() Q_DECL_OVERRIDE;
+    void finished() override;
 };
 
 
@@ -240,7 +246,7 @@ void QQuickItemViewTransitioner::resetTargetLists()
     moveTransitionTargets.clear();
 }
 
-QQuickTransition *QQuickItemViewTransitioner::transitionObject(QQuickItemViewTransitioner::TransitionType type, bool asTarget)
+QQuickTransition *QQuickItemViewTransitioner::transitionObject(QQuickItemViewTransitioner::TransitionType type, bool asTarget) const
 {
     if (type == QQuickItemViewTransitioner::NoTransition)
         return 0;
@@ -633,7 +639,7 @@ QQuickViewTransitionAttached::QQuickViewTransitionAttached(QObject *parent)
     attached property can be used to augment view transitions.
 
 
-    \section2 View transitions: a simple example
+    \section2 View Transitions: a Simple Example
 
     Here is a basic example of the use of view transitions. The view below specifies transitions for
     the \c add and \c displaced properties, which will be run when items are added to the view:
@@ -662,7 +668,7 @@ QQuickViewTransitionAttached::QQuickViewTransitionAttached(QObject *parent)
     are some examples of how this can be achieved.
 
 
-    \section2 Using the ViewTransition attached property
+    \section2 Using the ViewTransition Attached Property
 
     As stated, the various ViewTransition properties provide details specific to the individual item
     being transitioned as well as the operation that triggered the transition. In the animation above,
@@ -713,7 +719,7 @@ QQuickViewTransitionAttached::QQuickViewTransitionAttached(QObject *parent)
     that is triggered by a particular add operation.
 
 
-    \section3 Delaying animations based on index
+    \section3 Delaying Animations Based on Index
 
     Since each view transition is run once for each item affected by the transition, the ViewTransition
     properties can be used within a transition to define custom behavior for each item's transition.
@@ -732,7 +738,7 @@ QQuickViewTransitionAttached::QQuickViewTransitionAttached(QObject *parent)
     \image viewtransitions-delayedbyindex.gif
 
 
-    \section3 Animating items to intermediate positions
+    \section3 Animating Items to Intermediate Positions
 
     The ViewTransition.item property gives a reference to the item to which the transition is being
     applied. This can be used to access any of the item's attributes, custom \c property values,
@@ -769,7 +775,7 @@ QQuickViewTransitionAttached::QQuickViewTransitionAttached(QObject *parent)
     \image viewtransitions-pathanim.gif
 
 
-    \section2 Handling interrupted animations
+    \section2 Handling Interrupted Animations
 
     A view transition may be interrupted at any time if a different view transition needs to be
     applied while the original transition is in progress. For example, say Item A is inserted at index 0
@@ -813,7 +819,7 @@ QQuickViewTransitionAttached::QQuickViewTransitionAttached(QObject *parent)
     properties.
 
 
-    \section2 Restrictions regarding ScriptAction
+    \section2 Restrictions Regarding ScriptAction
 
     When a view transition is initialized, any property bindings that refer to the ViewTransition
     attached property are evaluated in preparation for the transition. Due to the nature of the
@@ -936,3 +942,5 @@ QQuickViewTransitionAttached *QQuickViewTransitionAttached::qmlAttachedPropertie
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickitemviewtransition_p.cpp"

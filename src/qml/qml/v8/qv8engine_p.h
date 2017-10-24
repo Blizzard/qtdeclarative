@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -54,29 +60,22 @@
 #include <QtCore/QElapsedTimer>
 #include <QtCore/QThreadStorage>
 
-#include <qjsengine.h>
+#include <QtQml/qjsengine.h>
 #include "private/qintrusivelist_p.h"
 
-#include <private/qqmlpropertycache_p.h>
 
-#include <private/qv4qobjectwrapper_p.h>
 #include <private/qv4value_p.h>
-#include <private/qv4object_p.h>
 #include <private/qv4identifier_p.h>
-#include <private/qqmlcontextwrapper_p.h>
+#include <private/qv4context_p.h>
+#include <private/qqmldelayedcallqueue_p.h>
 
 QT_BEGIN_NAMESPACE
 
 namespace QV4 {
     struct ArrayObject;
     struct ExecutionEngine;
+    struct QObjectMethod;
 }
-
-// Uncomment the following line to enable global handle debugging.  When enabled, all the persistent
-// handles allocated using qPersistentNew() (or registered with qPersistentRegsiter()) and disposed
-// with qPersistentDispose() are tracked.  If you try and do something illegal, like double disposing
-// a handle, qFatal() is called.
-// #define QML_GLOBAL_HANDLE_DEBUGGING
 
 #define V4THROW_ERROR(string) \
     return ctx->engine()->throwError(QString::fromUtf8(string));
@@ -113,13 +112,12 @@ namespace QV4 {
 // The QQmlV8Function - and consequently the arguments and return value - only remains
 // valid during the call.  If the return value isn't set within myMethod(), the will return
 // undefined.
-class QV8Engine;
 
 class QQmlV4Function
 {
 public:
     int length() const { return callData->argc; }
-    QV4::ReturnedValue operator[](int idx) { return (idx < callData->argc ? callData->args[idx].asReturnedValue() : QV4::Encode::undefined()); }
+    QV4::ReturnedValue operator[](int idx) const { return (idx < callData->argc ? callData->args[idx].asReturnedValue() : QV4::Encode::undefined()); }
     void setReturnValue(QV4::ReturnedValue rv) { *retVal = rv; }
     QV4::ExecutionEngine *v4engine() const { return e; }
 private:
@@ -181,18 +179,21 @@ public:
     QQmlEngine *engine() { return m_engine; }
     QJSEngine *publicEngine() { return q; }
     QV4::ReturnedValue global();
+    QQmlDelayedCallQueue *delayedCallQueue() { return &m_delayedCallQueue; }
 
-    void *xmlHttpRequestData() { return m_xmlHttpRequestData; }
+    void *xmlHttpRequestData() const { return m_xmlHttpRequestData; }
 
-    Deletable *listModelData() { return m_listModelData; }
+    Deletable *listModelData() const { return m_listModelData; }
     void setListModelData(Deletable *d) { if (m_listModelData) delete m_listModelData; m_listModelData = d; }
 
     void freezeObject(const QV4::Value &value);
 
+#if QT_CONFIG(qml_network)
     // Return the network access manager for this engine.  By default this returns the network
     // access manager of the QQmlEngine.  It is overridden in the case of a threaded v8
     // instance (like in WorkerScript).
     virtual QNetworkAccessManager *networkAccessManager();
+#endif
 
     // Return the list of illegal id names (the names of the properties on the global object)
     const QSet<QString> &illegalNames() const;
@@ -214,6 +215,7 @@ public:
 protected:
     QJSEngine* q;
     QQmlEngine *m_engine;
+    QQmlDelayedCallQueue m_delayedCallQueue;
 
     QV4::ExecutionEngine *m_v4Engine;
 

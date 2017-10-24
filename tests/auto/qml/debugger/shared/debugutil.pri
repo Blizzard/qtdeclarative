@@ -1,8 +1,4 @@
-HEADERS += $$PWD/debugutil_p.h \
-           $$PWD/qqmldebugclient.h \
-           $$PWD/../../../../../src/plugins/qmltooling/shared/qpacketprotocol.h
+QT += qmldebug-private
 
-SOURCES += $$PWD/debugutil.cpp \
-           $$PWD/qqmldebugclient.cpp \
-           $$PWD/../../../../../src/plugins/qmltooling/shared/qpacketprotocol.cpp
-
+HEADERS += $$PWD/debugutil_p.h
+SOURCES += $$PWD/debugutil.cpp

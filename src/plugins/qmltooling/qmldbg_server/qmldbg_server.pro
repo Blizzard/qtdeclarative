@@ -1,15 +1,14 @@
 TARGET = qmldbg_server
-QT = qml-private core-private
+QT = qml-private packetprotocol-private
 
 SOURCES += \
-    $$PWD/qqmldebugserver.cpp \
-    $$PWD/../shared/qpacketprotocol.cpp
+    $$PWD/qqmldebugserver.cpp
 
 HEADERS += \
     $$PWD/qqmldebugserverfactory.h \
     $$PWD/../shared/qqmldebugserver.h \
-    $$PWD/../shared/qpacketprotocol.h \
-    $$PWD/../shared/qqmldebugserverconnection.h
+    $$PWD/../shared/qqmldebugserverconnection.h \
+    $$PWD/../shared/qqmldebugpacket.h
 
 INCLUDEPATH += $$PWD \
     $$PWD/../shared

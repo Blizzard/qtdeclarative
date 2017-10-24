@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -34,15 +40,15 @@
 #include "qquickanimatedimage_p.h"
 #include "qquickanimatedimage_p_p.h"
 
-#ifndef QT_NO_MOVIE
-
 #include <QtGui/qguiapplication.h>
 #include <QtQml/qqmlinfo.h>
 #include <QtQml/qqmlfile.h>
 #include <QtQml/qqmlengine.h>
 #include <QtGui/qmovie.h>
+#if QT_CONFIG(qml_network)
 #include <QtNetwork/qnetworkrequest.h>
 #include <QtNetwork/qnetworkreply.h>
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -61,7 +67,7 @@ QQuickPixmap* QQuickAnimatedImagePrivate::infoForCurrentFrame(QQmlEngine *engine
                                 .arg(current));
         }
         if (!requestedUrl.isEmpty()) {
-            if (QQuickPixmap::isCached(requestedUrl, QSize()))
+            if (QQuickPixmap::isCached(requestedUrl, QSize(), QQuickImageProviderOptions()))
                 pixmap = new QQuickPixmap(engine, requestedUrl);
             else
                 pixmap = new QQuickPixmap(requestedUrl, _movie->currentImage());
@@ -138,8 +144,10 @@ QQuickAnimatedImage::QQuickAnimatedImage(QQuickItem *parent)
 QQuickAnimatedImage::~QQuickAnimatedImage()
 {
     Q_D(QQuickAnimatedImage);
+#if QT_CONFIG(qml_network)
     if (d->reply)
         d->reply->deleteLater();
+#endif
     delete d->_movie;
     qDeleteAll(d->frameMap);
     d->frameMap.clear();
@@ -258,10 +266,12 @@ void QQuickAnimatedImage::setSource(const QUrl &url)
     if (url == d->url)
         return;
 
+#if QT_CONFIG(qml_network)
     if (d->reply) {
         d->reply->deleteLater();
         d->reply = 0;
     }
+#endif
 
     d->setImage(QImage());
     qDeleteAll(d->frameMap);
@@ -269,8 +279,7 @@ void QQuickAnimatedImage::setSource(const QUrl &url)
 
     d->oldPlaying = isPlaying();
     if (d->_movie) {
-        delete d->_movie;
-        d->_movie = 0;
+        d->setMovie(nullptr);
     }
 
     d->url = url;
@@ -310,9 +319,10 @@ void QQuickAnimatedImage::load()
         QString lf = QQmlFile::urlToLocalFileOrQrc(loadUrl);
 
         if (!lf.isEmpty()) {
-            d->_movie = new QMovie(lf);
+            d->setMovie(new QMovie(lf));
             movieRequestFinished();
         } else {
+#if QT_CONFIG(qml_network)
             if (d->status != Loading) {
                 d->status = Loading;
                 emit statusChanged(d->status);
@@ -329,6 +339,7 @@ void QQuickAnimatedImage::load()
                             this, SLOT(movieRequestFinished()));
             QObject::connect(d->reply, SIGNAL(downloadProgress(qint64,qint64)),
                             this, SLOT(requestProgress(qint64,qint64)));
+#endif
         }
     }
 }
@@ -337,8 +348,10 @@ void QQuickAnimatedImage::load()
 
 void QQuickAnimatedImage::movieRequestFinished()
 {
+
     Q_D(QQuickAnimatedImage);
 
+#if QT_CONFIG(qml_network)
     if (d->reply) {
         d->redirectCount++;
         if (d->redirectCount < ANIMATEDIMAGE_MAXIMUM_REDIRECT_RECURSION) {
@@ -352,13 +365,13 @@ void QQuickAnimatedImage::movieRequestFinished()
         }
 
         d->redirectCount=0;
-        d->_movie = new QMovie(d->reply);
+        d->setMovie(new QMovie(d->reply));
     }
+#endif
 
-    if (!d->_movie->isValid()) {
-        qmlInfo(this) << "Error Reading Animated Image File " << d->url.toString();
-        delete d->_movie;
-        d->_movie = 0;
+    if (!d->_movie || !d->_movie->isValid()) {
+        qmlWarning(this) << "Error Reading Animated Image File " << d->url.toString();
+        d->setMovie(nullptr);
         d->setImage(QImage());
         if (d->progress != 0) {
             d->progress = 0;
@@ -475,6 +488,18 @@ void QQuickAnimatedImage::componentComplete()
     load();
 }
 
+void QQuickAnimatedImagePrivate::setMovie(QMovie *movie)
+{
+    Q_Q(QQuickAnimatedImage);
+    const int oldFrameCount = q->frameCount();
+
+    delete _movie;
+    _movie = movie;
+
+    if (oldFrameCount != q->frameCount())
+        emit q->frameCountChanged();
+}
+
 QT_END_NAMESPACE
 
-#endif // QT_NO_MOVIE
+#include "moc_qquickanimatedimage_p.cpp"

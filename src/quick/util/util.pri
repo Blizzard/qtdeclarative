@@ -17,8 +17,6 @@ SOURCES += \
     $$PWD/qquickbehavior.cpp \
     $$PWD/qquickfontloader.cpp \
     $$PWD/qquickstyledtext.cpp \
-    $$PWD/qquickpath.cpp \
-    $$PWD/qquickpathinterpolator.cpp \
     $$PWD/qquickimageprovider.cpp \
     $$PWD/qquicksvgparser.cpp \
     $$PWD/qquickvaluetypes.cpp \
@@ -26,11 +24,11 @@ SOURCES += \
     $$PWD/qquickanimator.cpp \
     $$PWD/qquickanimatorjob.cpp \
     $$PWD/qquickanimatorcontroller.cpp \
-    $$PWD/qquickprofiler.cpp \
     $$PWD/qquickfontmetrics.cpp \
     $$PWD/qquicktextmetrics.cpp \
-    $$PWD/qquickshortcut.cpp \
     $$PWD/qquickvalidator.cpp
+
+!contains(QT_CONFIG, no-qml-debug): SOURCES += $$PWD/qquickprofiler.cpp
 
 HEADERS += \
     $$PWD/qquickapplication_p.h\
@@ -54,9 +52,6 @@ HEADERS += \
     $$PWD/qquickbehavior_p.h \
     $$PWD/qquickfontloader_p.h \
     $$PWD/qquickstyledtext_p.h \
-    $$PWD/qquickpath_p.h \
-    $$PWD/qquickpath_p_p.h \
-    $$PWD/qquickpathinterpolator_p.h \
     $$PWD/qquickimageprovider.h \
     $$PWD/qquicksvgparser_p.h \
     $$PWD/qquickvaluetypes_p.h \
@@ -67,5 +62,21 @@ HEADERS += \
     $$PWD/qquickprofiler_p.h \
     $$PWD/qquickfontmetrics_p.h \
     $$PWD/qquicktextmetrics_p.h \
-    $$PWD/qquickshortcut_p.h \
     $$PWD/qquickvalidator_p.h
+
+qtConfig(shortcut) {
+    SOURCES += \
+        $$PWD/qquickshortcut.cpp
+    HEADERS += \
+        $$PWD/qquickshortcut_p.h
+}
+
+qtConfig(quick-path) {
+    SOURCES += \
+        $$PWD/qquickpath.cpp \
+        $$PWD/qquickpathinterpolator.cpp
+    HEADERS += \
+        $$PWD/qquickpath_p.h \
+        $$PWD/qquickpath_p_p.h \
+        $$PWD/qquickpathinterpolator_p.h
+}

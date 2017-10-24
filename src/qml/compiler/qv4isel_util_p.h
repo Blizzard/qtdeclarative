@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -52,6 +58,59 @@ QT_BEGIN_NAMESPACE
 
 namespace QV4 {
 
+struct TargetPrimitive32 {
+    static TargetPrimitive32 emptyValue() { TargetPrimitive32 p; p._val = quint64(Value::ValueTypeInternal_32::Empty) << 32; return p; }
+    static TargetPrimitive32 nullValue() { TargetPrimitive32 p; p._val = quint64(Value::ValueTypeInternal_32::Null) << 32; return p; }
+    static TargetPrimitive32 undefinedValue() { TargetPrimitive32 p; p._val = quint64(Value::Managed_Type_Internal_32) << 32; return p; }
+    static TargetPrimitive32 fromBoolean(bool b) { TargetPrimitive32 p; p._val = quint64(Value::ValueTypeInternal_32::Boolean) << 32 | quint64(b); return p; }
+    static TargetPrimitive32 fromInt32(int v) { TargetPrimitive32 p; p._val = quint64(Value::ValueTypeInternal_32::Integer) << 32 | quint32(v); return p; }
+    static TargetPrimitive32 fromDouble(double v) {
+        TargetPrimitive32 p;
+        memcpy(&p._val, &v, 8);
+        return p;
+    }
+    static TargetPrimitive32 fromUInt32(uint v) {
+        if (v < INT_MAX)
+            return fromInt32(qint32(v));
+        return fromDouble(double(v));
+    }
+
+    quint32 value() const { return _val & quint64(~quint32(0)); }
+    quint32 tag() const { return _val >> 32; }
+
+    quint64 rawValue() const { return _val; }
+
+private:
+    quint64 _val;
+};
+
+struct TargetPrimitive64 {
+    static TargetPrimitive64 emptyValue() { TargetPrimitive64 p; p._val = quint64(Value::ValueTypeInternal_64::Empty) << 32; return p; }
+    static TargetPrimitive64 nullValue() { TargetPrimitive64 p; p._val = quint64(Value::ValueTypeInternal_64::Null) << 32; return p; }
+    static TargetPrimitive64 undefinedValue() { TargetPrimitive64 p; p._val = 0; return p; }
+    static TargetPrimitive64 fromBoolean(bool b) { TargetPrimitive64 p; p._val = quint64(Value::ValueTypeInternal_64::Boolean) << 32 | quint64(b); return p; }
+    static TargetPrimitive64 fromInt32(int v) { TargetPrimitive64 p; p._val = quint64(Value::ValueTypeInternal_64::Integer) << 32 | quint32(v); return p; }
+    static TargetPrimitive64 fromDouble(double v) {
+        TargetPrimitive64 p;
+        memcpy(&p._val, &v, 8);
+        p._val ^= Value::NaNEncodeMask;
+        return p;
+    }
+    static TargetPrimitive64 fromUInt32(uint v) {
+        if (v < INT_MAX)
+            return fromInt32(qint32(v));
+        return fromDouble(double(v));
+    }
+
+    quint32 value() const { return _val & quint64(~quint32(0)); }
+    quint32 tag() const { return _val >> 32; }
+
+    quint64 rawValue() const { return _val; }
+
+private:
+    quint64 _val;
+};
+
 inline bool canConvertToSignedInteger(double value)
 {
     int ival = (int) value;
@@ -66,39 +125,40 @@ inline bool canConvertToUnsignedInteger(double value)
     return uval == value && !(value == 0 && isNegative(value));
 }
 
-inline Primitive convertToValue(IR::Const *c)
+template <typename PrimitiveType = Primitive>
+inline PrimitiveType convertToValue(IR::Const *c)
 {
     switch (c->type) {
     case IR::MissingType:
-        return Primitive::emptyValue();
+        return PrimitiveType::emptyValue();
     case IR::NullType:
-        return Primitive::nullValue();
+        return PrimitiveType::nullValue();
     case IR::UndefinedType:
-        return Primitive::undefinedValue();
+        return PrimitiveType::undefinedValue();
     case IR::BoolType:
-        return Primitive::fromBoolean(c->value != 0);
+        return PrimitiveType::fromBoolean(c->value != 0);
     case IR::SInt32Type:
-        return Primitive::fromInt32(int(c->value));
+        return PrimitiveType::fromInt32(int(c->value));
     case IR::UInt32Type:
-        return Primitive::fromUInt32(unsigned(c->value));
+        return PrimitiveType::fromUInt32(unsigned(c->value));
     case IR::DoubleType:
-        return Primitive::fromDouble(c->value);
+        return PrimitiveType::fromDouble(c->value);
     case IR::NumberType: {
         int ival = (int)c->value;
         if (canConvertToSignedInteger(c->value)) {
-            return Primitive::fromInt32(ival);
+            return PrimitiveType::fromInt32(ival);
         } else {
-            return Primitive::fromDouble(c->value);
+            return PrimitiveType::fromDouble(c->value);
         }
     }
     default:
         Q_UNREACHABLE();
     }
     // unreachable, but the function must return something
-    return Primitive::undefinedValue();
+    return PrimitiveType::undefinedValue();
 }
 
-class ConvertTemps: protected IR::StmtVisitor, protected IR::ExprVisitor
+class ConvertTemps
 {
     void renumber(IR::Temp *t)
     {
@@ -126,7 +186,7 @@ protected:
 
     virtual void process(IR::Stmt *s)
     {
-        s->accept(this);
+        visit(s);
     }
 
 public:
@@ -139,11 +199,11 @@ public:
     {
         _stackSlotForTemp.reserve(function->tempCount);
 
-        foreach (IR::BasicBlock *bb, function->basicBlocks()) {
+        for (IR::BasicBlock *bb : function->basicBlocks()) {
             if (bb->isRemoved())
                 continue;
             _currentBasicBlock = bb;
-            foreach (IR::Stmt *s, bb->statements())
+            for (IR::Stmt *s : bb->statements())
                 process(s);
         }
 
@@ -151,34 +211,28 @@ public:
     }
 
 protected:
-    virtual void visitConst(IR::Const *) {}
-    virtual void visitString(IR::String *) {}
-    virtual void visitRegExp(IR::RegExp *) {}
-    virtual void visitName(IR::Name *) {}
-    virtual void visitTemp(IR::Temp *e) { renumber(e); }
-    virtual void visitArgLocal(IR::ArgLocal *) {}
-    virtual void visitClosure(IR::Closure *) {}
-    virtual void visitConvert(IR::Convert *e) { e->expr->accept(this); }
-    virtual void visitUnop(IR::Unop *e) { e->expr->accept(this); }
-    virtual void visitBinop(IR::Binop *e) { e->left->accept(this); e->right->accept(this); }
-    virtual void visitCall(IR::Call *e) {
-        e->base->accept(this);
-        for (IR::ExprList *it = e->args; it; it = it->next)
-            it->expr->accept(this);
+    void visit(IR::Stmt *s) {
+        switch (s->stmtKind) {
+        case IR::Stmt::PhiStmt:
+            visitPhi(s->asPhi());
+            break;
+        default:
+            STMT_VISIT_ALL_KINDS(s);
+            break;
+        }
     }
-    virtual void visitNew(IR::New *e) {
-        e->base->accept(this);
-        for (IR::ExprList *it = e->args; it; it = it->next)
-            it->expr->accept(this);
+
+    virtual void visitPhi(IR::Phi *)
+    { Q_UNREACHABLE(); }
+
+private:
+    void visit(IR::Expr *e) {
+        if (auto temp = e->asTemp()) {
+            renumber(temp);
+        } else {
+            EXPR_VISIT_ALL_KINDS(e);
+        }
     }
-    virtual void visitSubscript(IR::Subscript *e) { e->base->accept(this); e->index->accept(this); }
-    virtual void visitMember(IR::Member *e) { e->base->accept(this); }
-    virtual void visitExp(IR::Exp *s) { s->expr->accept(this); }
-    virtual void visitMove(IR::Move *s) { s->target->accept(this); s->source->accept(this); }
-    virtual void visitJump(IR::Jump *) {}
-    virtual void visitCJump(IR::CJump *s) { s->cond->accept(this); }
-    virtual void visitRet(IR::Ret *s) { s->expr->accept(this); }
-    virtual void visitPhi(IR::Phi *) { Q_UNREACHABLE(); }
 };
 } // namespace QV4
 

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -48,7 +54,7 @@
 #include "private/qv8engine_p.h"
 #include <private/qv4mm_p.h>
 #include <private/qv4scopedvalue_p.h>
-
+#include <private/qv4qobjectwrapper_p.h>
 
 /*!
   \since 5.0
@@ -67,7 +73,8 @@
   For the object-based types (including Date and RegExp), use the
   newT() functions in QJSEngine (e.g. QJSEngine::newObject())
   to create a QJSValue of the desired type. For the primitive types,
-  use one of the QJSValue constructor overloads.
+  use one of the QJSValue constructor overloads. For other types, e.g.
+  registered gadget types such as QPoint, you can use QJSEngine::toScriptValue.
 
   The methods named isT() (e.g. isBool(), isUndefined()) can be
   used to test if a value is of a certain type. The methods named
@@ -172,7 +179,7 @@ QJSValue::QJSValue(SpecialValue value)
     : d(0)
 {
     if (value == NullValue)
-        QJSValuePrivate::setVariant(this, QVariant(QMetaType::VoidStar, (void *)0));
+        QJSValuePrivate::setVariant(this, QVariant::fromValue(nullptr));
 }
 
 /*!
@@ -287,7 +294,10 @@ bool QJSValue::isNull() const
     if (val)
         return val->isNull();
     QVariant *variant = QJSValuePrivate::getVariant(this);
-    return variant && variant->userType() == QMetaType::VoidStar;
+    if (!variant)
+        return false;
+    const int type = variant->userType();
+    return type == QMetaType::Nullptr || type == QMetaType::VoidStar;
 }
 
 /*!
@@ -576,7 +586,7 @@ quint32 QJSValue::toUInt() const
     \table
     \header \li Input Type \li Result
     \row    \li Undefined  \li An invalid QVariant.
-    \row    \li Null       \li A QVariant containing a null pointer (QMetaType::VoidStar).
+    \row    \li Null       \li A QVariant containing a null pointer (QMetaType::Nullptr).
     \row    \li Boolean    \li A QVariant containing the value of the boolean.
     \row    \li Number     \li A QVariant containing the value of the number.
     \row    \li String     \li A QVariant containing the value of the string.
@@ -603,8 +613,8 @@ QVariant QJSValue::toVariant() const
     if (Object *o = val->as<Object>())
         return o->engine()->toVariant(*val, /*typeHint*/ -1, /*createJSValueForObjects*/ false);
 
-    if (val->isString())
-        return QVariant(val->stringValue()->toQString());
+    if (String *s = val->stringValue())
+        return QVariant(s->toQString());
     if (val->isBoolean())
         return QVariant(val->booleanValue());
     if (val->isNumber()) {
@@ -613,7 +623,7 @@ QVariant QJSValue::toVariant() const
         return QVariant(val->asDouble());
     }
     if (val->isNull())
-        return QVariant(QMetaType::VoidStar, 0);
+        return QVariant(QMetaType::Nullptr, 0);
     Q_ASSERT(val->isUndefined());
     return QVariant();
 }
@@ -657,11 +667,11 @@ QJSValue QJSValue::call(const QJSValueList &args)
         callData->args[i] = QJSValuePrivate::convertedToValue(engine, args.at(i));
     }
 
-    ScopedValue result(scope, f->call(callData));
+    f->call(scope, callData);
     if (engine->hasException)
-        result = engine->catchException();
+        scope.result = engine->catchException();
 
-    return QJSValue(engine, result->asReturnedValue());
+    return QJSValue(engine, scope.result.asReturnedValue());
 }
 
 /*!
@@ -713,11 +723,11 @@ QJSValue QJSValue::callWithInstance(const QJSValue &instance, const QJSValueList
         callData->args[i] = QJSValuePrivate::convertedToValue(engine, args.at(i));
     }
 
-    ScopedValue result(scope, f->call(callData));
+    f->call(scope, callData);
     if (engine->hasException)
-        result = engine->catchException();
+        scope.result = engine->catchException();
 
-    return QJSValue(engine, result->asReturnedValue());
+    return QJSValue(engine, scope.result.asReturnedValue());
 }
 
 /*!
@@ -761,11 +771,11 @@ QJSValue QJSValue::callAsConstructor(const QJSValueList &args)
         callData->args[i] = QJSValuePrivate::convertedToValue(engine, args.at(i));
     }
 
-    ScopedValue result(scope, f->construct(callData));
+    f->construct(scope, callData);
     if (engine->hasException)
-        result = engine->catchException();
+        scope.result = engine->catchException();
 
-    return QJSValue(engine, result->asReturnedValue());
+    return QJSValue(engine, scope.result.asReturnedValue());
 }
 
 #ifdef QT_DEPRECATED
@@ -876,14 +886,14 @@ QJSValue& QJSValue::operator=(const QJSValue& other)
 
 static bool js_equal(const QString &string, const QV4::Value &value)
 {
-    if (value.isString())
-        return string == value.stringValue()->toQString();
+    if (String *s = value.stringValue())
+        return string == s->toQString();
     if (value.isNumber())
         return RuntimeHelpers::stringToNumber(string) == value.asDouble();
     if (value.isBoolean())
         return RuntimeHelpers::stringToNumber(string) == double(value.booleanValue());
-    if (value.isObject()) {
-        Scope scope(value.objectValue()->engine());
+    if (Object *o = value.objectValue()) {
+        Scope scope(o->engine());
         ScopedValue p(scope, RuntimeHelpers::toPrimitive(value, PREFERREDTYPE_HINT));
         return js_equal(string, p);
     }
@@ -932,7 +942,7 @@ bool QJSValue::equals(const QJSValue& other) const
     if (!ov)
         return other.equals(*this);
 
-    return Runtime::compareEqual(*v, *ov);
+    return Runtime::method_compareEqual(*v, *ov);
 }
 
 /*!
@@ -970,8 +980,8 @@ bool QJSValue::strictlyEquals(const QJSValue& other) const
             return *variant == *QJSValuePrivate::getVariant(&other);
         if (variant->type() == QVariant::Map || variant->type() == QVariant::List)
             return false;
-        if (ov->isString())
-            return variant->toString() == ov->stringValue()->toQString();
+        if (String *s = ov->stringValue())
+            return variant->toString() == s->toQString();
         return false;
     }
     if (!ov)
@@ -1009,7 +1019,7 @@ QJSValue QJSValue::property(const QString& name) const
     if (idx < UINT_MAX)
         return property(idx);
 
-    s->makeIdentifier(engine);
+    s->makeIdentifier();
     QV4::ScopedValue result(scope, o->get(s));
     if (engine->hasException)
         result = engine->catchException();
@@ -1080,7 +1090,7 @@ void QJSValue::setProperty(const QString& name, const QJSValue& value)
         return;
     }
 
-    s->makeIdentifier(scope.engine);
+    s->makeIdentifier();
     QV4::ScopedValue v(scope, QJSValuePrivate::convertedToValue(engine, value));
     o->put(s, v);
     if (engine->hasException)
@@ -1147,6 +1157,9 @@ void QJSValue::setProperty(quint32 arrayIndex, const QJSValue& value)
 bool QJSValue::deleteProperty(const QString &name)
 {
     QV4::ExecutionEngine *engine = QJSValuePrivate::engine(this);
+    if (!engine)
+        return false;
+
     Scope scope(engine);
     ScopedObject o(scope, QJSValuePrivate::getValue(this));
     if (!o)
@@ -1225,6 +1238,28 @@ QObject *QJSValue::toQObject() const
 }
 
 /*!
+  \since 5.8
+
+ * If this QJSValue is a QMetaObject, returns the QMetaObject pointer
+ * that the QJSValue represents; otherwise, returns 0.
+ *
+ * \sa isQMetaObject()
+ */
+const QMetaObject *QJSValue::toQMetaObject() const
+{
+    QV4::ExecutionEngine *engine = QJSValuePrivate::engine(this);
+    if (!engine)
+        return 0;
+    QV4::Scope scope(engine);
+    QV4::Scoped<QV4::QMetaObjectWrapper> wrapper(scope, QJSValuePrivate::getValue(this));
+    if (!wrapper)
+        return 0;
+
+    return wrapper->metaObject();
+}
+
+
+/*!
   Returns a QDateTime representation of this value, in local time.
   If this QJSValue is not a date, or the value of the date is NaN
   (Not-a-Number), an invalid QDateTime is returned.
@@ -1275,6 +1310,20 @@ bool QJSValue::isQObject() const
 {
     QV4::Value *val = QJSValuePrivate::getValue(this);
     return val && val->as<QV4::QObjectWrapper>() != 0;
+}
+
+/*!
+  \since 5.8
+
+  Returns true if this QJSValue is a QMetaObject; otherwise returns
+  false.
+
+  \sa toQMetaObject(), QJSEngine::newQMetaObject()
+*/
+bool QJSValue::isQMetaObject() const
+{
+    QV4::Value *val = QJSValuePrivate::getValue(this);
+    return val && val->as<QV4::QMetaObjectWrapper>() != 0;
 }
 
 QT_END_NAMESPACE

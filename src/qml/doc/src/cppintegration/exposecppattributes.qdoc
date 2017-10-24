@@ -71,7 +71,7 @@ type that is supported by the QML engine.
 By default, the engine supports a number of Qt C++ types and can automatically
 convert them as appropriately when used from QML. Additionally, C++ classes
 that are \l{Registering C++ types with the QML type system}{registered} with
-the QML type system can be can be used as data types, as can their enums if
+the QML type system can be used as data types, as can their enums if
 appropriately registered. See \l{qtqml-cppintegration-data.html}{Data Type
 Conversion Between QML and C++} for further information.
 
@@ -267,7 +267,7 @@ class MessageBoard : public QObject
     Q_OBJECT
     Q_PROPERTY(QQmlListProperty<Message> messages READ messages)
 public:
-    QQmlListProperty<Message> messages() const;
+    QQmlListProperty<Message> messages();
 
 private:
     static void append_message(QQmlListProperty<Message> *list, Message *msg);
@@ -301,6 +301,7 @@ Note that the template class type for the QQmlListProperty — in this case,
 
 
 \section2 Grouped Properties
+\keyword Integrating QML and C++ - Grouped Properties
 
 Any read-only object-type property is accessible from QML code as a
 \e {grouped property}. This can be used to expose a group of related
@@ -390,8 +391,8 @@ that is a public slot:
 \endcode
 
 If an instance of \c MessageBoard was set as the context data for a file \c
-MyItem.qml, as shown below left, then \c MyItem.qml could invoke the two
-methods, as shown below right:
+MyItem.qml, then \c MyItem.qml could invoke the two methods as shown in the
+examples below:
 
 \table
 \row

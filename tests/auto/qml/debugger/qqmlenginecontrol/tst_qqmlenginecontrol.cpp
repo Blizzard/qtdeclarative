@@ -1,90 +1,69 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
 
-#include <qtest.h>
-#include <QLibraryInfo>
-
 #include "debugutil_p.h"
-#include "qqmldebugclient.h"
 #include "../../../shared/util.h"
+
+#include <private/qqmldebugclient_p.h>
+#include <private/qqmldebugconnection_p.h>
+#include <private/qpacket_p.h>
+#include <private/qqmlenginecontrolclient_p.h>
+
+#include <QtTest/qtest.h>
+#include <private/qtestresult_p.h>
+#include <QtCore/qlibraryinfo.h>
 
 #define STR_PORT_FROM "13773"
 #define STR_PORT_TO "13783"
 
-class QQmlEngineControlClient : public QQmlDebugClient
+class QQmlEngineBlocker : public QObject
 {
     Q_OBJECT
 public:
-    enum MessageType {
-        EngineAboutToBeAdded,
-        EngineAdded,
-        EngineAboutToBeRemoved,
-        EngineRemoved,
+    QQmlEngineBlocker(QQmlEngineControlClient *parent);
 
-        MaximumMessageType
-    };
-
-    enum CommandType {
-        StartWaitingEngine,
-        StopWaitingEngine,
-
-        MaximumCommandType
-    };
-
-    QQmlEngineControlClient(QQmlDebugConnection *connection)
-        : QQmlDebugClient(QLatin1String("EngineControl"), connection)
-    {}
-
-
-    void command(CommandType command, int engine) {
-        QByteArray message;
-        QDataStream stream(&message, QIODevice::WriteOnly);
-        stream << (int)command << engine;
-        sendMessage(message);
-    }
-
-    QList<int> startingEngines;
-    QList<int> stoppingEngines;
-
-signals:
-    void engineAboutToBeAdded();
-    void engineAdded();
-    void engineAboutToBeRemoved();
-    void engineRemoved();
-
-protected:
-    void messageReceived(const QByteArray &message);
+public slots:
+    void blockEngine(int engineId, const QString &name);
 };
+
+QQmlEngineBlocker::QQmlEngineBlocker(QQmlEngineControlClient *parent): QObject(parent)
+{
+    connect(parent, &QQmlEngineControlClient::engineAboutToBeAdded,
+            this, &QQmlEngineBlocker::blockEngine);
+    connect(parent, &QQmlEngineControlClient::engineAboutToBeRemoved,
+            this, &QQmlEngineBlocker::blockEngine);
+}
+
+void QQmlEngineBlocker::blockEngine(int engineId, const QString &name)
+{
+    Q_UNUSED(name);
+    static_cast<QQmlEngineControlClient *>(parent())->blockEngine(engineId);
+}
 
 class tst_QQmlEngineControl : public QQmlDataTest
 {
@@ -96,7 +75,6 @@ public:
         , m_connection(0)
         , m_client(0)
     {}
-
 
 private:
     QQmlDebugProcess *m_process;
@@ -115,42 +93,6 @@ private slots:
     void stopEngine();
 };
 
-void QQmlEngineControlClient::messageReceived(const QByteArray &message)
-{
-    QByteArray msg = message;
-    QDataStream stream(&msg, QIODevice::ReadOnly);
-
-    int messageType;
-    int engineId;
-    stream >> messageType >> engineId;
-
-    switch (messageType) {
-    case EngineAboutToBeAdded:
-        startingEngines.append(engineId);
-        emit engineAboutToBeAdded();
-        break;
-    case EngineAdded:
-        QVERIFY(startingEngines.contains(engineId));
-        startingEngines.removeOne(engineId);
-        emit engineAdded();
-        break;
-    case EngineAboutToBeRemoved:
-        stoppingEngines.append(engineId);
-        emit engineAboutToBeRemoved();
-        break;
-    case EngineRemoved:
-        QVERIFY(stoppingEngines.contains(engineId));
-        stoppingEngines.removeOne(engineId);
-        emit engineRemoved();
-        break;
-    default:
-        QString failMsg = QString("Unknown message type:") + messageType;
-        QFAIL(qPrintable(failMsg));
-        break;
-    }
-    QVERIFY(stream.atEnd());
-}
-
 void tst_QQmlEngineControl::connect(const QString &testFile, bool restrictServices)
 {
     const QString executable = QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmlscene";
@@ -167,11 +109,17 @@ void tst_QQmlEngineControl::connect(const QString &testFile, bool restrictServic
 
     m_connection = new QQmlDebugConnection();
     m_client = new QQmlEngineControlClient(m_connection);
+    new QQmlEngineBlocker(m_client);
+    QList<QQmlDebugClient *> others = QQmlDebugTest::createOtherClients(m_connection);
 
     const int port = m_process->debugPort();
     m_connection->connectToHost(QLatin1String("127.0.0.1"), port);
 
     QTRY_COMPARE(m_client->state(), QQmlDebugClient::Enabled);
+    foreach (QQmlDebugClient *other, others)
+        QCOMPARE(other->state(), restrictServices ? QQmlDebugClient::Unavailable :
+                                                    QQmlDebugClient::Enabled);
+    qDeleteAll(others);
 }
 
 void tst_QQmlEngineControl::cleanup()
@@ -179,8 +127,8 @@ void tst_QQmlEngineControl::cleanup()
     if (QTest::currentTestFailed()) {
         qDebug() << "Process State:" << (m_process ? m_process->state() : QLatin1String("null"));
         qDebug() << "Application Output:" << (m_process ? m_process->output() : QLatin1String("null"));
-        qDebug() << "Connection State:" << (m_connection ? m_connection->stateString() : QLatin1String("null"));
-        qDebug() << "Client State:" << (m_client ? m_client->stateString() : QLatin1String("null"));
+        qDebug() << "Connection State:" << QQmlDebugTest::connectionStateString(m_connection);
+        qDebug() << "Client State:" << QQmlDebugTest::clientStateString(m_client);
     }
     delete m_process;
     m_process = 0;
@@ -207,11 +155,13 @@ void tst_QQmlEngineControl::startEngine()
     QFETCH(bool, restrictMode);
 
     connect("test.qml", restrictMode);
+    if (QTest::currentTestFailed() || QTestResult::skipCurrentTest())
+        return;
 
-    QTRY_VERIFY(!m_client->startingEngines.empty());
-    m_client->command(QQmlEngineControlClient::StartWaitingEngine, m_client->startingEngines.last());
+    QTRY_VERIFY(!m_client->blockedEngines().empty());
+    m_client->releaseEngine(m_client->blockedEngines().last());
 
-    QVERIFY2(QQmlDebugTest::waitForSignal(m_client, SIGNAL(engineAdded())),
+    QVERIFY2(QQmlDebugTest::waitForSignal(m_client, SIGNAL(engineAdded(int,QString))),
              "No engine start message received in time.");
 }
 
@@ -225,17 +175,19 @@ void tst_QQmlEngineControl::stopEngine()
     QFETCH(bool, restrictMode);
 
     connect("exit.qml", restrictMode);
+    if (QTest::currentTestFailed() || QTestResult::skipCurrentTest())
+        return;
 
-    QTRY_VERIFY(!m_client->startingEngines.empty());
-    m_client->command(QQmlEngineControlClient::StartWaitingEngine, m_client->startingEngines.last());
+    QTRY_VERIFY(!m_client->blockedEngines().empty());
+    m_client->releaseEngine(m_client->blockedEngines().last());
 
-    QVERIFY2(QQmlDebugTest::waitForSignal(m_client, SIGNAL(engineAdded())),
+    QVERIFY2(QQmlDebugTest::waitForSignal(m_client, SIGNAL(engineAdded(int,QString))),
              "No engine start message received in time.");
 
-    QVERIFY2(QQmlDebugTest::waitForSignal(m_client, SIGNAL(engineAboutToBeRemoved())),
+    QVERIFY2(QQmlDebugTest::waitForSignal(m_client, SIGNAL(engineAboutToBeRemoved(int,QString))),
              "No engine about to stop message received in time.");
-    m_client->command(QQmlEngineControlClient::StopWaitingEngine, m_client->stoppingEngines.last());
-    QVERIFY2(QQmlDebugTest::waitForSignal(m_client, SIGNAL(engineRemoved())),
+    m_client->releaseEngine(m_client->blockedEngines().last());
+    QVERIFY2(QQmlDebugTest::waitForSignal(m_client, SIGNAL(engineRemoved(int,QString))),
              "No engine stop message received in time.");
 }
 

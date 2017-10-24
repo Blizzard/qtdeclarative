@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -33,13 +39,14 @@
 
 #include "qv4isel_util_p.h"
 #include "qv4isel_moth_p.h"
-#include "qv4vme_moth_p.h"
 #include "qv4ssa_p.h"
-#include <private/qv4debugging_p.h>
-#include <private/qv4function_p.h>
-#include <private/qv4regexpobject_p.h>
 #include <private/qv4compileddata_p.h>
-#include <private/qqmlengine_p.h>
+#include <wtf/MathExtras.h>
+
+#if !defined(V4_BOOTSTRAP)
+#include "qv4vme_moth_p.h"
+#include <private/qv4function_p.h>
+#endif
 
 #undef USE_TYPE_INFO
 
@@ -48,21 +55,21 @@ using namespace QV4::Moth;
 
 namespace {
 
-inline QV4::Runtime::BinaryOperation aluOpFunction(IR::AluOp op)
+inline QV4::Runtime::RuntimeMethods aluOpFunction(IR::AluOp op)
 {
     switch (op) {
     case IR::OpInvalid:
-        return 0;
+        return QV4::Runtime::InvalidRuntimeMethod;
     case IR::OpIfTrue:
-        return 0;
+        return QV4::Runtime::InvalidRuntimeMethod;
     case IR::OpNot:
-        return 0;
+        return QV4::Runtime::InvalidRuntimeMethod;
     case IR::OpUMinus:
-        return 0;
+        return QV4::Runtime::InvalidRuntimeMethod;
     case IR::OpUPlus:
-        return 0;
+        return QV4::Runtime::InvalidRuntimeMethod;
     case IR::OpCompl:
-        return 0;
+        return QV4::Runtime::InvalidRuntimeMethod;
     case IR::OpBitAnd:
         return QV4::Runtime::bitAnd;
     case IR::OpBitOr:
@@ -70,7 +77,7 @@ inline QV4::Runtime::BinaryOperation aluOpFunction(IR::AluOp op)
     case IR::OpBitXor:
         return QV4::Runtime::bitXor;
     case IR::OpAdd:
-        return 0;
+        return QV4::Runtime::InvalidRuntimeMethod;
     case IR::OpSub:
         return QV4::Runtime::sub;
     case IR::OpMul:
@@ -102,16 +109,16 @@ inline QV4::Runtime::BinaryOperation aluOpFunction(IR::AluOp op)
     case IR::OpStrictNotEqual:
         return QV4::Runtime::strictNotEqual;
     case IR::OpInstanceof:
-        return 0;
+        return QV4::Runtime::InvalidRuntimeMethod;
     case IR::OpIn:
-        return 0;
+        return QV4::Runtime::InvalidRuntimeMethod;
     case IR::OpAnd:
-        return 0;
+        return QV4::Runtime::InvalidRuntimeMethod;
     case IR::OpOr:
-        return 0;
+        return QV4::Runtime::InvalidRuntimeMethod;
     default:
         Q_ASSERT(!"Unknown AluOp");
-        return 0;
+        return QV4::Runtime::InvalidRuntimeMethod;
     }
 };
 
@@ -145,8 +152,8 @@ inline bool isBoolType(IR::Expr *e)
 
 } // anonymous namespace
 
-InstructionSelection::InstructionSelection(QQmlEnginePrivate *qmlEngine, QV4::ExecutableAllocator *execAllocator, IR::Module *module, QV4::Compiler::JSUnitGenerator *jsGenerator)
-    : EvalInstructionSelection(execAllocator, module, jsGenerator)
+InstructionSelection::InstructionSelection(QQmlEnginePrivate *qmlEngine, QV4::ExecutableAllocator *execAllocator, IR::Module *module, QV4::Compiler::JSUnitGenerator *jsGenerator, EvalISelFactory *iselFactory)
+    : EvalInstructionSelection(execAllocator, module, jsGenerator, iselFactory)
     , qmlEngine(qmlEngine)
     , _block(0)
     , _codeStart(0)
@@ -202,7 +209,7 @@ void InstructionSelection::run(int functionIndex)
         ConvertTemps().toStackSlots(_function);
     }
 
-    QSet<IR::Jump *> removableJumps = opt.calculateOptionalJumps();
+    BitVector removableJumps = opt.calculateOptionalJumps();
     qSwap(_removableJumps, removableJumps);
 
     IR::Stmt *cs = 0;
@@ -218,7 +225,7 @@ void InstructionSelection::run(int functionIndex)
     addInstruction(push);
 
     currentLine = 0;
-    QVector<IR::BasicBlock *> basicBlocks = _function->basicBlocks();
+    const QVector<IR::BasicBlock *> &basicBlocks = _function->basicBlocks();
     for (int i = 0, ei = basicBlocks.size(); i != ei; ++i) {
         blockNeedsDebugInstruction = irModule->debugMode;
         _block = basicBlocks[i];
@@ -235,15 +242,21 @@ void InstructionSelection::run(int functionIndex)
                 addInstruction(set);
             }
             exceptionHandler = _block->catchBlock;
+        } else if (_block->catchBlock == nullptr && _block->index() != 0 && _block->in.isEmpty()) {
+            exceptionHandler = nullptr;
+            Instruction::SetExceptionHandler set;
+            set.offset = 0;
+            addInstruction(set);
         }
 
-        foreach (IR::Stmt *s, _block->statements()) {
+        for (IR::Stmt *s : _block->statements()) {
             _currentStatement = s;
 
             if (s->location.isValid()) {
                 if (s->location.startLine != currentLine) {
                     blockNeedsDebugInstruction = false;
                     currentLine = s->location.startLine;
+#ifndef QT_NO_QML_DEBUGGER
                     if (irModule->debugMode) {
                         Instruction::Debug debug;
                         debug.lineNumber = currentLine;
@@ -253,10 +266,11 @@ void InstructionSelection::run(int functionIndex)
                         line.lineNumber = currentLine;
                         addInstruction(line);
                     }
+#endif
                 }
             }
 
-            s->accept(this);
+            visit(s);
         }
     }
 
@@ -283,7 +297,7 @@ QQmlRefPointer<QV4::CompiledData::CompilationUnit> InstructionSelection::backend
 {
     compilationUnit->codeRefs.resize(irModule->functions.size());
     int i = 0;
-    foreach (IR::Function *irFunction, irModule->functions)
+    for (IR::Function *irFunction : qAsConst(irModule->functions))
         compilationUnit->codeRefs[i++] = codeRefs[irFunction];
     QQmlRefPointer<QV4::CompiledData::CompilationUnit> result;
     result.adopt(compilationUnit.take());
@@ -570,18 +584,20 @@ void InstructionSelection::setQObjectProperty(IR::Expr *source, IR::Expr *target
     addInstruction(store);
 }
 
-void InstructionSelection::getQmlContextProperty(IR::Expr *source, IR::Member::MemberKind kind, int index, IR::Expr *target)
+void InstructionSelection::getQmlContextProperty(IR::Expr *source, IR::Member::MemberKind kind, int index, bool captureRequired, IR::Expr *target)
 {
     if (kind == IR::Member::MemberOfQmlScopeObject) {
         Instruction::LoadScopeObjectProperty load;
         load.base = getParam(source);
         load.propertyIndex = index;
+        load.captureRequired = captureRequired;
         load.result = getResultParam(target);
         addInstruction(load);
     } else if (kind == IR::Member::MemberOfQmlContextObject) {
         Instruction::LoadContextObjectProperty load;
         load.base = getParam(source);
         load.propertyIndex = index;
+        load.captureRequired = captureRequired;
         load.result = getResultParam(target);
         addInstruction(load);
     } else if (kind == IR::Member::MemberOfIdObjectsArray) {
@@ -622,7 +638,7 @@ void InstructionSelection::getQObjectProperty(IR::Expr *base, int propertyIndex,
 
 void InstructionSelection::getElement(IR::Expr *base, IR::Expr *index, IR::Expr *target)
 {
-    if (useFastLookups) {
+    if (0 && useFastLookups) {
         Instruction::LoadElementLookup load;
         load.lookup = registerIndexedGetterLookup();
         load.base = getParam(base);
@@ -641,7 +657,7 @@ void InstructionSelection::getElement(IR::Expr *base, IR::Expr *index, IR::Expr 
 void InstructionSelection::setElement(IR::Expr *source, IR::Expr *targetBase,
                                       IR::Expr *targetIndex)
 {
-    if (useFastLookups) {
+    if (0 && useFastLookups) {
         Instruction::StoreElementLookup store;
         store.lookup = registerIndexedSetterLookup();
         store.base = getParam(targetBase);
@@ -881,16 +897,17 @@ Param InstructionSelection::binopHelper(IR::AluOp oper, IR::Expr *leftSource, IR
         binop.lhs = getParam(leftSource);
         binop.rhs = getParam(rightSource);
         binop.result = getResultParam(target);
-        Q_ASSERT(binop.alu);
+        Q_ASSERT(binop.alu != QV4::Runtime::InvalidRuntimeMethod);
         addInstruction(binop);
         return binop.result;
     } else {
+        auto binopFunc = aluOpFunction(oper);
+        Q_ASSERT(binopFunc != QV4::Runtime::InvalidRuntimeMethod);
         Instruction::Binop binop;
-        binop.alu = aluOpFunction(oper);
+        binop.alu = binopFunc;
         binop.lhs = getParam(leftSource);
         binop.rhs = getParam(rightSource);
         binop.result = getResultParam(target);
-        Q_ASSERT(binop.alu);
         addInstruction(binop);
         return binop.result;
     }
@@ -924,18 +941,25 @@ void InstructionSelection::prepareCallArgs(IR::ExprList *e, quint32 &argc, quint
     }
 }
 
-void InstructionSelection::visitJump(IR::Jump *s)
+void InstructionSelection::addDebugInstruction()
 {
-    if (s->target == _nextBlock)
-        return;
-    if (_removableJumps.contains(s))
-        return;
-
+#ifndef QT_NO_QML_DEBUGGER
     if (blockNeedsDebugInstruction) {
         Instruction::Debug debug;
         debug.lineNumber = -int(currentLine);
         addInstruction(debug);
     }
+#endif
+}
+
+void InstructionSelection::visitJump(IR::Jump *s)
+{
+    if (s->target == _nextBlock)
+        return;
+    if (_removableJumps.at(_block->index()))
+        return;
+
+    addDebugInstruction();
 
     Instruction::Jump jump;
     jump.offset = 0;
@@ -946,11 +970,7 @@ void InstructionSelection::visitJump(IR::Jump *s)
 
 void InstructionSelection::visitCJump(IR::CJump *s)
 {
-    if (blockNeedsDebugInstruction) {
-        Instruction::Debug debug;
-        debug.lineNumber = -int(currentLine);
-        addInstruction(debug);
-    }
+    addDebugInstruction();
 
     Param condition;
     if (IR::Temp *t = s->cond->asTemp()) {
@@ -985,12 +1005,8 @@ void InstructionSelection::visitCJump(IR::CJump *s)
 
 void InstructionSelection::visitRet(IR::Ret *s)
 {
-    if (blockNeedsDebugInstruction) {
-        // this is required so stepOut will always be guaranteed to stop in every stack frame
-        Instruction::Debug debug;
-        debug.lineNumber = -int(currentLine);
-        addInstruction(debug);
-    }
+    // this is required so stepOut will always be guaranteed to stop in every stack frame
+    addDebugInstruction();
 
     Instruction::Ret ret;
     ret.result = getParam(s->expr);
@@ -1170,8 +1186,11 @@ void InstructionSelection::callBuiltinPushWithScope(IR::Expr *arg)
 
 void InstructionSelection::callBuiltinPopScope()
 {
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_GCC("-Wuninitialized")
     Instruction::CallBuiltinPopScope call;
     addInstruction(call);
+    QT_WARNING_POP
 }
 
 void InstructionSelection::callBuiltinDeclareVar(bool deletable, const QString &name)
@@ -1320,18 +1339,16 @@ void InstructionSelection::callBuiltinSetupArgumentObject(IR::Expr *result)
 
 void QV4::Moth::InstructionSelection::callBuiltinConvertThisToObject()
 {
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_GCC("-Wuninitialized")
     Instruction::CallBuiltinConvertThisToObject call;
     addInstruction(call);
+    QT_WARNING_POP
 }
 
 ptrdiff_t InstructionSelection::addInstructionHelper(Instr::Type type, Instr &instr)
 {
-
-#ifdef MOTH_THREADED_INTERPRETER
-    instr.common.code = VME::instructionJumpTable()[static_cast<int>(type)];
-#else
     instr.common.instructionType = type;
-#endif
 
     int instructionSize = Instr::size(type);
     if (_codeEnd - _codeNext < instructionSize) {
@@ -1415,6 +1432,8 @@ CompilationUnit::~CompilationUnit()
 {
 }
 
+#if !defined(V4_BOOTSTRAP)
+
 void CompilationUnit::linkBackendToEngine(QV4::ExecutionEngine *engine)
 {
     runtimeFunctions.resize(data->functionTableSize);
@@ -1426,4 +1445,78 @@ void CompilationUnit::linkBackendToEngine(QV4::ExecutionEngine *engine)
         runtimeFunction->codeData = reinterpret_cast<const uchar *>(codeRefs.at(i).constData());
         runtimeFunctions[i] = runtimeFunction;
     }
+}
+
+bool CompilationUnit::memoryMapCode(QString *errorString)
+{
+    Q_UNUSED(errorString);
+    codeRefs.resize(data->functionTableSize);
+
+    const char *basePtr = reinterpret_cast<const char *>(data);
+
+    for (uint i = 0; i < data->functionTableSize; ++i) {
+        const CompiledData::Function *compiledFunction = data->functionAt(i);
+        const char *codePtr = const_cast<const char *>(reinterpret_cast<const char *>(basePtr + compiledFunction->codeOffset));
+        QByteArray code = QByteArray::fromRawData(codePtr, compiledFunction->codeSize);
+        codeRefs[i] = code;
+    }
+
+    return true;
+}
+
+#endif // V4_BOOTSTRAP
+
+void CompilationUnit::prepareCodeOffsetsForDiskStorage(CompiledData::Unit *unit)
+{
+    const int codeAlignment = 16;
+    quint64 offset = WTF::roundUpToMultipleOf(codeAlignment, unit->unitSize);
+    Q_ASSERT(int(unit->functionTableSize) == codeRefs.size());
+    for (int i = 0; i < codeRefs.size(); ++i) {
+        CompiledData::Function *compiledFunction = const_cast<CompiledData::Function *>(unit->functionAt(i));
+        compiledFunction->codeOffset = offset;
+        compiledFunction->codeSize = codeRefs.at(i).size();
+        offset = WTF::roundUpToMultipleOf(codeAlignment, offset + compiledFunction->codeSize);
+    }
+}
+
+bool CompilationUnit::saveCodeToDisk(QIODevice *device, const CompiledData::Unit *unit, QString *errorString)
+{
+    Q_ASSERT(device->pos() == unit->unitSize);
+    Q_ASSERT(device->atEnd());
+    Q_ASSERT(int(unit->functionTableSize) == codeRefs.size());
+
+    QByteArray padding;
+
+    for (int i = 0; i < codeRefs.size(); ++i) {
+        const CompiledData::Function *compiledFunction = unit->functionAt(i);
+
+        if (device->pos() > qint64(compiledFunction->codeOffset)) {
+            *errorString = QStringLiteral("Invalid state of cache file to write.");
+            return false;
+        }
+
+        const quint64 paddingSize = compiledFunction->codeOffset - device->pos();
+        padding.fill(0, paddingSize);
+        qint64 written = device->write(padding);
+        if (written != padding.size()) {
+            *errorString = device->errorString();
+            return false;
+        }
+
+        QByteArray code = codeRefs.at(i);
+
+        written = device->write(code.constData(), compiledFunction->codeSize);
+        if (written != qint64(compiledFunction->codeSize)) {
+            *errorString = device->errorString();
+            return false;
+        }
+    }
+    return true;
+}
+
+QQmlRefPointer<CompiledData::CompilationUnit> ISelFactory::createUnitForLoading()
+{
+    QQmlRefPointer<CompiledData::CompilationUnit> result;
+    result.adopt(new Moth::CompilationUnit);
+    return result;
 }

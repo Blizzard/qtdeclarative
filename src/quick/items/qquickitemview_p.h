@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -44,6 +50,10 @@
 //
 // We mean it.
 //
+
+#include <QtQuick/private/qtquickglobal_p.h>
+
+QT_REQUIRE_CONFIG(quick_itemview);
 
 #include "qquickflickable_p.h"
 #include <qpointer.h>
@@ -69,6 +79,7 @@ class Q_QUICK_PRIVATE_EXPORT QQuickItemView : public QQuickFlickable
     Q_PROPERTY(QQuickItem *currentItem READ currentItem NOTIFY currentItemChanged)
 
     Q_PROPERTY(bool keyNavigationWraps READ isWrapEnabled WRITE setWrapEnabled NOTIFY keyNavigationWrapsChanged)
+    Q_PROPERTY(bool keyNavigationEnabled READ isKeyNavigationEnabled WRITE setKeyNavigationEnabled NOTIFY keyNavigationEnabledChanged REVISION 7)
     Q_PROPERTY(int cacheBuffer READ cacheBuffer WRITE setCacheBuffer NOTIFY cacheBufferChanged)
     Q_PROPERTY(int displayMarginBeginning READ displayMarginBeginning WRITE setDisplayMarginBeginning NOTIFY displayMarginBeginningChanged REVISION 2)
     Q_PROPERTY(int displayMarginEnd READ displayMarginEnd WRITE setDisplayMarginEnd NOTIFY displayMarginEndChanged REVISION 2)
@@ -135,6 +146,9 @@ public:
 
     bool isWrapEnabled() const;
     void setWrapEnabled(bool);
+
+    bool isKeyNavigationEnabled() const;
+    void setKeyNavigationEnabled(bool);
 
     int cacheBuffer() const;
     void setCacheBuffer(int);
@@ -218,10 +232,10 @@ public:
     Q_INVOKABLE void positionViewAtEnd();
     Q_REVISION(1) Q_INVOKABLE void forceLayout();
 
-    void setContentX(qreal pos) Q_DECL_OVERRIDE;
-    void setContentY(qreal pos) Q_DECL_OVERRIDE;
-    qreal originX() const Q_DECL_OVERRIDE;
-    qreal originY() const Q_DECL_OVERRIDE;
+    void setContentX(qreal pos) override;
+    void setContentY(qreal pos) override;
+    qreal originX() const override;
+    qreal originY() const override;
 
 Q_SIGNALS:
     void modelChanged();
@@ -231,6 +245,7 @@ Q_SIGNALS:
     void currentItemChanged();
 
     void keyNavigationWrapsChanged();
+    Q_REVISION(7) void keyNavigationEnabledChanged();
     void cacheBufferChanged();
     void displayMarginBeginningChanged();
     void displayMarginEndChanged();
@@ -262,13 +277,13 @@ Q_SIGNALS:
     void highlightMoveDurationChanged();
 
 protected:
-    void updatePolish() Q_DECL_OVERRIDE;
-    void componentComplete() Q_DECL_OVERRIDE;
-    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) Q_DECL_OVERRIDE;
-    qreal minYExtent() const Q_DECL_OVERRIDE;
-    qreal maxYExtent() const Q_DECL_OVERRIDE;
-    qreal minXExtent() const Q_DECL_OVERRIDE;
-    qreal maxXExtent() const Q_DECL_OVERRIDE;
+    void updatePolish() override;
+    void componentComplete() override;
+    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+    qreal minYExtent() const override;
+    qreal maxYExtent() const override;
+    qreal minXExtent() const override;
+    qreal maxXExtent() const override;
 
 protected Q_SLOTS:
     void destroyRemoved();
@@ -301,7 +316,7 @@ public:
         : QObject(parent), m_isCurrent(false), m_delayRemove(false) {}
     ~QQuickItemViewAttached() {}
 
-    QQuickItemView *view() { return m_view; }
+    QQuickItemView *view() const { return m_view; }
     void setView(QQuickItemView *view) {
         if (view != m_view) {
             m_view = view;

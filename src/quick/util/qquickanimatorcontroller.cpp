@@ -1,31 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2016 Gunnar Sletta <gunnar@sletta.org>
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -44,226 +51,116 @@
 
 QT_BEGIN_NAMESPACE
 
-QQuickAnimatorController::QQuickAnimatorController(QQuickWindow *window)
-    : m_window(window)
-    , m_nodesAreInvalid(false)
-{
-    m_guiEntity = new QQuickAnimatorControllerGuiThreadEntity();
-    m_guiEntity->controller = this;
-    connect(window, SIGNAL(frameSwapped()), m_guiEntity, SLOT(frameSwapped()));
-}
-
-void QQuickAnimatorControllerGuiThreadEntity::frameSwapped()
-{
-    if (!controller.isNull())
-        controller->stopProxyJobs();
-}
-
 QQuickAnimatorController::~QQuickAnimatorController()
 {
-    // The proxy job might already have been deleted, in which case we
-    // need to avoid calling functions on them. Then delete the job.
-    foreach (QAbstractAnimationJob *job, m_deleting) {
-        m_starting.take(job);
-        m_stopping.take(job);
-        m_animatorRoots.take(job);
-        delete job;
-    }
-
-    foreach (QQuickAnimatorProxyJob *proxy, m_animatorRoots)
-        proxy->controllerWasDeleted();
-    qDeleteAll(m_animatorRoots.keys());
-
-    // Delete those who have been started, stopped and are now still
-    // pending for restart.
-    foreach (QAbstractAnimationJob *job, m_starting.keys()) {
-        if (!m_animatorRoots.contains(job))
-            delete job;
-    }
-
-    delete m_guiEntity;
 }
 
-static void qquickanimator_invalidate_node(QAbstractAnimationJob *job)
+QQuickAnimatorController::QQuickAnimatorController(QQuickWindow *window)
+    : m_window(window)
+{
+}
+
+static void qquickanimator_invalidate_jobs(QAbstractAnimationJob *job)
 {
     if (job->isRenderThreadJob()) {
-        static_cast<QQuickAnimatorJob *>(job)->nodeWasDestroyed();
+        static_cast<QQuickAnimatorJob *>(job)->invalidate();
     } else if (job->isGroup()) {
         QAnimationGroupJob *g = static_cast<QAnimationGroupJob *>(job);
         for (QAbstractAnimationJob *a = g->firstChild(); a; a = a->nextSibling())
-            qquickanimator_invalidate_node(a);
+            qquickanimator_invalidate_jobs(a);
     }
 }
 
 void QQuickAnimatorController::windowNodesDestroyed()
 {
-    m_nodesAreInvalid = true;
-    for (QHash<QAbstractAnimationJob *, QQuickAnimatorProxyJob *>::const_iterator it = m_animatorRoots.constBegin();
-         it != m_animatorRoots.constEnd(); ++it) {
-        qquickanimator_invalidate_node(it.key());
+    for (const QSharedPointer<QAbstractAnimationJob> &toStop : qAsConst(m_rootsPendingStop)) {
+        qquickanimator_invalidate_jobs(toStop.data());
+        toStop->stop();
     }
-}
+    m_rootsPendingStop.clear();
 
-void QQuickAnimatorController::itemDestroyed(QObject *o)
-{
-    m_deletedSinceLastFrame << (QQuickItem *) o;
+    // Clear animation roots and iterate over a temporary to avoid that job->stop()
+    // modifies the m_animationRoots and messes with our iteration
+    const auto roots = m_animationRoots;
+    m_animationRoots.clear();
+    for (const QSharedPointer<QAbstractAnimationJob> &job : roots) {
+        qquickanimator_invalidate_jobs(job.data());
+
+        // Stop it and add it to the list of pending start so it might get
+        // started later on.
+        job->stop();
+        m_rootsPendingStart.insert(job);
+    }
 }
 
 void QQuickAnimatorController::advance()
 {
     bool running = false;
-    for (QHash<QAbstractAnimationJob *, QQuickAnimatorProxyJob *>::const_iterator it = m_animatorRoots.constBegin();
-         !running && it != m_animatorRoots.constEnd(); ++it) {
-        if (it.key()->isRunning())
+    for (const QSharedPointer<QAbstractAnimationJob> &job : qAsConst(m_animationRoots)) {
+        if (job->isRunning()) {
             running = true;
+            break;
+        }
     }
 
-    // It was tempting to only run over the active animations, but we need to push
-    // the values for the transforms that finished in the last frame and those will
-    // have been removed already...
-    lock();
-    for (QHash<QQuickItem *, QQuickTransformAnimatorJob::Helper *>::const_iterator it = m_transforms.constBegin();
-         it != m_transforms.constEnd(); ++it) {
-        QQuickTransformAnimatorJob::Helper *xform = *it;
-        // Set to zero when the item was deleted in beforeNodeSync().
-        if (!xform->item)
-            continue;
-        (*it)->apply();
-    }
-    unlock();
+    for (QQuickAnimatorJob *job : qAsConst(m_runningAnimators))
+        job->commit();
 
     if (running)
         m_window->update();
 }
 
-static void qquick_initialize_helper(QAbstractAnimationJob *job, QQuickAnimatorController *c, bool attachListener)
+static void qquickanimator_sync_before_start(QAbstractAnimationJob *job)
 {
     if (job->isRenderThreadJob()) {
-        QQuickAnimatorJob *j = static_cast<QQuickAnimatorJob *>(job);
-        // Note: since a QQuickAnimatorJob::m_target is a QPointer,
-        // if m_target is destroyed between the time it was set
-        // as the target of the animator job and before this step,
-        // (e.g a Loader being set inactive just after starting the animator)
-        // we are sure it will be NULL and won't be dangling around
-        if (!j->target()) {
-            return;
-        } else if (c->m_deletedSinceLastFrame.contains(j->target())) {
-            j->targetWasDeleted();
-        } else {
-            if (attachListener)
-                j->addAnimationChangeListener(c, QAbstractAnimationJob::StateChange);
-            j->initialize(c);
-        }
+        static_cast<QQuickAnimatorJob *>(job)->preSync();
     } else if (job->isGroup()) {
         QAnimationGroupJob *g = static_cast<QAnimationGroupJob *>(job);
         for (QAbstractAnimationJob *a = g->firstChild(); a; a = a->nextSibling())
-            qquick_initialize_helper(a, c, attachListener);
+            qquickanimator_sync_before_start(a);
     }
 }
 
 void QQuickAnimatorController::beforeNodeSync()
 {
-    foreach (QAbstractAnimationJob *job, m_deleting) {
-        m_starting.take(job);
-        m_stopping.take(job);
-        m_animatorRoots.take(job);
-        job->stop();
-        delete job;
-    }
-    m_deleting.clear();
+    for (const QSharedPointer<QAbstractAnimationJob> &toStop : qAsConst(m_rootsPendingStop))
+        toStop->stop();
+    m_rootsPendingStop.clear();
 
-    if (m_starting.size())
-        m_window->update();
-    foreach (QQuickAnimatorProxyJob *proxy, m_starting) {
-        QAbstractAnimationJob *job = proxy->job();
-        job->addAnimationChangeListener(this, QAbstractAnimationJob::Completion);
-        qquick_initialize_helper(job, this, true);
-        m_animatorRoots[job] = proxy;
+
+    for (QQuickAnimatorJob *job : qAsConst(m_runningAnimators))
+        job->preSync();
+
+    // Start pending jobs
+    for (const QSharedPointer<QAbstractAnimationJob> &job : qAsConst(m_rootsPendingStart)) {
+        Q_ASSERT(!job->isRunning());
+
+        // We want to make sure that presync is called before
+        // updateAnimationTime is called the very first time, so before
+        // starting a tree of jobs, we go through it and call preSync on all
+        // its animators.
+        qquickanimator_sync_before_start(job.data());
+
+        // The start the job..
         job->start();
-        proxy->startedByController();
+        m_animationRoots.insert(job.data(), job);
     }
-    m_starting.clear();
+    m_rootsPendingStart.clear();
 
-    foreach (QQuickAnimatorProxyJob *proxy, m_stopping) {
-        QAbstractAnimationJob *job = proxy->job();
-        job->stop();
-    }
-    m_stopping.clear();
-
-    // First sync after a window was hidden or otherwise invalidated.
-    // call initialize again to pick up new nodes..
-    if (m_nodesAreInvalid) {
-        for (QHash<QAbstractAnimationJob *, QQuickAnimatorProxyJob *>::const_iterator it = m_animatorRoots.constBegin();
-             it != m_animatorRoots.constEnd(); ++it) {
-            qquick_initialize_helper(it.key(), this, false);
-        }
-        m_nodesAreInvalid = false;
-    }
-
-    foreach (QQuickAnimatorJob *job, m_activeLeafAnimations) {
-        if (!job->target())
-            continue;
-        else if (m_deletedSinceLastFrame.contains(job->target()))
-            job->targetWasDeleted();
-        else if (job->isTransform()) {
-            QQuickTransformAnimatorJob *xform = static_cast<QQuickTransformAnimatorJob *>(job);
-            xform->transformHelper()->sync();
-        }
-    }
-    foreach (QQuickItem *wiped, m_deletedSinceLastFrame) {
-        QQuickTransformAnimatorJob::Helper *helper = m_transforms.take(wiped);
-        // Helper will now already have been reset in all animators referencing it.
-        delete helper;
-    }
-
-    m_deletedSinceLastFrame.clear();
+    // Issue an update directly on the window to force another render pass.
+    if (m_animationRoots.size())
+        m_window->update();
 }
 
 void QQuickAnimatorController::afterNodeSync()
 {
-    foreach (QQuickAnimatorJob *job, m_activeLeafAnimations) {
-        if (job->target())
-            job->afterNodeSync();
-    }
-}
-
-void QQuickAnimatorController::proxyWasDestroyed(QQuickAnimatorProxyJob *proxy)
-{
-    lock();
-    m_proxiesToStop.remove(proxy);
-    unlock();
-}
-
-void QQuickAnimatorController::stopProxyJobs()
-{
-    // Need to make a copy under lock and then stop while unlocked.
-    // Stopping triggers writeBack which in turn may lock, so it needs
-    // to be outside the lock. It is also safe because deletion of
-    // proxies happens on the GUI thread, where this code is also executing.
-    lock();
-    QSet<QQuickAnimatorProxyJob *> jobs = m_proxiesToStop;
-    m_proxiesToStop.clear();
-    unlock();
-    foreach (QQuickAnimatorProxyJob *p, jobs)
-        p->stop();
+    for (QQuickAnimatorJob *job : qAsConst(m_runningAnimators))
+        job->postSync();
 }
 
 void QQuickAnimatorController::animationFinished(QAbstractAnimationJob *job)
 {
-    /* We are currently on the render thread and m_deleting is primarily
-     * being written on the GUI Thread and read during sync. However, we don't
-     * need to lock here as this is a direct result of animationDriver->advance()
-     * which is already locked. For non-threaded render loops no locking is
-     * needed in any case.
-     */
-    if (!m_deleting.contains(job)) {
-        QQuickAnimatorProxyJob *proxy = m_animatorRoots[job];
-        if (proxy) {
-            m_window->update();
-            m_proxiesToStop << proxy;
-        }
-        // else already gone...
-    }
+     m_animationRoots.remove(job);
 }
 
 void QQuickAnimatorController::animationStateChanged(QAbstractAnimationJob *job,
@@ -273,13 +170,12 @@ void QQuickAnimatorController::animationStateChanged(QAbstractAnimationJob *job,
     Q_ASSERT(job->isRenderThreadJob());
     QQuickAnimatorJob *animator = static_cast<QQuickAnimatorJob *>(job);
     if (newState == QAbstractAnimationJob::Running) {
-        m_activeLeafAnimations << animator;
-        animator->setHasBeenRunning(true);
+        m_runningAnimators.insert(animator);
     } else if (oldState == QAbstractAnimationJob::Running) {
-        m_activeLeafAnimations.remove(animator);
+        animator->commit();
+        m_runningAnimators.remove(animator);
     }
 }
-
 
 
 void QQuickAnimatorController::requestSync()
@@ -288,28 +184,40 @@ void QQuickAnimatorController::requestSync()
     m_window->maybeUpdate();
 }
 
-// These functions are called on the GUI thread.
-void QQuickAnimatorController::startJob(QQuickAnimatorProxyJob *proxy, QAbstractAnimationJob *job)
+// All this is being executed on the GUI thread while the animator controller
+// is locked.
+void QQuickAnimatorController::start_helper(QAbstractAnimationJob *job)
 {
-    proxy->markJobManagedByController();
-    m_starting[job] = proxy;
-    m_stopping.remove(job);
+    if (job->isRenderThreadJob()) {
+        QQuickAnimatorJob *j = static_cast<QQuickAnimatorJob *>(job);
+        j->addAnimationChangeListener(this, QAbstractAnimationJob::StateChange);
+        j->initialize(this);
+    } else if (job->isGroup()) {
+        QAnimationGroupJob *g = static_cast<QAnimationGroupJob *>(job);
+        for (QAbstractAnimationJob *a = g->firstChild(); a; a = a->nextSibling())
+            start_helper(a);
+    }
+}
+
+// Called by the proxy when it is time to kick off an animation job
+void QQuickAnimatorController::start(const QSharedPointer<QAbstractAnimationJob> &job)
+{
+    m_rootsPendingStart.insert(job);
+    m_rootsPendingStop.remove(job);
+    job->addAnimationChangeListener(this, QAbstractAnimationJob::Completion);
+    start_helper(job.data());
     requestSync();
 }
 
-void QQuickAnimatorController::stopJob(QQuickAnimatorProxyJob *proxy, QAbstractAnimationJob *job)
+
+// Called by the proxy when it is time to stop an animation job.
+void QQuickAnimatorController::cancel(const QSharedPointer<QAbstractAnimationJob> &job)
 {
-    m_stopping[job] = proxy;
-    m_starting.remove(job);
-    requestSync();
+    m_rootsPendingStart.remove(job);
+    m_rootsPendingStop.insert(job);
 }
 
-void QQuickAnimatorController::deleteJob(QAbstractAnimationJob *job)
-{
-    lock();
-    m_deleting << job;
-    requestSync();
-    unlock();
-}
 
 QT_END_NAMESPACE
+
+#include "moc_qquickanimatorcontroller_p.cpp"

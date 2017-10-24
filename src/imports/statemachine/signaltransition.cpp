@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2014 Ford Motor Company
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 Ford Motor Company
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -72,8 +78,9 @@ bool SignalTransition::eventTest(QEvent *event)
     // Set arguments as context properties
     int count = e->arguments().count();
     QMetaMethod metaMethod = e->sender()->metaObject()->method(e->signalIndex());
+    const auto parameterNames = metaMethod.parameterNames();
     for (int i = 0; i < count; i++)
-        context.setContextProperty(metaMethod.parameterNames()[i], QVariant::fromValue(e->arguments().at(i)));
+        context.setContextProperty(parameterNames[i], QVariant::fromValue(e->arguments().at(i)));
 
     QQmlExpression expr(m_guard, &context, this);
     QVariant result = expr.evaluate();
@@ -120,7 +127,7 @@ void SignalTransition::setSignal(const QJSValue &signal)
         Q_ASSERT(sender);
         signalMethod = sender->metaObject()->method(signalObject->signalIndex());
     } else {
-        qmlInfo(this) << tr("Specified signal does not exist.");
+        qmlWarning(this) << tr("Specified signal does not exist.");
         return;
     }
 
@@ -151,7 +158,7 @@ void SignalTransition::invoke()
 
 void SignalTransition::connectTriggered()
 {
-    if (!m_complete || !m_cdata)
+    if (!m_complete || !m_compilationUnit)
         return;
 
     QObject *target = senderObject();
@@ -171,7 +178,7 @@ void SignalTransition::connectTriggered()
 
     QQmlBoundSignalExpression *expression = ctxtdata ?
                 new QQmlBoundSignalExpression(target, signalIndex,
-                                              ctxtdata, this, m_cdata->compilationUnit->runtimeFunctions[binding->value.compiledScriptIndex]) : 0;
+                                              ctxtdata, this, m_compilationUnit->runtimeFunctions[binding->value.compiledScriptIndex]) : 0;
     if (expression)
         expression->setNotifyOnValueChanged(false);
     m_signalExpression = expression;
@@ -184,7 +191,7 @@ void SignalTransitionParser::verifyBindings(const QV4::CompiledData::Unit *qmlUn
 
         QString propName = qmlUnit->stringAt(binding->propertyNameIndex);
 
-        if (propName != QStringLiteral("onTriggered")) {
+        if (propName != QLatin1String("onTriggered")) {
             error(props.at(ii), SignalTransition::tr("Cannot assign to non-existent property \"%1\"").arg(propName));
             return;
         }
@@ -196,10 +203,10 @@ void SignalTransitionParser::verifyBindings(const QV4::CompiledData::Unit *qmlUn
     }
 }
 
-void SignalTransitionParser::applyBindings(QObject *object, QQmlCompiledData *cdata, const QList<const QV4::CompiledData::Binding *> &bindings)
+void SignalTransitionParser::applyBindings(QObject *object, QV4::CompiledData::CompilationUnit *compilationUnit, const QList<const QV4::CompiledData::Binding *> &bindings)
 {
     SignalTransition *st = qobject_cast<SignalTransition*>(object);
-    st->m_cdata = cdata;
+    st->m_compilationUnit = compilationUnit;
     st->m_bindings = bindings;
 }
 
@@ -336,3 +343,5 @@ void SignalTransitionParser::applyBindings(QObject *object, QQmlCompiledData *cd
 
     \sa signal
 */
+
+#include "moc_signaltransition.cpp"

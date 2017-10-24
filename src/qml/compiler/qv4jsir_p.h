@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -48,12 +54,17 @@
 #include <private/qqmljsmemorypool_p.h>
 #include <private/qqmljsastfwd_p.h>
 #include <private/qflagpointer_p.h>
+#ifndef V4_BOOTSTRAP
+#include <private/qqmlmetatype_p.h>
+#endif
 
+#include <QtCore/private/qnumeric_p.h>
 #include <QtCore/QVector>
 #include <QtCore/QString>
 #include <QtCore/QBitArray>
 #include <QtCore/qurl.h>
 #include <QtCore/QVarLengthArray>
+#include <QtCore/QDateTime>
 #include <qglobal.h>
 
 #if defined(CONST) && defined(Q_OS_WIN)
@@ -69,6 +80,8 @@ class QQmlType;
 class QQmlPropertyData;
 class QQmlPropertyCache;
 class QQmlEnginePrivate;
+struct QQmlImportRef;
+class QQmlTypeNameCache;
 
 namespace QV4 {
 
@@ -185,7 +198,7 @@ enum AluOp {
 AluOp binaryOperator(int op);
 const char *opname(IR::AluOp op);
 
-enum Type {
+enum Type : quint16 {
     UnknownType   = 0,
 
     MissingType   = 1 << 0,
@@ -210,73 +223,175 @@ inline bool strictlyEqualTypes(Type t1, Type t2)
 
 QString typeName(Type t);
 
-struct ExprVisitor {
-    virtual ~ExprVisitor() {}
-    virtual void visitConst(Const *) = 0;
-    virtual void visitString(String *) = 0;
-    virtual void visitRegExp(RegExp *) = 0;
-    virtual void visitName(Name *) = 0;
-    virtual void visitTemp(Temp *) = 0;
-    virtual void visitArgLocal(ArgLocal *) = 0;
-    virtual void visitClosure(Closure *) = 0;
-    virtual void visitConvert(Convert *) = 0;
-    virtual void visitUnop(Unop *) = 0;
-    virtual void visitBinop(Binop *) = 0;
-    virtual void visitCall(Call *) = 0;
-    virtual void visitNew(New *) = 0;
-    virtual void visitSubscript(Subscript *) = 0;
-    virtual void visitMember(Member *) = 0;
-};
+struct MemberExpressionResolver;
 
-struct StmtVisitor {
-    virtual ~StmtVisitor() {}
-    virtual void visitExp(Exp *) = 0;
-    virtual void visitMove(Move *) = 0;
-    virtual void visitJump(Jump *) = 0;
-    virtual void visitCJump(CJump *) = 0;
-    virtual void visitRet(Ret *) = 0;
-    virtual void visitPhi(Phi *) = 0;
-};
+struct DiscoveredType {
+    int type;
+    MemberExpressionResolver *memberResolver;
 
+    DiscoveredType() : type(UnknownType), memberResolver(0) {}
+    DiscoveredType(Type t) : type(t), memberResolver(0) { Q_ASSERT(type != QObjectType); }
+    explicit DiscoveredType(int t) : type(t), memberResolver(0) { Q_ASSERT(type != QObjectType); }
+    explicit DiscoveredType(MemberExpressionResolver *memberResolver)
+        : type(QObjectType)
+        , memberResolver(memberResolver)
+    { Q_ASSERT(memberResolver); }
+
+    bool test(Type t) const { return type & t; }
+    bool isNumber() const { return (type & NumberType) && !(type & ~NumberType); }
+
+    bool operator!=(Type other) const { return type != other; }
+    bool operator==(Type other) const { return type == other; }
+    bool operator==(const DiscoveredType &other) const { return type == other.type; }
+    bool operator!=(const DiscoveredType &other) const { return type != other.type; }
+};
 
 struct MemberExpressionResolver
 {
-    typedef Type (*ResolveFunction)(QQmlEnginePrivate *engine, MemberExpressionResolver *resolver, Member *member);
+    typedef DiscoveredType (*ResolveFunction)(QQmlEnginePrivate *engine,
+                                              const MemberExpressionResolver *resolver,
+                                              Member *member);
 
     MemberExpressionResolver()
-        : resolveMember(0), data(0), extraData(0), flags(0) {}
+        : resolveMember(0), import(nullptr), propertyCache(nullptr), typenameCache(nullptr), owner(nullptr), flags(0) {}
 
     bool isValid() const { return !!resolveMember; }
     void clear() { *this = MemberExpressionResolver(); }
 
     ResolveFunction resolveMember;
-    void *data; // Could be pointer to meta object, importNameSpace, etc. - depends on resolveMember implementation
-    void *extraData; // Could be QQmlTypeNameCache
+#ifndef V4_BOOTSTRAP
+    QQmlType qmlType;
+#endif
+    const QQmlImportRef *import;
+    QQmlPropertyCache *propertyCache;
+    QQmlTypeNameCache *typenameCache;
+    Function *owner;
     unsigned int flags;
 };
 
 struct Q_AUTOTEST_EXPORT Expr {
-    Type type;
+    enum ExprKind : quint8 {
+        NameExpr,
+        TempExpr,
+        ArgLocalExpr,
+        SubscriptExpr,
+        MemberExpr,
 
-    Expr(): type(UnknownType) {}
-    virtual ~Expr() {}
-    virtual void accept(ExprVisitor *) = 0;
-    virtual bool isLValue() { return false; }
-    virtual Const *asConst() { return 0; }
-    virtual String *asString() { return 0; }
-    virtual RegExp *asRegExp() { return 0; }
-    virtual Name *asName() { return 0; }
-    virtual Temp *asTemp() { return 0; }
-    virtual ArgLocal *asArgLocal() { return 0; }
-    virtual Closure *asClosure() { return 0; }
-    virtual Convert *asConvert() { return 0; }
-    virtual Unop *asUnop() { return 0; }
-    virtual Binop *asBinop() { return 0; }
-    virtual Call *asCall() { return 0; }
-    virtual New *asNew() { return 0; }
-    virtual Subscript *asSubscript() { return 0; }
-    virtual Member *asMember() { return 0; }
+        LastLValue = MemberExpr,
+
+        ConstExpr,
+        StringExpr,
+        RegExpExpr,
+        ClosureExpr,
+        ConvertExpr,
+        UnopExpr,
+        BinopExpr,
+        CallExpr,
+        NewExpr
+    };
+
+    Type type;
+    const ExprKind exprKind;
+
+    Expr &operator=(const Expr &other) {
+        Q_ASSERT(exprKind == other.exprKind);
+        type = other.type;
+        return *this;
+    }
+
+    template <typename To>
+    inline bool isa() const {
+        return To::classof(this);
+    }
+
+    template <typename To>
+    inline To *as() {
+        if (isa<To>()) {
+            return static_cast<To *>(this);
+        } else {
+            return nullptr;
+        }
+    }
+
+    template <typename To>
+    inline const To *as() const {
+        if (isa<To>()) {
+            return static_cast<const To *>(this);
+        } else {
+            return nullptr;
+        }
+    }
+
+    Expr(ExprKind exprKind): type(UnknownType), exprKind(exprKind) {}
+    bool isLValue() const;
+
+    Const *asConst();
+    String *asString();
+    RegExp *asRegExp();
+    Name *asName();
+    Temp *asTemp();
+    ArgLocal *asArgLocal();
+    Closure *asClosure();
+    Convert *asConvert();
+    Unop *asUnop();
+    Binop *asBinop();
+    Call *asCall();
+    New *asNew();
+    Subscript *asSubscript();
+    Member *asMember();
 };
+
+#define EXPR_VISIT_ALL_KINDS(e) \
+    switch (e->exprKind) { \
+    case QV4::IR::Expr::ConstExpr: \
+        break; \
+    case QV4::IR::Expr::StringExpr: \
+        break; \
+    case QV4::IR::Expr::RegExpExpr: \
+        break; \
+    case QV4::IR::Expr::NameExpr: \
+        break; \
+    case QV4::IR::Expr::TempExpr: \
+        break; \
+    case QV4::IR::Expr::ArgLocalExpr: \
+        break; \
+    case QV4::IR::Expr::ClosureExpr: \
+        break; \
+    case QV4::IR::Expr::ConvertExpr: { \
+        auto casted = e->asConvert(); \
+        visit(casted->expr); \
+    } break; \
+    case QV4::IR::Expr::UnopExpr: { \
+        auto casted = e->asUnop(); \
+        visit(casted->expr); \
+    } break; \
+    case QV4::IR::Expr::BinopExpr: { \
+        auto casted = e->asBinop(); \
+        visit(casted->left); \
+        visit(casted->right); \
+    } break; \
+    case QV4::IR::Expr::CallExpr: { \
+        auto casted = e->asCall(); \
+        visit(casted->base); \
+        for (QV4::IR::ExprList *it = casted->args; it; it = it->next) \
+            visit(it->expr); \
+    } break; \
+    case QV4::IR::Expr::NewExpr: { \
+        auto casted = e->asNew(); \
+        visit(casted->base); \
+        for (QV4::IR::ExprList *it = casted->args; it; it = it->next) \
+            visit(it->expr); \
+    } break; \
+    case QV4::IR::Expr::SubscriptExpr: { \
+        auto casted = e->asSubscript(); \
+        visit(casted->base); \
+        visit(casted->index); \
+    } break; \
+    case QV4::IR::Expr::MemberExpr: { \
+        auto casted = e->asMember(); \
+        visit(casted->base); \
+    } break; \
+    }
 
 struct ExprList {
     Expr *expr;
@@ -294,26 +409,28 @@ struct ExprList {
 struct Const: Expr {
     double value;
 
+    Const(): Expr(ConstExpr) {}
+
     void init(Type type, double value)
     {
         this->type = type;
         this->value = value;
     }
 
-    virtual void accept(ExprVisitor *v) { v->visitConst(this); }
-    virtual Const *asConst() { return this; }
+    static bool classof(const Expr *c) { return c->exprKind == ConstExpr; }
 };
 
 struct String: Expr {
     const QString *value;
+
+    String(): Expr(StringExpr) {}
 
     void init(const QString *value)
     {
         this->value = value;
     }
 
-    virtual void accept(ExprVisitor *v) { v->visitString(this); }
-    virtual String *asString() { return this; }
+    static bool classof(const Expr *c) { return c->exprKind == StringExpr; }
 };
 
 struct RegExp: Expr {
@@ -327,14 +444,15 @@ struct RegExp: Expr {
     const QString *value;
     int flags;
 
+    RegExp(): Expr(RegExpExpr) {}
+
     void init(const QString *value, int flags)
     {
         this->value = value;
         this->flags = flags;
     }
 
-    virtual void accept(ExprVisitor *v) { v->visitRegExp(this); }
-    virtual RegExp *asRegExp() { return this; }
+    static bool classof(const Expr *c) { return c->exprKind == RegExpExpr; }
 };
 
 struct Name: Expr {
@@ -367,13 +485,13 @@ struct Name: Expr {
     quint32 line;
     quint32 column;
 
+    Name(): Expr(NameExpr) {}
+
     void initGlobal(const QString *id, quint32 line, quint32 column);
     void init(const QString *id, quint32 line, quint32 column);
     void init(Builtin builtin, quint32 line, quint32 column);
 
-    virtual void accept(ExprVisitor *v) { v->visitName(this); }
-    virtual bool isLValue() { return true; }
-    virtual Name *asName() { return this; }
+    static bool classof(const Expr *c) { return c->exprKind == NameExpr; }
 };
 
 struct Q_AUTOTEST_EXPORT Temp: Expr {
@@ -392,11 +510,22 @@ struct Q_AUTOTEST_EXPORT Temp: Expr {
     MemberExpressionResolver *memberResolver;
 
     Temp()
-        : index((1 << 28) - 1)
+        : Expr(TempExpr)
+        , index((1 << 28) - 1)
         , isReadOnly(0)
         , kind(Invalid)
         , memberResolver(0)
     {}
+
+    Temp(Type type, Kind kind, unsigned index)
+        : Expr(TempExpr)
+        , index(index)
+        , isReadOnly(0)
+        , kind(kind)
+        , memberResolver(0)
+    {
+        this->type = type;
+    }
 
     void init(unsigned kind, unsigned index)
     {
@@ -406,9 +535,8 @@ struct Q_AUTOTEST_EXPORT Temp: Expr {
     }
 
     bool isInvalid() const { return kind == Invalid; }
-    virtual void accept(ExprVisitor *v) { v->visitTemp(this); }
-    virtual bool isLValue() { return !isReadOnly; }
-    virtual Temp *asTemp() { return this; }
+
+    static bool classof(const Expr *c) { return c->exprKind == TempExpr; }
 };
 
 inline bool operator==(const Temp &t1, const Temp &t2) Q_DECL_NOTHROW
@@ -447,17 +575,19 @@ struct Q_AUTOTEST_EXPORT ArgLocal: Expr {
         this->isArgumentsOrEval = false;
     }
 
-    virtual void accept(ExprVisitor *v) { v->visitArgLocal(this); }
-    virtual bool isLValue() { return true; }
-    virtual ArgLocal *asArgLocal() { return this; }
+    ArgLocal(): Expr(ArgLocalExpr) {}
 
     bool operator==(const ArgLocal &other) const
     { return index == other.index && scope == other.scope && kind == other.kind; }
+
+    static bool classof(const Expr *c) { return c->exprKind == ArgLocalExpr; }
 };
 
 struct Closure: Expr {
     int value; // index in _module->functions
     const QString *functionName;
+
+    Closure(): Expr(ClosureExpr) {}
 
     void init(int functionInModule, const QString *functionName)
     {
@@ -465,12 +595,13 @@ struct Closure: Expr {
         this->functionName = functionName;
     }
 
-    virtual void accept(ExprVisitor *v) { v->visitClosure(this); }
-    virtual Closure *asClosure() { return this; }
+    static bool classof(const Expr *c) { return c->exprKind == ClosureExpr; }
 };
 
 struct Convert: Expr {
     Expr *expr;
+
+    Convert(): Expr(ConvertExpr) {}
 
     void init(Expr *expr, Type type)
     {
@@ -478,13 +609,14 @@ struct Convert: Expr {
         this->type = type;
     }
 
-    virtual void accept(ExprVisitor *v) { v->visitConvert(this); }
-    virtual Convert *asConvert() { return this; }
+    static bool classof(const Expr *c) { return c->exprKind == ConvertExpr; }
 };
 
 struct Unop: Expr {
-    AluOp op;
     Expr *expr;
+    AluOp op;
+
+    Unop(): Expr(UnopExpr) {}
 
     void init(AluOp op, Expr *expr)
     {
@@ -492,14 +624,15 @@ struct Unop: Expr {
         this->expr = expr;
     }
 
-    virtual void accept(ExprVisitor *v) { v->visitUnop(this); }
-    virtual Unop *asUnop() { return this; }
+    static bool classof(const Expr *c) { return c->exprKind == UnopExpr; }
 };
 
 struct Binop: Expr {
-    AluOp op;
     Expr *left; // Temp or Const
     Expr *right; // Temp or Const
+    AluOp op;
+
+    Binop(): Expr(BinopExpr) {}
 
     void init(AluOp op, Expr *left, Expr *right)
     {
@@ -508,14 +641,15 @@ struct Binop: Expr {
         this->right = right;
     }
 
-    virtual void accept(ExprVisitor *v) { v->visitBinop(this); }
-    virtual Binop *asBinop() { return this; }
+    static bool classof(const Expr *c) { return c->exprKind == BinopExpr; }
 };
 
 struct Call: Expr {
     Expr *base; // Name, Member, Temp
     ExprList *args; // List of Temps
 
+    Call(): Expr(CallExpr) {}
+
     void init(Expr *base, ExprList *args)
     {
         this->base = base;
@@ -528,14 +662,15 @@ struct Call: Expr {
         return 0;
     }
 
-    virtual void accept(ExprVisitor *v) { v->visitCall(this); }
-    virtual Call *asCall() { return this; }
+    static bool classof(const Expr *c) { return c->exprKind == CallExpr; }
 };
 
 struct New: Expr {
     Expr *base; // Name, Member, Temp
     ExprList *args; // List of Temps
 
+    New(): Expr(NewExpr) {}
+
     void init(Expr *base, ExprList *args)
     {
         this->base = base;
@@ -548,13 +683,14 @@ struct New: Expr {
         return 0;
     }
 
-    virtual void accept(ExprVisitor *v) { v->visitNew(this); }
-    virtual New *asNew() { return this; }
+    static bool classof(const Expr *c) { return c->exprKind == NewExpr; }
 };
 
 struct Subscript: Expr {
     Expr *base;
     Expr *index;
+
+    Subscript(): Expr(SubscriptExpr) {}
 
     void init(Expr *base, Expr *index)
     {
@@ -562,9 +698,7 @@ struct Subscript: Expr {
         this->index = index;
     }
 
-    virtual void accept(ExprVisitor *v) { v->visitSubscript(this); }
-    virtual bool isLValue() { return true; }
-    virtual Subscript *asSubscript() { return this; }
+    static bool classof(const Expr *c) { return c->exprKind == SubscriptExpr; }
 };
 
 struct Member: Expr {
@@ -596,6 +730,8 @@ struct Member: Expr {
 
     uchar kind: 3; // MemberKind
 
+    Member(): Expr(MemberExpr) {}
+
     void setEnumValue(int value) {
         kind = MemberOfEnum;
         enumValue = value;
@@ -617,35 +753,52 @@ struct Member: Expr {
         this->kind = kind;
     }
 
-    virtual void accept(ExprVisitor *v) { v->visitMember(this); }
-    virtual bool isLValue() { return true; }
-    virtual Member *asMember() { return this; }
+    static bool classof(const Expr *c) { return c->exprKind == MemberExpr; }
 };
 
+inline bool Expr::isLValue() const {
+    if (auto t = as<Temp>())
+        return !t->isReadOnly;
+    return exprKind <= LastLValue;
+}
+
 struct Stmt {
+    enum StmtKind: quint8 {
+        MoveStmt,
+        ExpStmt,
+        JumpStmt,
+        CJumpStmt,
+        RetStmt,
+        PhiStmt
+    };
+
+    template <typename To>
+    inline bool isa() const {
+        return To::classof(this);
+    }
+
+    template <typename To>
+    inline To *as() {
+        if (isa<To>())
+            return static_cast<To *>(this);
+        else
+            return nullptr;
+    }
+
     enum { InvalidId = -1 };
 
     QQmlJS::AST::SourceLocation location;
 
-    explicit Stmt(int id): _id(id) {}
+    explicit Stmt(int id, StmtKind stmtKind): _id(id), stmtKind(stmtKind) {}
 
-    virtual ~Stmt()
-    {
-#ifdef Q_CC_MSVC
-         // MSVC complains about potential memory leaks if a destructor never returns.
-#else
-        Q_UNREACHABLE();
-#endif
-    }
-    virtual Stmt *asTerminator() { return 0; }
+    Stmt *asTerminator();
 
-    virtual void accept(StmtVisitor *) = 0;
-    virtual Exp *asExp() { return 0; }
-    virtual Move *asMove() { return 0; }
-    virtual Jump *asJump() { return 0; }
-    virtual CJump *asCJump() { return 0; }
-    virtual Ret *asRet() { return 0; }
-    virtual Phi *asPhi() { return 0; }
+    Exp *asExp();
+    Move *asMove();
+    Jump *asJump();
+    CJump *asCJump();
+    Ret *asRet();
+    Phi *asPhi();
 
     int id() const { return _id; }
 
@@ -655,21 +808,52 @@ private: // For memory management in BasicBlock
 private:
     friend struct Function;
     int _id;
+
+public:
+    const StmtKind stmtKind;
 };
+
+#define STMT_VISIT_ALL_KINDS(s) \
+    switch (s->stmtKind) { \
+    case QV4::IR::Stmt::MoveStmt: { \
+        auto casted = s->asMove(); \
+        visit(casted->target); \
+        visit(casted->source); \
+    } break; \
+    case QV4::IR::Stmt::ExpStmt: { \
+        auto casted = s->asExp(); \
+        visit(casted->expr); \
+    } break; \
+    case QV4::IR::Stmt::JumpStmt: \
+        break; \
+    case QV4::IR::Stmt::CJumpStmt: { \
+        auto casted = s->asCJump(); \
+        visit(casted->cond); \
+    } break; \
+    case QV4::IR::Stmt::RetStmt: { \
+        auto casted = s->asRet(); \
+        visit(casted->expr); \
+    } break; \
+    case QV4::IR::Stmt::PhiStmt: { \
+        auto casted = s->asPhi(); \
+        visit(casted->targetTemp); \
+        for (auto *e : casted->incoming) { \
+            visit(e); \
+        } \
+    } break; \
+    }
 
 struct Exp: Stmt {
     Expr *expr;
 
-    Exp(int id): Stmt(id) {}
+    Exp(int id): Stmt(id, ExpStmt) {}
 
     void init(Expr *expr)
     {
         this->expr = expr;
     }
 
-    virtual void accept(StmtVisitor *v) { v->visitExp(this); }
-    virtual Exp *asExp() { return this; }
-
+    static bool classof(const Stmt *c) { return c->stmtKind == ExpStmt; }
 };
 
 struct Move: Stmt {
@@ -677,7 +861,7 @@ struct Move: Stmt {
     Expr *source;
     bool swap;
 
-    Move(int id): Stmt(id) {}
+    Move(int id): Stmt(id, MoveStmt) {}
 
     void init(Expr *target, Expr *source)
     {
@@ -686,25 +870,20 @@ struct Move: Stmt {
         this->swap = false;
     }
 
-    virtual void accept(StmtVisitor *v) { v->visitMove(this); }
-    virtual Move *asMove() { return this; }
-
+    static bool classof(const Stmt *c) { return c->stmtKind == MoveStmt; }
 };
 
 struct Jump: Stmt {
     BasicBlock *target;
 
-    Jump(int id): Stmt(id) {}
+    Jump(int id): Stmt(id, JumpStmt) {}
 
     void init(BasicBlock *target)
     {
         this->target = target;
     }
 
-    virtual Stmt *asTerminator() { return this; }
-
-    virtual void accept(StmtVisitor *v) { v->visitJump(this); }
-    virtual Jump *asJump() { return this; }
+    static bool classof(const Stmt *c) { return c->stmtKind == JumpStmt; }
 };
 
 struct CJump: Stmt {
@@ -713,7 +892,7 @@ struct CJump: Stmt {
     BasicBlock *iffalse;
     BasicBlock *parent;
 
-    CJump(int id): Stmt(id) {}
+    CJump(int id): Stmt(id, CJumpStmt) {}
 
     void init(Expr *cond, BasicBlock *iftrue, BasicBlock *iffalse, BasicBlock *parent)
     {
@@ -723,62 +902,78 @@ struct CJump: Stmt {
         this->parent = parent;
     }
 
-    virtual Stmt *asTerminator() { return this; }
-
-    virtual void accept(StmtVisitor *v) { v->visitCJump(this); }
-    virtual CJump *asCJump() { return this; }
+    static bool classof(const Stmt *c) { return c->stmtKind == CJumpStmt; }
 };
 
 struct Ret: Stmt {
     Expr *expr;
 
-    Ret(int id): Stmt(id) {}
+    Ret(int id): Stmt(id, RetStmt) {}
 
     void init(Expr *expr)
     {
         this->expr = expr;
     }
 
-    virtual Stmt *asTerminator() { return this; }
-
-    virtual void accept(StmtVisitor *v) { v->visitRet(this); }
-    virtual Ret *asRet() { return this; }
+    static bool classof(const Stmt *c) { return c->stmtKind == RetStmt; }
 };
 
+// Phi nodes can only occur at the start of a basic block. If there are any, they need to be
+// subsequent to eachother, and the first phi node should be the first statement in the basic-block.
+// A number of loops rely on this behavior, so they don't need to walk through the whole list
+// of instructions in a basic-block (e.g. the calls to destroyData in BasicBlock::~BasicBlock).
 struct Phi: Stmt {
     Temp *targetTemp;
-    struct Data {
-        QVector<Expr *> incoming; // used by Phi nodes
-    };
+    VarLengthArray<Expr *, 4> incoming;
 
-    Data *d;
+    Phi(int id): Stmt(id, PhiStmt) {}
 
-    Phi(int id): Stmt(id), d(0) {}
+    static bool classof(const Stmt *c) { return c->stmtKind == PhiStmt; }
 
-    virtual void accept(StmtVisitor *v) { v->visitPhi(this); }
-    virtual Phi *asPhi() { return this; }
-
-    void destroyData() {
-        delete d;
-        d = 0;
-    }
+    void destroyData()
+    { incoming.~VarLengthArray(); }
 };
+
+inline Stmt *Stmt::asTerminator()
+{
+    if (auto s = asJump()) {
+        return s;
+    } else if (auto s = asCJump()) {
+        return s;
+    } else if (auto s = asRet()) {
+        return s;
+    } else {
+        return nullptr;
+    }
+}
 
 struct Q_QML_PRIVATE_EXPORT Module {
     QQmlJS::MemoryPool pool;
     QVector<Function *> functions;
     Function *rootFunction;
     QString fileName;
+    QDateTime sourceTimeStamp;
     bool isQmlModule; // implies rootFunction is always 0
+    uint unitFlags; // flags merged into CompiledData::Unit::flags
+    QString targetABI; // fallback to QSysInfo::buildAbi() if empty
+#ifdef QT_NO_QML_DEBUGGER
+    static const bool debugMode = false;
+#else
     bool debugMode;
+#endif
 
     Function *newFunction(const QString &name, Function *outer);
 
     Module(bool debugMode)
         : rootFunction(0)
         , isQmlModule(false)
+        , unitFlags(0)
+#ifndef QT_NO_QML_DEBUGGER
         , debugMode(debugMode)
     {}
+#else
+    { Q_UNUSED(debugMode); }
+#endif
     ~Module();
 
     void setFileName(const QString &name);
@@ -807,7 +1002,17 @@ public:
         , _groupStart(false)
         , _isRemoved(false)
     {}
-    ~BasicBlock();
+
+    ~BasicBlock()
+    {
+        for (Stmt *s : qAsConst(_statements)) {
+            if (Phi *p = s->asPhi()) {
+                p->destroyData();
+            } else {
+                break;
+            }
+        }
+    }
 
     const QVector<Stmt *> &statements() const
     {
@@ -830,15 +1035,73 @@ public:
         return i;
     }
 
-    void appendStatement(Stmt *statement);
-    void prependStatement(Stmt *stmt);
-    void prependStatements(const QVector<Stmt *> &stmts);
-    void insertStatementBefore(Stmt *before, Stmt *newStmt);
-    void insertStatementBefore(int index, Stmt *newStmt);
-    void insertStatementBeforeTerminator(Stmt *stmt);
-    void replaceStatement(int index, Stmt *newStmt);
-    void removeStatement(Stmt *stmt);
-    void removeStatement(int idx);
+    void appendStatement(Stmt *statement)
+    {
+        Q_ASSERT(!isRemoved());
+        if (nextLocation.startLine)
+            statement->location = nextLocation;
+        _statements.append(statement);
+    }
+
+    void prependStatement(Stmt *stmt)
+    {
+        Q_ASSERT(!isRemoved());
+        _statements.prepend(stmt);
+    }
+
+    void prependStatements(const QVector<Stmt *> &stmts)
+    {
+        Q_ASSERT(!isRemoved());
+        QVector<Stmt *> newStmts = stmts;
+        newStmts += _statements;
+        _statements = newStmts;
+    }
+
+    void insertStatementBefore(Stmt *before, Stmt *newStmt)
+    {
+        int idx = _statements.indexOf(before);
+        Q_ASSERT(idx >= 0);
+        _statements.insert(idx, newStmt);
+    }
+
+    void insertStatementBefore(int index, Stmt *newStmt)
+    {
+        Q_ASSERT(index >= 0);
+        _statements.insert(index, newStmt);
+    }
+
+    void insertStatementBeforeTerminator(Stmt *stmt)
+    {
+        Q_ASSERT(!isRemoved());
+        _statements.insert(_statements.size() - 1, stmt);
+    }
+
+    void replaceStatement(int index, Stmt *newStmt)
+    {
+        Q_ASSERT(!isRemoved());
+        if (Phi *p = _statements[index]->asPhi()) {
+            p->destroyData();
+        }
+        _statements[index] = newStmt;
+    }
+
+    void removeStatement(Stmt *stmt)
+    {
+        Q_ASSERT(!isRemoved());
+        if (Phi *p = stmt->asPhi()) {
+            p->destroyData();
+        }
+        _statements.remove(_statements.indexOf(stmt));
+    }
+
+    void removeStatement(int idx)
+    {
+        Q_ASSERT(!isRemoved());
+        if (Phi *p = _statements[idx]->asPhi()) {
+            p->destroyData();
+        }
+        _statements.remove(idx);
+    }
 
     inline bool isEmpty() const {
         Q_ASSERT(!isRemoved());
@@ -859,7 +1122,11 @@ public:
         return false;
     }
 
-    unsigned newTemp();
+    enum TempForWhom {
+        NewTempForCodegen,
+        NewTempForOptimizer
+    };
+    unsigned newTemp(TempForWhom tfw = NewTempForCodegen);
 
     Temp *TEMP(unsigned kind);
     ArgLocal *ARG(unsigned index, unsigned scope);
@@ -962,8 +1229,47 @@ private:
     unsigned _isRemoved : 1;
 };
 
+template <typename T>
+class SmallSet: public QVarLengthArray<T, 8>
+{
+public:
+    void insert(int value)
+    {
+        for (auto it : *this) {
+            if (it == value)
+                return;
+        }
+        this->append(value);
+    }
+};
+
 // Map from meta property index (existence implies dependency) to notify signal index
-typedef QHash<int, int> PropertyDependencyMap;
+struct KeyValuePair
+{
+    quint32 _key;
+    quint32 _value;
+
+    KeyValuePair(): _key(0), _value(0) {}
+    KeyValuePair(quint32 key, quint32 value): _key(key), _value(value) {}
+
+    quint32 key() const { return _key; }
+    quint32 value() const { return _value; }
+};
+
+class PropertyDependencyMap: public QVarLengthArray<KeyValuePair, 8>
+{
+public:
+    void insert(quint32 key, quint32 value)
+    {
+        for (auto it = begin(), eit = end(); it != eit; ++it) {
+            if (it->_key == key) {
+                it->_value = value;
+                return;
+            }
+        }
+        append(KeyValuePair(key, value));
+    }
+};
 
 // The Function owns (manages), among things, a list of basic-blocks. All the blocks have an index,
 // which corresponds to the index in the entry/index in the vector in which they are stored. This
@@ -985,6 +1291,7 @@ struct Function {
     Module *module;
     QQmlJS::MemoryPool *pool;
     const QString *name;
+    int currentTemp = 0;
     int tempCount;
     int maxNumberOfArguments;
     QSet<QString> strings;
@@ -1002,14 +1309,15 @@ struct Function {
     uint isNamedExpression : 1;
     uint hasTry: 1;
     uint hasWith: 1;
-    uint unused : 25;
+    uint isQmlBinding: 1;
+    uint unused : 24;
 
-    // Location of declaration in source code (-1 if not specified)
-    int line;
-    int column;
+    // Location of declaration in source code (0 if not specified)
+    uint line;
+    uint column;
 
     // Qml extension:
-    QSet<int> idObjectDependencies;
+    SmallSet<int> idObjectDependencies;
     PropertyDependencyMap contextObjectPropertyDependencies;
     PropertyDependencyMap scopeObjectPropertyDependencies;
 
@@ -1054,7 +1362,6 @@ struct Function {
     { return hasDirectEval || !nestedFunctions.isEmpty() || module->debugMode; }
 
     void setScheduledBlocks(const QVector<BasicBlock *> &scheduled);
-    void renumberBasicBlocks();
 
     int getNewStatementId() { return _statementCount++; }
     int statementCount() const { return _statementCount; }
@@ -1069,7 +1376,7 @@ private:
     int _statementCount;
 };
 
-class CloneExpr: protected IR::ExprVisitor
+class CloneExpr
 {
 public:
     explicit CloneExpr(IR::BasicBlock *block = 0);
@@ -1087,7 +1394,7 @@ public:
     {
         Expr *c = expr;
         qSwap(cloned, c);
-        expr->accept(this);
+        visit(expr);
         qSwap(cloned, c);
         return static_cast<ExprSubclass *>(c);
     }
@@ -1130,23 +1437,10 @@ public:
         return newArgLocal;
     }
 
-protected:
+private:
     IR::ExprList *clone(IR::ExprList *list);
 
-    virtual void visitConst(Const *);
-    virtual void visitString(String *);
-    virtual void visitRegExp(RegExp *);
-    virtual void visitName(Name *);
-    virtual void visitTemp(Temp *);
-    virtual void visitArgLocal(ArgLocal *);
-    virtual void visitClosure(Closure *);
-    virtual void visitConvert(Convert *);
-    virtual void visitUnop(Unop *);
-    virtual void visitBinop(Binop *);
-    virtual void visitCall(Call *);
-    virtual void visitNew(New *);
-    virtual void visitSubscript(Subscript *);
-    virtual void visitMember(Member *);
+    void visit(Expr *e);
 
 protected:
     IR::BasicBlock *block;
@@ -1155,7 +1449,7 @@ private:
     IR::Expr *cloned;
 };
 
-class Q_AUTOTEST_EXPORT IRPrinter: public StmtVisitor, public ExprVisitor
+class Q_AUTOTEST_EXPORT IRPrinter
 {
 public:
     IRPrinter(QTextStream *out);
@@ -1168,6 +1462,7 @@ public:
     virtual void print(Function *f);
     virtual void print(BasicBlock *bb);
 
+    void visit(Stmt *s);
     virtual void visitExp(Exp *s);
     virtual void visitMove(Move *s);
     virtual void visitJump(Jump *s);
@@ -1175,6 +1470,7 @@ public:
     virtual void visitRet(Ret *s);
     virtual void visitPhi(Phi *s);
 
+    void visit(Expr *e);
     virtual void visitConst(Const *e);
     virtual void visitString(String *e);
     virtual void visitRegExp(RegExp *e);
@@ -1202,6 +1498,280 @@ protected:
     int positionSize;
     BasicBlock *currentBB;
 };
+
+inline unsigned BasicBlock::newTemp(TempForWhom tfw)
+{
+    Q_ASSERT(!isRemoved());
+
+    if (tfw == NewTempForOptimizer)
+        return function->tempCount++;
+
+    int t = function->currentTemp++;
+    if (function->tempCount < function->currentTemp)
+        function->tempCount = function->currentTemp;
+    return t;
+}
+
+inline Temp *BasicBlock::TEMP(unsigned index)
+{
+    Q_ASSERT(!isRemoved());
+    Temp *e = function->New<Temp>();
+    e->init(Temp::VirtualRegister, index);
+    return e;
+}
+
+inline ArgLocal *BasicBlock::ARG(unsigned index, unsigned scope)
+{
+    Q_ASSERT(!isRemoved());
+    ArgLocal *e = function->New<ArgLocal>();
+    e->init(scope ? ArgLocal::ScopedFormal : ArgLocal::Formal, index, scope);
+    return e;
+}
+
+inline ArgLocal *BasicBlock::LOCAL(unsigned index, unsigned scope)
+{
+    Q_ASSERT(!isRemoved());
+    ArgLocal *e = function->New<ArgLocal>();
+    e->init(scope ? ArgLocal::ScopedLocal : ArgLocal::Local, index, scope);
+    return e;
+}
+
+inline Expr *BasicBlock::CONST(Type type, double value)
+{
+    Q_ASSERT(!isRemoved());
+    Const *e = function->New<Const>();
+    if (type == NumberType) {
+        int ival = (int)value;
+        // +0 != -0, so we need to convert to double when negating 0
+        if (ival == value && !(value == 0 && isNegative(value)))
+            type = SInt32Type;
+        else
+            type = DoubleType;
+    } else if (type == NullType) {
+        value = 0;
+    } else if (type == UndefinedType) {
+        value = qt_qnan();
+    }
+
+    e->init(type, value);
+    return e;
+}
+
+inline Expr *BasicBlock::STRING(const QString *value)
+{
+    Q_ASSERT(!isRemoved());
+    String *e = function->New<String>();
+    e->init(value);
+    return e;
+}
+
+inline Expr *BasicBlock::REGEXP(const QString *value, int flags)
+{
+    Q_ASSERT(!isRemoved());
+    RegExp *e = function->New<RegExp>();
+    e->init(value, flags);
+    return e;
+}
+
+inline Name *BasicBlock::NAME(const QString &id, quint32 line, quint32 column)
+{
+    Q_ASSERT(!isRemoved());
+    Name *e = function->New<Name>();
+    e->init(function->newString(id), line, column);
+    return e;
+}
+
+inline Name *BasicBlock::GLOBALNAME(const QString &id, quint32 line, quint32 column)
+{
+    Q_ASSERT(!isRemoved());
+    Name *e = function->New<Name>();
+    e->initGlobal(function->newString(id), line, column);
+    return e;
+}
+
+
+inline Name *BasicBlock::NAME(Name::Builtin builtin, quint32 line, quint32 column)
+{
+    Q_ASSERT(!isRemoved());
+    Name *e = function->New<Name>();
+    e->init(builtin, line, column);
+    return e;
+}
+
+inline Closure *BasicBlock::CLOSURE(int functionInModule)
+{
+    Q_ASSERT(!isRemoved());
+    Closure *clos = function->New<Closure>();
+    clos->init(functionInModule, function->module->functions.at(functionInModule)->name);
+    return clos;
+}
+
+inline Expr *BasicBlock::CONVERT(Expr *expr, Type type)
+{
+    Q_ASSERT(!isRemoved());
+    Convert *e = function->New<Convert>();
+    e->init(expr, type);
+    return e;
+}
+
+inline Expr *BasicBlock::UNOP(AluOp op, Expr *expr)
+{
+    Q_ASSERT(!isRemoved());
+    Unop *e = function->New<Unop>();
+    e->init(op, expr);
+    return e;
+}
+
+inline Expr *BasicBlock::BINOP(AluOp op, Expr *left, Expr *right)
+{
+    Q_ASSERT(!isRemoved());
+    Binop *e = function->New<Binop>();
+    e->init(op, left, right);
+    return e;
+}
+
+inline Expr *BasicBlock::CALL(Expr *base, ExprList *args)
+{
+    Q_ASSERT(!isRemoved());
+    Call *e = function->New<Call>();
+    e->init(base, args);
+    int argc = 0;
+    for (ExprList *it = args; it; it = it->next)
+        ++argc;
+    function->maxNumberOfArguments = qMax(function->maxNumberOfArguments, argc);
+    return e;
+}
+
+inline Expr *BasicBlock::NEW(Expr *base, ExprList *args)
+{
+    Q_ASSERT(!isRemoved());
+    New *e = function->New<New>();
+    e->init(base, args);
+    return e;
+}
+
+inline Expr *BasicBlock::SUBSCRIPT(Expr *base, Expr *index)
+{
+    Q_ASSERT(!isRemoved());
+    Subscript *e = function->New<Subscript>();
+    e->init(base, index);
+    return e;
+}
+
+inline Expr *BasicBlock::MEMBER(Expr *base, const QString *name, QQmlPropertyData *property, uchar kind, int attachedPropertiesIdOrEnumValue)
+{
+    Q_ASSERT(!isRemoved());
+    Member*e = function->New<Member>();
+    e->init(base, name, property, kind, attachedPropertiesIdOrEnumValue);
+    return e;
+}
+
+inline Stmt *BasicBlock::EXP(Expr *expr)
+{
+    Q_ASSERT(!isRemoved());
+    if (isTerminated())
+        return 0;
+
+    Exp *s = function->NewStmt<Exp>();
+    s->init(expr);
+    appendStatement(s);
+    return s;
+}
+
+inline Stmt *BasicBlock::MOVE(Expr *target, Expr *source)
+{
+    Q_ASSERT(!isRemoved());
+    if (isTerminated())
+        return 0;
+
+    Move *s = function->NewStmt<Move>();
+    s->init(target, source);
+    appendStatement(s);
+    return s;
+}
+
+inline Stmt *BasicBlock::JUMP(BasicBlock *target)
+{
+    Q_ASSERT(!isRemoved());
+    if (isTerminated())
+        return 0;
+
+    Jump *s = function->NewStmt<Jump>();
+    s->init(target);
+    appendStatement(s);
+
+    Q_ASSERT(! out.contains(target));
+    out.append(target);
+
+    Q_ASSERT(! target->in.contains(this));
+    target->in.append(this);
+
+    return s;
+}
+
+inline Stmt *BasicBlock::CJUMP(Expr *cond, BasicBlock *iftrue, BasicBlock *iffalse)
+{
+    Q_ASSERT(!isRemoved());
+    if (isTerminated())
+        return 0;
+
+    if (iftrue == iffalse) {
+        MOVE(TEMP(newTemp()), cond);
+        return JUMP(iftrue);
+    }
+
+    CJump *s = function->NewStmt<CJump>();
+    s->init(cond, iftrue, iffalse, this);
+    appendStatement(s);
+
+    Q_ASSERT(! out.contains(iftrue));
+    out.append(iftrue);
+
+    Q_ASSERT(! iftrue->in.contains(this));
+    iftrue->in.append(this);
+
+    Q_ASSERT(! out.contains(iffalse));
+    out.append(iffalse);
+
+    Q_ASSERT(! iffalse->in.contains(this));
+    iffalse->in.append(this);
+
+    return s;
+}
+
+inline Stmt *BasicBlock::RET(Expr *expr)
+{
+    Q_ASSERT(!isRemoved());
+    if (isTerminated())
+        return 0;
+
+    Ret *s = function->NewStmt<Ret>();
+    s->init(expr);
+    appendStatement(s);
+    return s;
+}
+
+inline Const *Expr::asConst() { return as<Const>(); }
+inline String *Expr::asString() { return as<String>(); }
+inline RegExp *Expr::asRegExp() { return as<RegExp>(); }
+inline Name *Expr::asName() { return as<Name>(); }
+inline Temp *Expr::asTemp() { return as<Temp>(); }
+inline ArgLocal *Expr::asArgLocal() { return as<ArgLocal>(); }
+inline Closure *Expr::asClosure() { return as<Closure>(); }
+inline Convert *Expr::asConvert() { return as<Convert>(); }
+inline Unop *Expr::asUnop() { return as<Unop>(); }
+inline Binop *Expr::asBinop() { return as<Binop>(); }
+inline Call *Expr::asCall() { return as<Call>(); }
+inline New *Expr::asNew() { return as<New>(); }
+inline Subscript *Expr::asSubscript() { return as<Subscript>(); }
+inline Member *Expr::asMember() { return as<Member>(); }
+
+inline Exp *Stmt::asExp() { return as<Exp>(); }
+inline Move *Stmt::asMove() { return as<Move>(); }
+inline Jump *Stmt::asJump() { return as<Jump>(); }
+inline CJump *Stmt::asCJump() { return as<CJump>(); }
+inline Ret *Stmt::asRet() { return as<Ret>(); }
+inline Phi *Stmt::asPhi() { return as<Phi>(); }
 
 } // end of namespace IR
 

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -35,7 +41,11 @@
 #define QSGMATERIAL_H
 
 #include <QtQuick/qtquickglobal.h>
-#include <QtGui/qopenglshaderprogram.h>
+#if QT_CONFIG(opengl)
+# include <QtGui/qopenglshaderprogram.h>
+#endif
+#include <QtGui/QMatrix4x4>
+#include <QtCore/QRect>
 
 QT_BEGIN_NAMESPACE
 
@@ -53,8 +63,10 @@ public:
     public:
         enum DirtyState
         {
-            DirtyMatrix         = 0x0001,
-            DirtyOpacity        = 0x0002
+            DirtyMatrix             = 0x0001,
+            DirtyOpacity            = 0x0002,
+            DirtyCachedMaterialData = 0x0004,
+            DirtyAll                = 0xFFFF
         };
         Q_DECLARE_FLAGS(DirtyStates, DirtyState)
 
@@ -62,6 +74,7 @@ public:
 
         inline bool isMatrixDirty() const { return m_dirty & DirtyMatrix; }
         inline bool isOpacityDirty() const { return m_dirty & DirtyOpacity; }
+        bool isCachedMaterialDataDirty() const { return m_dirty & DirtyCachedMaterialData; }
 
         float opacity() const;
         QMatrix4x4 combinedMatrix() const;
@@ -71,9 +84,9 @@ public:
         QRect deviceRect() const;
         float determinant() const;
         float devicePixelRatio() const;
-
+#if QT_CONFIG(opengl)
         QOpenGLContext *context() const;
-
+#endif
     private:
         friend class QSGRenderer;
         DirtyStates m_dirty;
@@ -88,27 +101,30 @@ public:
     // First time a material is used, oldMaterial is null.
     virtual void updateState(const RenderState &state, QSGMaterial *newMaterial, QSGMaterial *oldMaterial);
     virtual char const *const *attributeNames() const = 0; // Array must end with null.
-
+#if QT_CONFIG(opengl)
     inline QOpenGLShaderProgram *program() { return &m_program; }
-
+#endif
 protected:
     Q_DECLARE_PRIVATE(QSGMaterialShader)
     QSGMaterialShader(QSGMaterialShaderPrivate &dd);
 
-    friend class QSGRenderContext;
+    friend class QSGDefaultRenderContext;
     friend class QSGBatchRenderer::ShaderManager;
-
+#if QT_CONFIG(opengl)
     void setShaderSourceFile(QOpenGLShader::ShaderType type, const QString &sourceFile);
     void setShaderSourceFiles(QOpenGLShader::ShaderType type, const QStringList &sourceFiles);
 
     virtual void compile();
+#endif
     virtual void initialize() { }
-
+#if QT_CONFIG(opengl)
     virtual const char *vertexShader() const;
     virtual const char *fragmentShader() const;
-
+#endif
 private:
+#if QT_CONFIG(opengl)
     QOpenGLShaderProgram m_program;
+#endif
     QScopedPointer<QSGMaterialShaderPrivate> d_ptr;
 };
 

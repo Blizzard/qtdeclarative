@@ -2,10 +2,21 @@ TEMPLATE = subdirs
 
 PUBLICTESTS += \
     geometry \
-    rendernode \
     qquickpixmapcache
 
-qtHaveModule(widgets): PUBLICTESTS += nodes
+qtConfig(opengl(es1|es2)?) {
+    PUBLICTESTS += \
+        drawingmodes \
+        rendernode
+    qtHaveModule(widgets): PUBLICTESTS += nodes
+
+    QUICKTESTS += \
+        qquickanimatedsprite \
+        qquickframebufferobject \
+        qquickopenglinfo \
+        qquickspritesequence \
+        qquickshadereffect
+}
 
 !cross_compile: PRIVATETESTS += examples
 
@@ -21,6 +32,7 @@ PRIVATETESTS += \
     qquickfontloader_static \
     qquickfontmetrics \
     qquickimageprovider \
+    qquicklayouts \
     qquickpath \
     qquicksmoothedanimation \
     qquickspringanimation \
@@ -38,7 +50,6 @@ QUICKTESTS =  \
     qquickaccessible \
     qquickanchors \
     qquickanimatedimage \
-    qquickanimatedsprite \
     qquickdynamicpropertyanimation \
     qquickborderimage \
     qquickwindow \
@@ -47,7 +58,7 @@ QUICKTESTS =  \
     qquickflickable \
     qquickflipable \
     qquickfocusscope \
-    qquickframebufferobject \
+    qquickgraphicsinfo \
     qquickgridview \
     qquickimage \
     qquickitem \
@@ -57,16 +68,13 @@ QUICKTESTS =  \
     qquickloader \
     qquickmousearea \
     qquickmultipointtoucharea \
-    qquickopenglinfo \
     qquickpainteditem \
     qquickpathview \
     qquickpincharea \
     qquickpositioners \
     qquickrectangle \
     qquickrepeater \
-    qquickshadereffect \
     qquickshortcut \
-    qquickspritesequence \
     qquicktext \
     qquicktextdocument \
     qquicktextedit \
@@ -77,13 +85,14 @@ QUICKTESTS =  \
     qquickdesignersupport \
     qquickscreen \
     touchmouse \
-    scenegraph
+    scenegraph \
+    sharedimage
 
 SUBDIRS += $$PUBLICTESTS
 
-!contains(QT_CONFIG, accessibility):QUICKTESTS -= qquickaccessible
+!qtConfig(accessibility):QUICKTESTS -= qquickaccessible
 
-contains(QT_CONFIG, private_tests) {
+qtConfig(private_tests) {
     SUBDIRS += $$PRIVATETESTS
     SUBDIRS += $$QUICKTESTS
 }

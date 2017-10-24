@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -39,6 +34,7 @@
 #include <QtQuick/qquickitem.h>
 #include "../../shared/util.h"
 #include <QtGui/QWindow>
+#include <QtGui/QImage>
 #include <QtCore/QDebug>
 #include <QtQml/qqmlengine.h>
 
@@ -59,7 +55,12 @@ private slots:
     void engine();
     void readback();
     void renderingSignals();
+    void grab();
     void grabBeforeShow();
+    void reparentToNewWindow();
+    void nullEngine();
+    void keyEvents();
+    void shortcuts();
 };
 
 
@@ -298,12 +299,113 @@ void tst_qquickwidget::renderingSignals()
     QTRY_VERIFY(afterRenderingSpy.size() > 0);
 }
 
+void tst_qquickwidget::grab()
+{
+    QQuickWidget view;
+    view.setSource(testFileUrl("rectangle.qml"));
+    QPixmap pixmap = view.grab();
+    QRgb pixel = pixmap.toImage().pixel(5, 5);
+    QCOMPARE(pixel, qRgb(255, 0, 0));
+}
+
 // QTBUG-49929, verify that Qt Designer grabbing the contents before drag
 // does not crash due to missing GL contexts or similar.
 void tst_qquickwidget::grabBeforeShow()
 {
     QQuickWidget widget;
     QVERIFY(!widget.grab().isNull());
+}
+
+void tst_qquickwidget::reparentToNewWindow()
+{
+    QWidget window1;
+    QWidget window2;
+
+    QQuickWidget *qqw = new QQuickWidget(&window1);
+    qqw->setSource(testFileUrl("rectangle.qml"));
+    window1.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window1, 5000));
+    window2.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window2, 5000));
+
+    QSignalSpy afterRenderingSpy(qqw->quickWindow(), &QQuickWindow::afterRendering);
+    qqw->setParent(&window2);
+    qqw->show();
+    QTRY_VERIFY(afterRenderingSpy.size() > 0);
+
+    QImage img = qqw->grabFramebuffer();
+    QCOMPARE(img.pixel(5, 5), qRgb(255, 0, 0));
+}
+
+void tst_qquickwidget::nullEngine()
+{
+    QQuickWidget widget;
+    // Default should have no errors, even with a null qml engine
+    QVERIFY(widget.errors().isEmpty());
+    QCOMPARE(widget.status(), QQuickWidget::Null);
+
+    // A QML engine should be created lazily.
+    QVERIFY(widget.rootContext());
+    QVERIFY(widget.engine());
+}
+
+class KeyHandlingWidget : public QQuickWidget
+{
+public:
+    void keyPressEvent(QKeyEvent *e) override {
+        if (e->key() == Qt::Key_A)
+            ok = true;
+    }
+
+    bool ok = false;
+};
+
+void tst_qquickwidget::keyEvents()
+{
+    // A QQuickWidget should behave like a normal widget when it comes to event handling.
+    // Verify that key events actually reach the widget. (QTBUG-45757)
+    KeyHandlingWidget widget;
+    widget.setSource(testFileUrl("rectangle.qml"));
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(widget.window(), 5000));
+
+    // Note: send the event to the QWindow, not the QWidget, in order
+    // to simulate the full event processing chain.
+    QTest::keyClick(widget.window()->windowHandle(), Qt::Key_A);
+
+    QTRY_VERIFY(widget.ok);
+}
+
+class ShortcutEventFilter : public QObject
+{
+public:
+    bool eventFilter(QObject *obj, QEvent *e) override {
+        if (e->type() == QEvent::ShortcutOverride)
+            shortcutOk = true;
+
+        return QObject::eventFilter(obj, e);
+    }
+
+    bool shortcutOk = false;
+};
+
+void tst_qquickwidget::shortcuts()
+{
+    // Verify that ShortcutOverride events do not get lost. (QTBUG-60988)
+    KeyHandlingWidget widget;
+    widget.setSource(testFileUrl("rectangle.qml"));
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(widget.window(), 5000));
+
+    // Send to the widget, verify that the QQuickWindow sees it.
+
+    ShortcutEventFilter filter;
+    widget.quickWindow()->installEventFilter(&filter);
+
+    QKeyEvent e(QEvent::ShortcutOverride, Qt::Key_A, Qt::ControlModifier);
+    QCoreApplication::sendEvent(&widget, &e);
+
+    QTRY_VERIFY(filter.shortcutOk);
 }
 
 QTEST_MAIN(tst_qquickwidget)

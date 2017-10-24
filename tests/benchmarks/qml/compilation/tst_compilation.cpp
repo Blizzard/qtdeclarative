@@ -1,31 +1,26 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -56,6 +51,9 @@ private slots:
     void jsparser_data();
     void jsparser();
 
+    void bigimport_data();
+    void bigimport();
+
 private:
     QQmlEngine engine;
 };
@@ -80,7 +78,9 @@ void tst_compilation::boomblock()
         QQmlComponent c(&engine);
         c.setData(data, QUrl());
     }
-
+#if !QT_CONFIG(opengl)
+    QSKIP("boomblock imports Particles which requires OpenGL Support");
+#endif
     QBENCHMARK {
         QQmlComponent c(&engine);
         c.setData(data, QUrl());
@@ -115,6 +115,74 @@ void tst_compilation::jsparser()
         QQmlJS::Parser parser(&engine);
         parser.parse();
         parser.ast();
+    }
+}
+
+void tst_compilation::bigimport_data()
+{
+    QTest::addColumn<int>("filesToCreate");
+    QTest::addColumn<bool>("writeQmldir");
+
+    QTest::newRow("10, qmldir")
+        << 10 << true;
+    QTest::newRow("100, qmldir")
+        << 100 << true;
+    QTest::newRow("1000, qmldir")
+        << 1000 << true;
+
+    QTest::newRow("10, noqmldir")
+        << 10 << false;
+    QTest::newRow("100, noqmldir")
+        << 100 << false;
+    QTest::newRow("1000, noqmldir")
+        << 1000 << false;
+}
+
+void tst_compilation::bigimport()
+{
+    QFETCH(int, filesToCreate);
+    QFETCH(bool, writeQmldir);
+    QTemporaryDir d;
+    //d.setAutoRemove(false); // for debugging
+
+    QString p;
+    {
+        for (int i = 0; i < filesToCreate; ++i) {
+            QFile f(d.path() + QDir::separator() + QString::fromLatin1("Type%1.qml").arg(i));
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("import QtQuick 2.0\n");
+            f.write("import \".\"\n");
+            f.write("Item {}\n");
+        }
+
+        QFile qmldir(d.path() + QDir::separator() + "qmldir");
+        if (writeQmldir)
+            QVERIFY(qmldir.open(QIODevice::WriteOnly));
+        QFile main(d.path() + QDir::separator() + "main.qml");
+        QVERIFY(main.open(QIODevice::WriteOnly));
+        p = QFileInfo(main).absoluteFilePath();
+        //qDebug() << p; // for debugging
+
+        main.write("import QtQuick 2.0\n");
+        main.write("import \".\"\n");
+        main.write("\n");
+        main.write("Item {\n");
+
+        for (int i = 0; i < filesToCreate; ++i) {
+            main.write(qPrintable(QString::fromLatin1("Type%1 {}\n").arg(i)));
+            if (writeQmldir)
+                qmldir.write(qPrintable(QString::fromLatin1("Type%1 1.0 Type%1.qml\n").arg(i)));
+        }
+
+        main.write("}");
+    }
+
+    QBENCHMARK {
+        QQmlEngine e;
+        QQmlComponent c(&e, p);
+        QCOMPARE(c.status(), QQmlComponent::Ready);
+        QScopedPointer<QObject> o(c.create());
+        QVERIFY(o->children().count() == filesToCreate);
     }
 }
 

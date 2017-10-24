@@ -1,8 +1,8 @@
 CONFIG += testcase
 TARGET = tst_qqmlenginedebuginspectorintegration
 
-QT += qml testlib gui-private core-private
-macx:CONFIG -= app_bundle
+QT += qml testlib testlib-private gui-private core-private
+osx:CONFIG -= app_bundle
 
 SOURCES += tst_qqmlenginedebuginspectorintegration.cpp
 
@@ -13,4 +13,3 @@ include(../shared/qqmlenginedebugclient.pri)
 include(../shared/debugutil.pri)
 
 TESTDATA = data/*
-DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0

@@ -1,31 +1,37 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL21$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -38,6 +44,7 @@
 #include <qv4objectiterator_p.h>
 
 #include <private/qv4functionobject_p.h>
+#include <private/qv4qobjectwrapper_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -45,15 +52,19 @@ using namespace QV4;
 
 DEFINE_OBJECT_VTABLE(QmlListWrapper);
 
-Heap::QmlListWrapper::QmlListWrapper()
+void Heap::QmlListWrapper::init()
 {
+    Object::init();
+    object.init();
     QV4::Scope scope(internalClass->engine);
     QV4::ScopedObject o(scope, this);
     o->setArrayType(Heap::ArrayData::Custom);
 }
 
-Heap::QmlListWrapper::~QmlListWrapper()
+void Heap::QmlListWrapper::destroy()
 {
+    object.destroy();
+    Object::destroy();
 }
 
 ReturnedValue QmlListWrapper::create(ExecutionEngine *engine, QObject *object, int propId, int propType)
@@ -66,7 +77,7 @@ ReturnedValue QmlListWrapper::create(ExecutionEngine *engine, QObject *object, i
     Scoped<QmlListWrapper> r(scope, engine->memoryManager->allocObject<QmlListWrapper>());
     r->d()->object = object;
     r->d()->propertyType = propType;
-    void *args[] = { &r->d()->property, 0 };
+    void *args[] = { &r->d()->property(), 0 };
     QMetaObject::metacall(object, QMetaObject::ReadProperty, propId, args);
     return r.asReturnedValue();
 }
@@ -77,7 +88,7 @@ ReturnedValue QmlListWrapper::create(ExecutionEngine *engine, const QQmlListProp
 
     Scoped<QmlListWrapper> r(scope, engine->memoryManager->allocObject<QmlListWrapper>());
     r->d()->object = prop.object;
-    r->d()->property = prop;
+    r->d()->property() = prop;
     r->d()->propertyType = propType;
     return r.asReturnedValue();
 }
@@ -87,7 +98,7 @@ QVariant QmlListWrapper::toVariant() const
     if (!d()->object)
         return QVariant();
 
-    return QVariant::fromValue(QQmlListReferencePrivate::init(d()->property, d()->propertyType, engine()->qmlEngine()));
+    return QVariant::fromValue(QQmlListReferencePrivate::init(d()->property(), d()->propertyType, engine()->qmlEngine()));
 }
 
 
@@ -98,7 +109,7 @@ ReturnedValue QmlListWrapper::get(const Managed *m, String *name, bool *hasPrope
     QV4::ExecutionEngine *v4 = w->engine();
 
     if (name->equals(v4->id_length()) && !w->d()->object.isNull()) {
-        quint32 count = w->d()->property.count ? w->d()->property.count(&w->d()->property) : 0;
+        quint32 count = w->d()->property().count ? w->d()->property().count(&w->d()->property()) : 0;
         return Primitive::fromUInt32(count).asReturnedValue();
     }
 
@@ -117,11 +128,11 @@ ReturnedValue QmlListWrapper::getIndexed(const Managed *m, uint index, bool *has
     const QmlListWrapper *w = static_cast<const QmlListWrapper *>(m);
     QV4::ExecutionEngine *v4 = w->engine();
 
-    quint32 count = w->d()->property.count ? w->d()->property.count(&w->d()->property) : 0;
-    if (index < count && w->d()->property.at) {
+    quint32 count = w->d()->property().count ? w->d()->property().count(&w->d()->property()) : 0;
+    if (index < count && w->d()->property().at) {
         if (hasProperty)
             *hasProperty = true;
-        return QV4::QObjectWrapper::wrap(v4, w->d()->property.at(&w->d()->property, index));
+        return QV4::QObjectWrapper::wrap(v4, w->d()->property().at(&w->d()->property(), index));
     }
 
     if (hasProperty)
@@ -143,15 +154,40 @@ void QmlListWrapper::advanceIterator(Managed *m, ObjectIterator *it, Value *name
     *index = UINT_MAX;
     Q_ASSERT(m->as<QmlListWrapper>());
     QmlListWrapper *w = static_cast<QmlListWrapper *>(m);
-    quint32 count = w->d()->property.count ? w->d()->property.count(&w->d()->property) : 0;
+    quint32 count = w->d()->property().count ? w->d()->property().count(&w->d()->property()) : 0;
     if (it->arrayIndex < count) {
         *index = it->arrayIndex;
         ++it->arrayIndex;
         *attrs = QV4::Attr_Data;
-        p->value = QV4::QObjectWrapper::wrap(w->engine(), w->d()->property.at(&w->d()->property, *index));
+        p->value = QV4::QObjectWrapper::wrap(w->engine(), w->d()->property().at(&w->d()->property(), *index));
         return;
     }
     return QV4::Object::advanceIterator(m, it, name, index, p, attrs);
+}
+
+void PropertyListPrototype::init(ExecutionEngine *)
+{
+    defineDefaultProperty(QStringLiteral("push"), method_push, 1);
+}
+
+void PropertyListPrototype::method_push(const BuiltinFunction *, Scope &scope, CallData *callData)
+{
+    ScopedObject instance(scope, callData->thisObject.toObject(scope.engine));
+    if (!instance)
+        RETURN_UNDEFINED();
+    QmlListWrapper *w = instance->as<QmlListWrapper>();
+    if (!w)
+        RETURN_UNDEFINED();
+    if (!w->d()->property().append)
+        THROW_GENERIC_ERROR("List doesn't define an Append function");
+
+    QV4::ScopedObject so(scope);
+    for (int i = 0; i < callData->argc; ++i)
+    {
+        so = callData->args[i].toObject(scope.engine);
+        if (QV4::QObjectWrapper *wrapper = so->as<QV4::QObjectWrapper>())
+            w->d()->property().append(&w->d()->property(), wrapper->object() );
+    }
 }
 
 QT_END_NAMESPACE
