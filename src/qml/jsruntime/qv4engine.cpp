@@ -478,10 +478,8 @@ ExecutionEngine::~ExecutionEngine()
     delete identifierTable;
     delete memoryManager;
 
-    QSet<QV4::CompiledData::CompilationUnit*> remainingUnits;
-    qSwap(compilationUnits, remainingUnits);
-    for (QV4::CompiledData::CompilationUnit *unit : qAsConst(remainingUnits))
-        unit->unlink();
+    while (!compilationUnits.isEmpty())
+        (*compilationUnits.begin())->unlink();
 
     internalClasses[Class_Empty]->destroy();
     delete classPool;
@@ -953,9 +951,8 @@ void ExecutionEngine::markObjects()
 
     drainMarkStack(this, markBase);
 
-    for (QSet<CompiledData::CompilationUnit*>::ConstIterator it = compilationUnits.constBegin(), end = compilationUnits.constEnd();
-         it != end; ++it) {
-        (*it)->markObjects(this);
+    for (auto compilationUnit: compilationUnits) {
+        compilationUnit->markObjects(this);
         drainMarkStack(this, markBase);
     }
 }

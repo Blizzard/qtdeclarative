@@ -316,7 +316,8 @@ Returns true if the status is WaitingForDependencies.
 */
 bool QQmlDataBlob::isWaiting() const
 {
-    return status() == WaitingForDependencies;
+    return status() == WaitingForDependencies ||
+            status() == ResolvingDependencies;
 }
 
 /*!
@@ -608,6 +609,7 @@ The default implementation does nothing.
 */
 void QQmlDataBlob::allDependenciesDone()
 {
+    m_data.setStatus(QQmlDataBlob::ResolvingDependencies);
 }
 
 /*!
@@ -2407,7 +2409,15 @@ void QQmlTypeData::dataReceived(const SourceCodeData &data)
 void QQmlTypeData::initializeFromCachedUnit(const QQmlPrivate::CachedQmlUnit *unit)
 {
     m_document.reset(new QmlIR::Document(isDebugging()));
-    unit->loadIR(m_document.data(), unit);
+    if (unit->loadIR) {
+        // old code path for older generated code
+        unit->loadIR(m_document.data(), unit);
+    } else {
+        // new code path
+        QmlIR::IRLoader loader(unit->qmlData, m_document.data());
+        loader.load();
+        m_document->javaScriptCompilationUnit.adopt(unit->createCompilationUnit());
+    }
     continueLoadFromIR();
 }
 
@@ -2499,6 +2509,8 @@ void QQmlTypeData::continueLoadFromIR()
 
 void QQmlTypeData::allDependenciesDone()
 {
+    QQmlTypeLoader::Blob::allDependenciesDone();
+
     if (!m_typesResolved) {
         // Check that all imports were resolved
         QList<QQmlError> errors;
@@ -2612,11 +2624,16 @@ void QQmlTypeData::resolveTypes()
         int majorVersion = csRef.majorVersion > -1 ? csRef.majorVersion : -1;
         int minorVersion = csRef.minorVersion > -1 ? csRef.minorVersion : -1;
 
-        if (!resolveType(typeName, majorVersion, minorVersion, ref))
+        if (!resolveType(typeName, majorVersion, minorVersion, ref, -1, -1, true,
+                         QQmlType::CompositeSingletonType))
             return;
 
         if (ref.type.isCompositeSingleton()) {
             ref.typeData = typeLoader()->getType(ref.type.sourceUrl());
+            if (ref.typeData->status() == QQmlDataBlob::ResolvingDependencies) {
+                // TODO: give an error message? If so, we should record and show the path of the cycle.
+                continue;
+            }
             addDependency(ref.typeData);
             ref.prefix = csRef.prefix;
 
@@ -2640,7 +2657,9 @@ void QQmlTypeData::resolveTypes()
 
         const QString name = stringAt(unresolvedRef.key());
 
-        if (!resolveType(name, majorVersion, minorVersion, ref, unresolvedRef->location.line, unresolvedRef->location.column, reportErrors) && reportErrors)
+        if (!resolveType(name, majorVersion, minorVersion, ref, unresolvedRef->location.line,
+                         unresolvedRef->location.column, reportErrors,
+                         QQmlType::AnyRegistrationType) && reportErrors)
             return;
 
         if (ref.type.isComposite()) {
@@ -2710,20 +2729,22 @@ QQmlCompileError QQmlTypeData::buildTypeResolutionCaches(
     return noError;
 }
 
-bool QQmlTypeData::resolveType(const QString &typeName, int &majorVersion, int &minorVersion, TypeReference &ref, int lineNumber, int columnNumber, bool reportErrors)
+bool QQmlTypeData::resolveType(const QString &typeName, int &majorVersion, int &minorVersion,
+                               TypeReference &ref, int lineNumber, int columnNumber,
+                               bool reportErrors, QQmlType::RegistrationType registrationType)
 {
     QQmlImportNamespace *typeNamespace = 0;
     QList<QQmlError> errors;
 
-    bool typeFound = m_importCache.resolveType(typeName, &ref.type,
-                                          &majorVersion, &minorVersion, &typeNamespace, &errors);
+    bool typeFound = m_importCache.resolveType(typeName, &ref.type, &majorVersion, &minorVersion,
+                                               &typeNamespace, &errors, registrationType);
     if (!typeNamespace && !typeFound && !m_implicitImportLoaded) {
         // Lazy loading of implicit import
         if (loadImplicitImport()) {
             // Try again to find the type
             errors.clear();
-            typeFound = m_importCache.resolveType(typeName, &ref.type,
-                                              &majorVersion, &minorVersion, &typeNamespace, &errors);
+            typeFound = m_importCache.resolveType(typeName, &ref.type, &majorVersion, &minorVersion,
+                                                  &typeNamespace, &errors, registrationType);
         } else {
             return false; //loadImplicitImport() hit an error, and called setError already
         }
